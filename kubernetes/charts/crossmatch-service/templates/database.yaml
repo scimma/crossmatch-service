@@ -1,0 +1,38 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.database.clusterName }}
+spec:
+  description: {{ .Values.database.description | quote }}
+  instances: {{ .Values.database.replicaCount }}
+  # superuserSecret:
+  #   name: db-superuser
+  enableSuperuserAccess: true
+  startDelay: 30
+  stopDelay: 100
+  primaryUpdateStrategy: unsupervised
+  logLevel: {{ .Values.database.log_level }}
+  postgresql:
+    parameters:
+      max_connections: '600'
+      shared_buffers: '256MB'
+      effective_cache_size: '768MB'
+      maintenance_work_mem: '64MB'
+      checkpoint_completion_target: '0.9'
+      wal_buffers: '7864kB'
+      default_statistics_target: '100'
+      random_page_cost: '1.1'
+      effective_io_concurrency: '200'
+      work_mem: '655kB'
+      huge_pages: 'off'
+      min_wal_size: '1GB'
+      max_wal_size: '4GB'
+  bootstrap:
+    initdb:
+      database: {{ .Values.database.initdb.database }}
+      owner: {{ .Values.database.initdb.username }}
+      secret:
+        name: {{ .Values.database.initdb.existingSecret }}
+  storage:
+    size: {{ .Values.database.storage.size }}
+    storageClass: {{ .Values.database.storage.storageClass }}

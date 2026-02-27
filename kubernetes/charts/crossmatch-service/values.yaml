@@ -1,0 +1,106 @@
+common:
+  image:
+    repo: hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev
+    tag: dev
+    imagePullPolicy: Always
+  uid: 1000
+  annotations: {}
+    # keel.sh/policy: "force"
+    # keel.sh/trigger: "poll"
+    # keel.sh/pollSchedule: "@every 10m"
+
+alert_consumer:
+  enabled: true
+  replicaCount: 3
+  app_root_dir: /opt
+  django_debug: "false"
+  log_level: "WARNING"
+  resources:
+    requests:
+      cpu: '500m'
+      memory: 100Mi
+    limits:
+      cpu: '2'
+      memory: 2Gi
+
+flower:
+  enabled: false
+  replicaCount: 1
+  flower_unauthenticated_api: false
+  port: 5555
+  # TODO: Consolidate the ingress spec with the oauth2-proxy config
+  ingress:
+    hostname: ""
+    basePath: flower
+
+celery:
+  log_level: "INFO"
+  task_time_limit: 129600
+  task_soft_time_limit: 129400
+  beat:
+    replicaCount: 1
+  workers_api:
+    replicaCount: 2
+    concurrency: 4
+    resources:
+      requests:
+        cpu: '1'
+        memory: 100Mi
+      limits:
+        cpu: '4'
+        memory: 4Gi
+  workers:
+    replicaCount: 3
+    concurrency: 12
+    resources:
+      requests:
+        cpu: '2'
+        memory: 1Gi
+      limits:
+        cpu: '12'
+        memory: 48Gi
+
+database:
+  enabled: true
+  log_level: "debug"
+  description: "Django database"
+  clusterName: "django-db"
+  replicaCount: 3
+  port: 5432
+  initdb:
+    database: "django"
+    username: "django"
+    existingSecret: "database"
+  storage:
+    storageClass: "longhorn"
+    size: "5Gi"
+    accessModes:
+    - ReadWriteMany
+
+rabbitmq:
+  enabled: true
+  fullnameOverride: "rabbitmq"
+  auth:
+    username: foofoo
+    existingPasswordSecret: rabbitmq-auth
+  env:
+    - name: RABBITMQ_DEFAULT_USER
+      value: foofoo
+    - name: RABBITMQ_DEFAULT_PASS
+      valueFrom:
+        secretKeyRef:
+          name: rabbitmq-auth
+          key: rabbitmq-password
+    - name: ERLANG_COOKIE
+      valueFrom:
+        secretKeyRef:
+          name: rabbitmq-auth
+          key: rabbitmq-erlang-cookie
+
+redis:
+  enabled: true
+  fullnameOverride: "redis"
+  haMode:
+    # TODO: Investigate the "django-redis" package to enable use of Redis Sentinels
+    #       so we can enabled high-availability mode.
+    enabled: false

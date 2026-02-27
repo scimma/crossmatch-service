@@ -1,0 +1,176 @@
+{{- if .Values.alert_consumer.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.alert_consumer.service.host | quote }}
+  {{- with .Values.common.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.alert_consumer.replicaCount }}
+  serviceName: {{ .Values.alert_consumer.service.host | quote }}
+  selector:
+    matchLabels:
+      app: {{ .Values.alert_consumer.service.host | quote }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.alert_consumer.service.host | quote }}
+        app.kubernetes.io/component: alert-consumer
+    spec:
+      containers:
+      - name: alert-consumer
+        image: {{ .Values.common.image.repo }}:{{ .Values.common.image.tag }}
+        imagePullPolicy: {{ .Values.common.image.imagePullPolicy }}
+        command:
+        - /bin/bash
+        - -c
+        - bash entrypoints/run_alert_consumer.sh
+        env:
+          {{- include "common.env" . | nindent 10 }}
+          {{- include "django.env" . | nindent 10 }}
+          {{- include "db.env" . | nindent 10 }}
+          {{- include "rabbitmq.env" . | nindent 10 }}
+          {{- include "celery.env" . | nindent 10 }}
+        {{- with  .Values.alert_consumer.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: celery-worker
+  {{- with .Values.common.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.celery.workers.replicaCount }}
+  serviceName: celery-worker
+  selector:
+    matchLabels:
+      app: celery-worker
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+        app.kubernetes.io/component: celery-worker
+        app.kubernetes.io/name: celery-worker
+    spec:
+      initContainers:
+      - name: volume-permissions
+        image: busybox:1.36
+        command:
+          - sh
+          - -c
+          - chown {{ .Values.common.uid }}:{{ .Values.common.uid }} /scratch
+        volumeMounts:
+          - name: job-scratch
+            mountPath: /scratch
+            subPath: scratch
+      containers:
+      - name: worker
+        image: {{ .Values.common.image.repo }}:{{ .Values.common.image.tag }}
+        imagePullPolicy: {{ .Values.common.image.imagePullPolicy }}
+        command:
+        - /bin/bash
+        - -c
+        - bash entrypoints/run_celery_worker.sh jobs
+        env:
+          - name: CELERY_CONCURRENCY
+            value: {{ .Values.celery.workers.concurrency | quote }}
+          - name: CELERY_LOG_LEVEL
+            value: {{ .Values.celery.log_level | quote }}
+          {{- include "common.env" . | nindent 10 }}
+          {{- include "db.env" . | nindent 10 }}
+          {{- include "rabbitmq.env" . | nindent 10 }}
+          {{- include "celery.env" . | nindent 10 }}
+        {{- with  .Values.celery.workers.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        # References for probes:
+        #   - https://github.com/celery/celery/issues/4079
+        #   - https://medium.com/ambient-innovation/health-checks-for-celery-in-kubernetes-cf3274a3e106
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - test $(($(date +%s) - $(stat -c %Y /tmp/worker_heartbeat))) -lt 10
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - test -e /tmp/worker_ready
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+                - key: celery-workhorse
+                  operator: In
+                  values:
+                  - "true"
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/component
+                  operator: In
+                  values:
+                  - celery-worker
+              topologyKey: "kubernetes.io/hostname"
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                - celery-worker
+            topologyKey: "kubernetes.io/hostname"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: celery-beat
+  {{- with .Values.common.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.celery.beat.replicaCount }}
+  serviceName: celery-beat
+  selector:
+    matchLabels:
+      app: celery-beat
+  template:
+    metadata:
+      labels:
+        app: celery-beat
+    spec:
+      containers:
+      - name: beat
+        image: {{ .Values.common.image.repo }}:{{ .Values.common.image.tag }}
+        imagePullPolicy: {{ .Values.common.image.imagePullPolicy }}
+        command:
+        - /bin/bash
+        - -c
+        - bash entrypoints/run_celery_beat.sh
+        env:
+          {{- include "common.env" . | nindent 10 }}
+          {{- include "db.env" . | nindent 10 }}
+          {{- include "rabbitmq.env" . | nindent 10 }}
+{{- end }}

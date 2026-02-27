@@ -1,0 +1,201 @@
+name: crossmatch
+
+networks:
+  internal:
+    external: false
+
+volumes:
+  django-db: {}
+  django-static: {}
+  object-data: {}
+  scratch: {}
+
+services:
+  alert-consumer:
+    image: hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev
+    platform: linux/x86_64
+    build:
+      context: ../crossmatch
+      dockerfile: ../docker/Dockerfile
+      args:
+        UID: "${USERID:-1000}"
+    command: bash entrypoints/run_alert_consumer.sh
+    environment:
+      # Dev environment settings
+      MAKE_MIGRATIONS: "${MAKE_MIGRATIONS:-false}"
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      DEV_MODE: "${DEV_MODE:-true}" # Enable Django dev server instead of uvicorn
+      # Django base configuration
+      DJANGO_SUPERUSER_PASSWORD: "${DJANGO_SUPERUSER_PASSWORD:-password}"
+      DJANGO_SUPERUSER_USERNAME: "${DJANGO_SUPERUSER_USERNAME:-admin}"
+      DJANGO_SUPERUSER_EMAIL: "${DJANGO_SUPERUSER_EMAIL:-test@example.com}"
+      # Django database configuration
+      DATABASE_HOST: "${DATABASE_HOST:-django-db}"
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+      DATABASE_DB: "${DATABASE_DB:-django}"
+      DATABASE_USER: "${DATABASE_USER:-django}"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
+      # Message broker configuration
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+      # Application configuration
+      APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
+    volumes:
+      - "django-static:${APP_ROOT_DIR:-/opt}/static"
+      - ../crossmatch:/opt/crossmatch
+
+  celery-worker:
+    image: hub.ncsa.illinois.edu/crossmatch-service/celery:dev
+    platform: linux/x86_64
+    build:
+      context: ../crossmatch
+      dockerfile: ../docker/Dockerfile
+      args:
+        UID: "${USERID:-1000}"
+    command: bash entrypoints/run_celery_worker.sh jobs
+    networks:
+      - internal
+    deploy:
+      mode: replicated
+      replicas: 2
+      resources:
+        reservations:
+          cpus: '0.25'
+          memory: 1G
+        limits:
+          cpus: "${CELERY_WORKER_LIMIT_CPUS:-4.0}"
+          memory: ${CELERY_WORKER_LIMIT_MEMORY:-4G}
+    environment:
+      # Dev environment settings
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
+      DEV_MODE: "${DEV_MODE:-true}" # Enable Django dev server instead of uvicorn
+      CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-INFO}
+      CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-4}
+      # Django database configuration
+      DATABASE_HOST: "${DATABASE_HOST:-django-db}"
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+      DATABASE_DB: "${DATABASE_DB:-django}"
+      DATABASE_USER: "${DATABASE_USER:-django}"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
+      # Message broker configuration
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+      # Application configuration
+      APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
+    volumes:
+      - ../crossmatch:/opt/crossmatch
+
+  celery-beat:
+    restart: on-failure
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    image: hub.ncsa.illinois.edu/crossmatch-service/celery:dev
+    build:
+      context: ../crossmatch
+      dockerfile: ../docker/Dockerfile
+      args:
+        UID: "${USERID:-1000}"
+    command: bash entrypoints/run_celery_beat.sh
+    environment:
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
+      DEV_MODE: "${DEV_MODE:-true}" # Enable Django dev server instead of uvicorn
+      CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-INFO}
+      # Django database configuration
+      DATABASE_HOST: "${DATABASE_HOST:-django-db}"
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+      DATABASE_DB: "${DATABASE_DB:-django}"
+      DATABASE_USER: "${DATABASE_USER:-django}"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
+      # Message broker configuration
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+    networks:
+      - internal
+    volumes:
+      - ../crossmatch:/opt/crossmatch
+
+  flower:
+    image: hub.ncsa.illinois.edu/crossmatch-service/celery:dev
+    platform: linux/x86_64
+    build:
+      context: ../crossmatch
+      dockerfile: ../docker/Dockerfile
+      args:
+        UID: "${USERID:-1000}"
+    command: bash entrypoints/run_flower.sh
+    networks:
+      internal:
+        aliases:
+          - ${FLOWER_HOST:-flower}
+    ports:
+      - 127.0.0.1:${FLOWER_PORT:-8888}:${FLOWER_PORT:-8888}
+    environment:
+      # Message broker configuration
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+      # Flower configuration
+      FLOWER_LOG_LEVEL: "${FLOWER_LOG_LEVEL:-INFO}"
+      FLOWER_URL_PREFIX: "${FLOWER_URL_PREFIX:-flower}"
+      FLOWER_HOST: "${FLOWER_HOST:-flower}"
+      FLOWER_PORT: "${FLOWER_PORT:-8888}"
+      # Django database configuration
+      DATABASE_HOST: "${DATABASE_HOST:-django-db}"
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+      DATABASE_DB: "${DATABASE_DB:-django}"
+      DATABASE_USER: "${DATABASE_USER:-django}"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
+
+  django-db:
+    image: postgres:17
+    platform: linux/x86_64
+    restart: always
+    networks:
+      internal:
+        aliases:
+          - ${DATABASE_HOST:-django-db}
+    environment:
+      POSTGRES_USER: "${DATABASE_USER:-django}"
+      POSTGRES_PASSWORD: "${DATABASE_PASSWORD:-password}"
+      POSTGRES_DB: "${DATABASE_DB:-django}"
+    volumes:
+      - django-db:/var/lib/postgresql
+
+  rabbitmq:
+    image: rabbitmq:4.1.2-alpine
+    platform: linux/x86_64
+    restart: always
+    networks:
+      internal:
+        aliases:
+          - ${MESSAGE_BROKER_HOST:-rabbitmq}
+    ports:
+      - 127.0.0.1:${MESSAGE_BROKER_PORT:-5672}:${MESSAGE_BROKER_PORT:-5672}
+      - 127.0.0.1:${MESSAGE_BROKER_MANAGEMENT_PORT:-15672}:${MESSAGE_BROKER_MANAGEMENT_PORT:-15672}
+    environment:
+      # Message broker configuration
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+    healthcheck:
+      test: [ "CMD", "rabbitmqctl", "status"]
+      interval: 5s
+      timeout: 20s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    ports:
+      - 127.0.0.1:${REDIS_PORT:-6379}:6379
+    networks:
+      - internal

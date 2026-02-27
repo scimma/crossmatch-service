@@ -1,0 +1,86 @@
+{{- define "common.env" -}}
+- name: DEV_MODE
+  value: "false"
+- name: MAKE_MIGRATIONS
+  value: "false"
+- name: APP_ROOT_DIR
+  value: {{ .Values.alert_consumer.app_root_dir }}
+{{- end }}
+
+{{- define "django.env" -}}
+- name: LOG_LEVEL
+  value: {{ .Values.alert_consumer.log_level | quote }}
+- name: DJANGO_DEBUG
+  value: {{ .Values.alert_consumer.django_debug | quote }}
+- name: SECRET_KEY
+  valueFrom:
+    secretKeyRef:
+      key: SECRET_KEY
+      name: django
+- name: DJANGO_SUPERUSER_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      key: DJANGO_SUPERUSER_PASSWORD
+      name: django
+- name: DJANGO_SUPERUSER_USERNAME
+  value: admin
+- name: DJANGO_SUPERUSER_EMAIL
+  value: admin@localhost
+{{- end }}
+
+{{- define "celery.env" -}}
+- name: TASK_TIME_LIMIT
+  value: {{ .Values.celery.task_time_limit | quote }}
+- name: TASK_SOFT_TIME_LIMIT
+  value: {{ .Values.celery.task_soft_time_limit | quote }}
+{{- end }}
+
+{{- define "db.env" -}}
+- name: DATABASE_HOST
+  value: {{ .Values.database.clusterName }}-rw
+- name: DATABASE_PORT
+  value: {{ .Values.database.port | quote }}
+- name: DATABASE_USER
+  value: {{ .Values.database.initdb.username | quote }}
+- name: DATABASE_DB
+  value: {{ .Values.database.initdb.database | quote }}
+- name: DATABASE_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      key: password
+      name: {{ .Values.database.initdb.existingSecret | quote }}
+- name: POSTGRES_USER
+  value: {{ .Values.database.initdb.username | quote }}
+- name: POSTGRES_DB
+  value: {{ .Values.database.initdb.database | quote }}
+- name: POSTGRES_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      key: password
+      name: {{ .Values.database.initdb.existingSecret | quote }}
+{{- end }}
+
+{{- define "rabbitmq.env" -}}
+- name: MESSAGE_BROKER_HOST
+  value: {{ .Values.rabbitmq.fullnameOverride }}
+- name: MESSAGE_BROKER_PORT
+  value: {{ .Values.rabbitmq.service.amqp.port | default 5672 | quote }}
+- name: MESSAGE_BROKER_MANAGEMENT_PORT
+  value: {{ .Values.rabbitmq.service.mgmt.port | default 15672 | quote }}
+- name: RABBITMQ_DEFAULT_USER
+  value: {{ .Values.rabbitmq.auth.username }}
+- name: RABBITMQ_DEFAULT_PASS
+  valueFrom:
+    secretKeyRef:
+      key: rabbitmq-password
+      name: {{ .Values.rabbitmq.auth.existingPasswordSecret }}
+{{- end }}
+
+{{- define "flower.env" -}}
+- name: FLOWER_URL_PREFIX
+  value: {{ .Values.flower.ingress.basePath | quote }}
+- name: FLOWER_PORT
+  value: {{ .Values.flower.port | quote }}
+- name: FLOWER_UNAUTHENTICATED_API
+  value: {{ .Values.flower.flower_unauthenticated_api | quote }}
+{{- end }}
