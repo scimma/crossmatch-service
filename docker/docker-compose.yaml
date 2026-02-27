@@ -7,13 +7,13 @@ networks:
 volumes:
   django-db: {}
   django-static: {}
-  object-data: {}
-  scratch: {}
 
 services:
   alert-consumer:
     image: hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev
     platform: linux/x86_64
+    networks:
+      - internal
     build:
       context: ../crossmatch
       dockerfile: ../docker/Dockerfile
@@ -156,7 +156,7 @@ services:
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
 
   django-db:
-    image: postgres:17
+    image: postgres:18.3
     platform: linux/x86_64
     restart: always
     networks:
@@ -171,7 +171,7 @@ services:
       - django-db:/var/lib/postgresql
 
   rabbitmq:
-    image: rabbitmq:4.1.2-alpine
+    image: rabbitmq:4.2.4-alpine
     platform: linux/x86_64
     restart: always
     networks:
@@ -194,7 +194,7 @@ services:
       retries: 5
 
   redis:
-    image: redis:alpine
+    image: redis:8.6.1-alpine
     ports:
       - 127.0.0.1:${REDIS_PORT:-6379}:6379
     networks:

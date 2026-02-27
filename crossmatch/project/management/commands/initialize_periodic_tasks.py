@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django_celery_beat.models import IntervalSchedule
 from django_celery_beat.models import PeriodicTask
-from alert_consumer.tasks_system import periodic_tasks
+from tasks.tasks import periodic_tasks
 
 
 class Command(BaseCommand):
@@ -17,7 +17,7 @@ class Command(BaseCommand):
                 name=periodic_task.task_name,
                 defaults={
                     'interval': interval,
-                    'task': f'alert_consumer.tasks_system.{periodic_task.task_handle}',
+                    'task': f'tasks.{periodic_task.task_handle}',
                     'enabled': periodic_task.task_initially_enabled,
                 }
             )

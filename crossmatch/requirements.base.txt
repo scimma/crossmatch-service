@@ -1,14 +1,6 @@
-crispy-bootstrap4
 django
 django_celery_results
-django-bootstrap5
 django-celery-beat
-django-cors-headers
-django-cron
-django-filter
-django-latexify
-django-revproxy
-django-silk
 django-tables2
 flower
 psycopg2-binary

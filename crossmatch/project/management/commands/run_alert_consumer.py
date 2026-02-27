@@ -1,0 +1,12 @@
+from django.core.management.base import BaseCommand
+from alerts.consumer import consume_alerts
+
+
+class Command(BaseCommand):
+    help = "Run alert consumer"
+
+    def handle(self, *args, **options):
+        self.stdout.write(
+            self.style.SUCCESS('Processing alerts...')
+        )
+        consume_alerts()

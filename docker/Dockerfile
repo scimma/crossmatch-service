@@ -1,13 +1,5 @@
 FROM python:3.13 AS deps
 
-# RUN apt-get update && DEBIAN_FRONTEND=noninteractive && \
-#     apt-get install -y --no-install-recommends \
-#     libtiff-dev \
-#     libjpeg-dev \
-#     imagemagick \
-#     gcc \
-#     && rm -rf /var/lib/apt/list/*
-
 COPY ./requirements.base.txt /requirements.txt
 RUN pip install -r /requirements.txt --no-cache-dir
 
