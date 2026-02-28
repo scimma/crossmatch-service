@@ -1,15 +1,17 @@
 from celery import shared_task
-
+import json
 from django.conf import settings
-from django.contrib.auth.models import User
 from celery import shared_task
+from core.models import Alert
 from core.log import get_logger
 logger = get_logger(__name__)
 
 
 @shared_task(name="Crossmatch")
-def crossmatch():
-    return
+def crossmatch(alert_id):
+    logger.info(f'Crossmatching alert {alert_id}...')
+    alert = Alert.objects.get(uuid=alert_id)
+    logger.info(json.dumps(alert.payload, indent=2))
 
 
 ################################################################################

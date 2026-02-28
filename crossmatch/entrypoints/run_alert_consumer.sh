@@ -7,7 +7,7 @@ set -euo pipefail
 # after changes are made to the Django ORM models.
 if [ "$MAKE_MIGRATIONS" == "true" ]; then
   echo "Generating database migration scripts..."
-  python manage.py makemigrations --no-input
+  python manage.py makemigrations --no-input core
   exit 0
 fi
 

@@ -145,7 +145,7 @@ services:
       MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
       # Flower configuration
       FLOWER_LOG_LEVEL: "${FLOWER_LOG_LEVEL:-INFO}"
-      FLOWER_URL_PREFIX: "${FLOWER_URL_PREFIX:-flower}"
+      FLOWER_URL_PREFIX: "${FLOWER_URL_PREFIX:-}"
       FLOWER_HOST: "${FLOWER_HOST:-flower}"
       FLOWER_PORT: "${FLOWER_PORT:-8888}"
       # Django database configuration
