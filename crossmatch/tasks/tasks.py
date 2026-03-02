@@ -42,7 +42,7 @@ class QueryHEROIC():
         logger.info(f'Running periodic task "{self.task_name}"...')
 
 
-@shared_task
+@shared_task()
 def query_heroic():
     QueryHEROIC().run_task()
 

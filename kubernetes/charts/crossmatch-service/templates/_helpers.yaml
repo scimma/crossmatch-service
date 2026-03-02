@@ -67,13 +67,6 @@
   value: {{ .Values.rabbitmq.service.amqp.port | default 5672 | quote }}
 - name: MESSAGE_BROKER_MANAGEMENT_PORT
   value: {{ .Values.rabbitmq.service.mgmt.port | default 15672 | quote }}
-- name: RABBITMQ_DEFAULT_USER
-  value: {{ .Values.rabbitmq.auth.username }}
-- name: RABBITMQ_DEFAULT_PASS
-  valueFrom:
-    secretKeyRef:
-      key: rabbitmq-password
-      name: {{ .Values.rabbitmq.auth.existingPasswordSecret }}
 {{- end }}
 
 {{- define "flower.env" -}}

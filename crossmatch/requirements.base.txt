@@ -4,5 +4,5 @@ django-celery-beat
 django-tables2
 flower
 psycopg2-binary
-redis
+redis  # TODO: Replace with https://pypi.org/project/valkey/ ?
 watchdog

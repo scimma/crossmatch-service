@@ -7,6 +7,7 @@ networks:
 volumes:
   django-db: {}
   django-static: {}
+  valkey-data: {}
 
 services:
   alert-consumer:
@@ -37,12 +38,12 @@ services:
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       # Message broker configuration
-      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
-      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-redis}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-6379}"
       # Application configuration
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
+      # TODO: Increase interval when running real task
+      QUERY_HEROIC_INTERVAL: "${QUERY_HEROIC_INTERVAL:-15}"
     volumes:
       - "django-static:${APP_ROOT_DIR:-/opt}/static"
       - ../crossmatch:/opt/crossmatch
@@ -55,7 +56,11 @@ services:
       dockerfile: ../docker/Dockerfile
       args:
         UID: "${USERID:-1000}"
-    command: bash entrypoints/run_celery_worker.sh jobs
+    command: bash entrypoints/run_celery_worker.sh alerts
+    restart: on-failure
+    depends_on:
+      valkey:
+        condition: service_healthy
     networks:
       - internal
     deploy:
@@ -81,10 +86,8 @@ services:
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       # Message broker configuration
-      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
-      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-redis}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-6379}"
       # Application configuration
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
     volumes:
@@ -93,7 +96,7 @@ services:
   celery-beat:
     restart: on-failure
     depends_on:
-      rabbitmq:
+      valkey:
         condition: service_healthy
     image: hub.ncsa.illinois.edu/crossmatch-service/celery:dev
     build:
@@ -113,10 +116,11 @@ services:
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       # Message broker configuration
-      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
-      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-redis}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-6379}"
+      # QUERY_HEROIC_INTERVAL
+      # TODO: Increase interval when running real task
+      QUERY_HEROIC_INTERVAL: "${QUERY_HEROIC_INTERVAL:-15}"
     networks:
       - internal
     volumes:
@@ -139,10 +143,8 @@ services:
       - 127.0.0.1:${FLOWER_PORT:-8888}:${FLOWER_PORT:-8888}
     environment:
       # Message broker configuration
-      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
-      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-redis}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-6379}"
       # Flower configuration
       FLOWER_LOG_LEVEL: "${FLOWER_LOG_LEVEL:-INFO}"
       FLOWER_URL_PREFIX: "${FLOWER_URL_PREFIX:-}"
@@ -170,32 +172,22 @@ services:
     volumes:
       - django-db:/var/lib/postgresql
 
-  rabbitmq:
-    image: rabbitmq:4.2.4-alpine
-    platform: linux/x86_64
-    restart: always
+  valkey:
+    image: valkey/valkey:9.0.3
+    command: [ "valkey-server", "/usr/local/etc/valkey/valkey.conf" ]
+    ports:
+      - 127.0.0.1:${VALKEY_PORT:-6379}:6379
     networks:
       internal:
         aliases:
-          - ${MESSAGE_BROKER_HOST:-rabbitmq}
-    ports:
-      - 127.0.0.1:${MESSAGE_BROKER_PORT:-5672}:${MESSAGE_BROKER_PORT:-5672}
-      - 127.0.0.1:${MESSAGE_BROKER_MANAGEMENT_PORT:-15672}:${MESSAGE_BROKER_MANAGEMENT_PORT:-15672}
-    environment:
-      # Message broker configuration
-      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
-      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+          - "${MESSAGE_BROKER_HOST:-redis}"
+    volumes:
+      - valkey-data:/data
+      - ./valkey:/usr/local/etc/valkey:ro
     healthcheck:
-      test: [ "CMD", "rabbitmqctl", "status"]
-      interval: 5s
-      timeout: 20s
-      retries: 5
-
-  redis:
-    image: redis:8.6.1-alpine
-    ports:
-      - 127.0.0.1:${REDIS_PORT:-6379}:6379
-    networks:
-      - internal
+      test: [ "CMD-SHELL", "valkey-cli -p ${MESSAGE_BROKER_PORT:-6379} ping | grep PONG"]
+      interval: 20s
+      timeout: 10s
+      retries: 3
+      start_interval: 5s
+      start_period: 5s

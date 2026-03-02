@@ -77,30 +77,12 @@ database:
     accessModes:
     - ReadWriteMany
 
-rabbitmq:
-  enabled: true
-  fullnameOverride: "rabbitmq"
-  auth:
-    username: foofoo
-    existingPasswordSecret: rabbitmq-auth
-  env:
-    - name: RABBITMQ_DEFAULT_USER
-      value: foofoo
-    - name: RABBITMQ_DEFAULT_PASS
-      valueFrom:
-        secretKeyRef:
-          name: rabbitmq-auth
-          key: rabbitmq-password
-    - name: ERLANG_COOKIE
-      valueFrom:
-        secretKeyRef:
-          name: rabbitmq-auth
-          key: rabbitmq-erlang-cookie
-
-redis:
-  enabled: true
+valkey:
   fullnameOverride: "redis"
+  service:
+    serverPort: 6379
+    sentinelPort: 26379
   haMode:
-    # TODO: Investigate the "django-redis" package to enable use of Redis Sentinels
-    #       so we can enabled high-availability mode.
-    enabled: false
+    enabled: true
+    replicas: 3
+    masterGroupName: "redisha"

@@ -17,7 +17,7 @@ class Command(BaseCommand):
                 name=periodic_task.task_name,
                 defaults={
                     'interval': interval,
-                    'task': f'tasks.{periodic_task.task_handle}',
+                    'task': f'tasks.tasks.{periodic_task.task_handle}',
                     'enabled': periodic_task.task_initially_enabled,
                 }
             )

@@ -79,7 +79,7 @@ spec:
         command:
         - /bin/bash
         - -c
-        - bash entrypoints/run_celery_worker.sh jobs
+        - bash entrypoints/run_celery_worker.sh alerts
         env:
           - name: CELERY_CONCURRENCY
             value: {{ .Values.celery.workers.concurrency | quote }}
