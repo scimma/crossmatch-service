@@ -68,9 +68,7 @@ CACHES = {
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [
-            os.path.join(APP_ROOT_DIR, 'cutout/templates'),
-        ],
+        'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -78,7 +76,6 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                "cutout.context_processors.user_profile",
             ],
         },
     },
@@ -89,7 +86,7 @@ TEMPLATES = [
 #
 # Celery settings are loaded from CELERY_ prefix variabled in "celery.py"
 # Results backend
-CELERY_RESULT_BACKEND = f"{REDIS_OR_SENTINEL}://{REDIS_SERVICE}:{REDIS_PORT}"
+CELERY_RESULT_BACKEND = f"{REDIS_OR_SENTINEL}://{REDIS_SERVICE}:{REDIS_PORT}/{os.getenv('REDIS_RESULT_DB', '1')}"
 CELERY_RESULT_BACKEND_TRANSPORT_OPTIONS = {
     'master_name': REDIS_MASTER_GROUP_NAME,
     'retry_policy': {

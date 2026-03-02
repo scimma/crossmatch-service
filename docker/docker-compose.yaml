@@ -25,7 +25,7 @@ services:
       MAKE_MIGRATIONS: "${MAKE_MIGRATIONS:-false}"
       DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
       LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
-      DEV_MODE: "${DEV_MODE:-true}" # Enable Django dev server instead of uvicorn
+      DEV_MODE: "${DEV_MODE:-true}"
       # Django base configuration
       DJANGO_SUPERUSER_PASSWORD: "${DJANGO_SUPERUSER_PASSWORD:-password}"
       DJANGO_SUPERUSER_USERNAME: "${DJANGO_SUPERUSER_USERNAME:-admin}"
@@ -36,11 +36,11 @@ services:
       DATABASE_DB: "${DATABASE_DB:-django}"
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
-      # Message broker configuration
-      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
-      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+      # Redis / Celery configuration
+      REDIS_SERVICE: "${REDIS_SERVICE:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_BROKER_DB: "${REDIS_BROKER_DB:-0}"
+      REDIS_RESULT_DB: "${REDIS_RESULT_DB:-1}"
       # Application configuration
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
     volumes:
@@ -55,7 +55,7 @@ services:
       dockerfile: ../docker/Dockerfile
       args:
         UID: "${USERID:-1000}"
-    command: bash entrypoints/run_celery_worker.sh jobs
+    command: bash entrypoints/run_celery_worker.sh crossmatch
     networks:
       - internal
     deploy:
@@ -71,7 +71,7 @@ services:
     environment:
       # Dev environment settings
       DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
-      DEV_MODE: "${DEV_MODE:-true}" # Enable Django dev server instead of uvicorn
+      DEV_MODE: "${DEV_MODE:-true}"
       CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-INFO}
       CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-4}
       # Django database configuration
@@ -80,11 +80,11 @@ services:
       DATABASE_DB: "${DATABASE_DB:-django}"
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
-      # Message broker configuration
-      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
-      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+      # Redis / Celery configuration
+      REDIS_SERVICE: "${REDIS_SERVICE:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_BROKER_DB: "${REDIS_BROKER_DB:-0}"
+      REDIS_RESULT_DB: "${REDIS_RESULT_DB:-1}"
       # Application configuration
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
     volumes:
@@ -92,9 +92,6 @@ services:
 
   celery-beat:
     restart: on-failure
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
     image: hub.ncsa.illinois.edu/crossmatch-service/celery:dev
     build:
       context: ../crossmatch
@@ -104,7 +101,7 @@ services:
     command: bash entrypoints/run_celery_beat.sh
     environment:
       DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
-      DEV_MODE: "${DEV_MODE:-true}" # Enable Django dev server instead of uvicorn
+      DEV_MODE: "${DEV_MODE:-true}"
       CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-INFO}
       # Django database configuration
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
@@ -112,11 +109,11 @@ services:
       DATABASE_DB: "${DATABASE_DB:-django}"
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
-      # Message broker configuration
-      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
-      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+      # Redis / Celery configuration
+      REDIS_SERVICE: "${REDIS_SERVICE:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_BROKER_DB: "${REDIS_BROKER_DB:-0}"
+      REDIS_RESULT_DB: "${REDIS_RESULT_DB:-1}"
     networks:
       - internal
     volumes:
@@ -138,11 +135,10 @@ services:
     ports:
       - 127.0.0.1:${FLOWER_PORT:-8888}:${FLOWER_PORT:-8888}
     environment:
-      # Message broker configuration
-      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
-      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
+      # Redis / Celery configuration
+      REDIS_SERVICE: "${REDIS_SERVICE:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_BROKER_DB: "${REDIS_BROKER_DB:-0}"
       # Flower configuration
       FLOWER_LOG_LEVEL: "${FLOWER_LOG_LEVEL:-INFO}"
       FLOWER_URL_PREFIX: "${FLOWER_URL_PREFIX:-}"
@@ -169,29 +165,6 @@ services:
       POSTGRES_DB: "${DATABASE_DB:-django}"
     volumes:
       - django-db:/var/lib/postgresql
-
-  rabbitmq:
-    image: rabbitmq:4.2.4-alpine
-    platform: linux/x86_64
-    restart: always
-    networks:
-      internal:
-        aliases:
-          - ${MESSAGE_BROKER_HOST:-rabbitmq}
-    ports:
-      - 127.0.0.1:${MESSAGE_BROKER_PORT:-5672}:${MESSAGE_BROKER_PORT:-5672}
-      - 127.0.0.1:${MESSAGE_BROKER_MANAGEMENT_PORT:-15672}:${MESSAGE_BROKER_MANAGEMENT_PORT:-15672}
-    environment:
-      # Message broker configuration
-      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-rabbitmq}"
-      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-rabbitmq}"
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-rabbitmq}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-5672}"
-    healthcheck:
-      test: [ "CMD", "rabbitmqctl", "status"]
-      interval: 5s
-      timeout: 20s
-      retries: 5
 
   redis:
     image: redis:8.6.1-alpine

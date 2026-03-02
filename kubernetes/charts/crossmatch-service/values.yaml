@@ -77,26 +77,6 @@ database:
     accessModes:
     - ReadWriteMany
 
-rabbitmq:
-  enabled: true
-  fullnameOverride: "rabbitmq"
-  auth:
-    username: foofoo
-    existingPasswordSecret: rabbitmq-auth
-  env:
-    - name: RABBITMQ_DEFAULT_USER
-      value: foofoo
-    - name: RABBITMQ_DEFAULT_PASS
-      valueFrom:
-        secretKeyRef:
-          name: rabbitmq-auth
-          key: rabbitmq-password
-    - name: ERLANG_COOKIE
-      valueFrom:
-        secretKeyRef:
-          name: rabbitmq-auth
-          key: rabbitmq-erlang-cookie
-
 redis:
   enabled: true
   fullnameOverride: "redis"
