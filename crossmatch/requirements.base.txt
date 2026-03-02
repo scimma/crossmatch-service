@@ -1,8 +1,15 @@
+celery
 django
 django_celery_results
 django-celery-beat
-django-tables2
 flower
-psycopg2-binary
+psycopg[binary]
 redis
 watchdog
+# Crossmatch / schedule dependencies
+astropy
+httpx
+lsdb
+# Observability
+prometheus-client
+structlog

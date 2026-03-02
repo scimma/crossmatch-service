@@ -1,5 +1,6 @@
 import logging.config
 import os
+import structlog
 
 
 ######################################################################
@@ -134,6 +135,7 @@ STATIC_ROOT = os.path.join(APP_ROOT_DIR, 'static')
 ######################################################################
 # Logging config
 #
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'WARNING')
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -142,15 +144,22 @@ LOGGING = {
             'class': 'logging.StreamHandler',
         }
     },
-    'loggers': {
-        # '': {
-        #     'handlers': ['console'],
-        #     'level': 'INFO'
-        # },
-        'mozilla_django_oidc': {
-            'handlers': ['console'],
-            'level': 'DEBUG'
-        },
-    }
+    'root': {
+        'handlers': ['console'],
+        'level': LOG_LEVEL,
+    },
 }
 logging.config.dictConfig(LOGGING)
+
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.processors.TimeStamper(fmt='iso'),
+        structlog.dev.ConsoleRenderer(),
+    ],
+    wrapper_class=structlog.stdlib.BoundLogger,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    cache_logger_on_first_use=True,
+)

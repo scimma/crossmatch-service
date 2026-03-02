@@ -1,7 +1,7 @@
 from time import sleep
 from random import randint
 from datetime import datetime
-from tasks.crossmatch import crossmatch
+from tasks.crossmatch import crossmatch_alert
 from core.models import Alert
 from core.log import get_logger
 logger = get_logger(__name__)
@@ -23,7 +23,7 @@ def consume_alerts():
             )
             logger.info(f'New alert ingested: {alert_obj}')
             logger.debug(f'Launching crossmatching task for alert {alert_obj}...')
-            crossmatch.delay(alert_id=alert_obj.uuid)
+            crossmatch_alert.delay(lsst_diaObject_diaObjectId=alert_obj.lsst_diaObject_diaObjectId)
         except Exception as err:
             logger.error(f'Error ingesting alert: {err}')
         # Pause for a random duration between 5 and 15 seconds
