@@ -12,12 +12,12 @@ bash entrypoints/wait-for-it.sh ${REDIS_SERVICE:-redis}:${REDIS_PORT:-6379} --ti
 # Start worker
 if [[ $DEV_MODE == "true" ]]; then
     watchmedo auto-restart --directory=./ --pattern=*.py --recursive -- \
-    celery -A crossmatch_project worker \
+    celery -A project worker \
         --queues $QUEUES \
         --loglevel ${CELERY_LOG_LEVEL:-DEBUG} \
         --concurrency ${CELERY_CONCURRENCY:-4}
 else
-    celery -A crossmatch_project worker \
+    celery -A project worker \
         --queues $QUEUES \
         --loglevel ${CELERY_LOG_LEVEL:-INFO} \
         --concurrency ${CELERY_CONCURRENCY:-4}

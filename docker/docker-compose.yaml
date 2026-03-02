@@ -151,6 +151,62 @@ services:
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
 
+  notifier:
+    image: hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev
+    platform: linux/x86_64
+    build:
+      context: ../crossmatch
+      dockerfile: ../docker/Dockerfile
+      args:
+        UID: "${USERID:-1000}"
+    command: python manage.py run_notifier
+    networks:
+      - internal
+    environment:
+      # Dev environment settings
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
+      DEV_MODE: "${DEV_MODE:-true}"
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      # Django database configuration
+      DATABASE_HOST: "${DATABASE_HOST:-django-db}"
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+      DATABASE_DB: "${DATABASE_DB:-django}"
+      DATABASE_USER: "${DATABASE_USER:-django}"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
+      # Application configuration
+      APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
+    volumes:
+      - ../crossmatch:/opt/crossmatch
+
+  schedule-sync:
+    image: hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev
+    platform: linux/x86_64
+    build:
+      context: ../crossmatch
+      dockerfile: ../docker/Dockerfile
+      args:
+        UID: "${USERID:-1000}"
+    command: python manage.py sync_pointings --loop
+    networks:
+      - internal
+    environment:
+      # Dev environment settings
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
+      DEV_MODE: "${DEV_MODE:-true}"
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      # Django database configuration
+      DATABASE_HOST: "${DATABASE_HOST:-django-db}"
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+      DATABASE_DB: "${DATABASE_DB:-django}"
+      DATABASE_USER: "${DATABASE_USER:-django}"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
+      # HEROIC configuration
+      HEROIC_BASE_URL: "${HEROIC_BASE_URL:-}"
+      # Application configuration
+      APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
+    volumes:
+      - ../crossmatch:/opt/crossmatch
+
   django-db:
     image: postgres:18.3
     platform: linux/x86_64

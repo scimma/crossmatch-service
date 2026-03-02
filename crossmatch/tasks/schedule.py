@@ -34,6 +34,12 @@ def query_heroic():
     QueryHEROIC().run_task()
 
 
+@shared_task(name="refresh_planned_pointings")
+def refresh_planned_pointings():
+    """Fetch planned pointings from HEROIC and refresh the DB table."""
+    raise NotImplementedError("deferred to future work")
+
+
 periodic_tasks = [
     QueryHEROIC(task_func='query_heroic'),
 ]
