@@ -2,7 +2,7 @@ import os
 from celery import Celery
 
 # Set the default Django settings module for the 'celery' program.
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'project.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'crossmatch_project.settings')
 
 redis_service = os.getenv('REDIS_SERVICE', 'redis')
 redis_port = os.getenv('REDIS_PORT', '6379')
@@ -17,7 +17,8 @@ app = Celery(
     broker=BROKER_URL,
     backend=RESULT_BACKEND,
     imports=[
-        'tasks.tasks',
+        'tasks.crossmatch',
+        'tasks.schedule',
     ],
     task_default_queue='crossmatch',
     task_acks_late=True,

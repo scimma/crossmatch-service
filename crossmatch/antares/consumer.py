@@ -1,7 +1,7 @@
 from time import sleep
 from random import randint
 from datetime import datetime
-from tasks.tasks import crossmatch
+from tasks.crossmatch import crossmatch
 from core.models import Alert
 from core.log import get_logger
 logger = get_logger(__name__)
