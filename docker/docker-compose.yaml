@@ -7,6 +7,7 @@ networks:
 volumes:
   django-db: {}
   django-static: {}
+  valkey-data: {}
 
 services:
   alert-consumer:
@@ -25,7 +26,7 @@ services:
       MAKE_MIGRATIONS: "${MAKE_MIGRATIONS:-false}"
       DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
       LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
-      DEV_MODE: "${DEV_MODE:-true}"
+      DEV_MODE: "${DEV_MODE:-true}" # Enable Django dev server instead of uvicorn
       # Django base configuration
       DJANGO_SUPERUSER_PASSWORD: "${DJANGO_SUPERUSER_PASSWORD:-password}"
       DJANGO_SUPERUSER_USERNAME: "${DJANGO_SUPERUSER_USERNAME:-admin}"
@@ -36,13 +37,13 @@ services:
       DATABASE_DB: "${DATABASE_DB:-django}"
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
-      # Redis / Celery configuration
-      REDIS_SERVICE: "${REDIS_SERVICE:-redis}"
-      REDIS_PORT: "${REDIS_PORT:-6379}"
-      REDIS_BROKER_DB: "${REDIS_BROKER_DB:-0}"
-      REDIS_RESULT_DB: "${REDIS_RESULT_DB:-1}"
+      # Message broker configuration
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-redis}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-6379}"
       # Application configuration
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
+      # TODO: Increase interval when running real task
+      QUERY_HEROIC_INTERVAL: "${QUERY_HEROIC_INTERVAL:-15}"
     volumes:
       - "django-static:${APP_ROOT_DIR:-/opt}/static"
       - ../crossmatch:/opt/crossmatch
@@ -55,7 +56,11 @@ services:
       dockerfile: ../docker/Dockerfile
       args:
         UID: "${USERID:-1000}"
-    command: bash entrypoints/run_celery_worker.sh crossmatch
+    command: bash entrypoints/run_celery_worker.sh alerts
+    restart: on-failure
+    depends_on:
+      valkey:
+        condition: service_healthy
     networks:
       - internal
     deploy:
@@ -71,7 +76,7 @@ services:
     environment:
       # Dev environment settings
       DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
-      DEV_MODE: "${DEV_MODE:-true}"
+      DEV_MODE: "${DEV_MODE:-true}" # Enable Django dev server instead of uvicorn
       CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-INFO}
       CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-4}
       # Django database configuration
@@ -80,11 +85,9 @@ services:
       DATABASE_DB: "${DATABASE_DB:-django}"
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
-      # Redis / Celery configuration
-      REDIS_SERVICE: "${REDIS_SERVICE:-redis}"
-      REDIS_PORT: "${REDIS_PORT:-6379}"
-      REDIS_BROKER_DB: "${REDIS_BROKER_DB:-0}"
-      REDIS_RESULT_DB: "${REDIS_RESULT_DB:-1}"
+      # Message broker configuration
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-redis}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-6379}"
       # Application configuration
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
     volumes:
@@ -92,6 +95,9 @@ services:
 
   celery-beat:
     restart: on-failure
+    depends_on:
+      valkey:
+        condition: service_healthy
     image: hub.ncsa.illinois.edu/crossmatch-service/celery:dev
     build:
       context: ../crossmatch
@@ -101,7 +107,7 @@ services:
     command: bash entrypoints/run_celery_beat.sh
     environment:
       DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
-      DEV_MODE: "${DEV_MODE:-true}"
+      DEV_MODE: "${DEV_MODE:-true}" # Enable Django dev server instead of uvicorn
       CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-INFO}
       # Django database configuration
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
@@ -109,11 +115,12 @@ services:
       DATABASE_DB: "${DATABASE_DB:-django}"
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
-      # Redis / Celery configuration
-      REDIS_SERVICE: "${REDIS_SERVICE:-redis}"
-      REDIS_PORT: "${REDIS_PORT:-6379}"
-      REDIS_BROKER_DB: "${REDIS_BROKER_DB:-0}"
-      REDIS_RESULT_DB: "${REDIS_RESULT_DB:-1}"
+      # Message broker configuration
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-redis}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-6379}"
+      # QUERY_HEROIC_INTERVAL
+      # TODO: Increase interval when running real task
+      QUERY_HEROIC_INTERVAL: "${QUERY_HEROIC_INTERVAL:-15}"
     networks:
       - internal
     volumes:
@@ -135,10 +142,9 @@ services:
     ports:
       - 127.0.0.1:${FLOWER_PORT:-8888}:${FLOWER_PORT:-8888}
     environment:
-      # Redis / Celery configuration
-      REDIS_SERVICE: "${REDIS_SERVICE:-redis}"
-      REDIS_PORT: "${REDIS_PORT:-6379}"
-      REDIS_BROKER_DB: "${REDIS_BROKER_DB:-0}"
+      # Message broker configuration
+      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-redis}"
+      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-6379}"
       # Flower configuration
       FLOWER_LOG_LEVEL: "${FLOWER_LOG_LEVEL:-INFO}"
       FLOWER_URL_PREFIX: "${FLOWER_URL_PREFIX:-}"
@@ -150,62 +156,6 @@ services:
       DATABASE_DB: "${DATABASE_DB:-django}"
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
-
-  notifier:
-    image: hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev
-    platform: linux/x86_64
-    build:
-      context: ../crossmatch
-      dockerfile: ../docker/Dockerfile
-      args:
-        UID: "${USERID:-1000}"
-    command: python manage.py run_notifier
-    networks:
-      - internal
-    environment:
-      # Dev environment settings
-      DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
-      DEV_MODE: "${DEV_MODE:-true}"
-      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
-      # Django database configuration
-      DATABASE_HOST: "${DATABASE_HOST:-django-db}"
-      DATABASE_PORT: "${DATABASE_PORT:-5432}"
-      DATABASE_DB: "${DATABASE_DB:-django}"
-      DATABASE_USER: "${DATABASE_USER:-django}"
-      DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
-      # Application configuration
-      APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
-    volumes:
-      - ../crossmatch:/opt/crossmatch
-
-  schedule-sync:
-    image: hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev
-    platform: linux/x86_64
-    build:
-      context: ../crossmatch
-      dockerfile: ../docker/Dockerfile
-      args:
-        UID: "${USERID:-1000}"
-    command: python manage.py sync_pointings --loop
-    networks:
-      - internal
-    environment:
-      # Dev environment settings
-      DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
-      DEV_MODE: "${DEV_MODE:-true}"
-      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
-      # Django database configuration
-      DATABASE_HOST: "${DATABASE_HOST:-django-db}"
-      DATABASE_PORT: "${DATABASE_PORT:-5432}"
-      DATABASE_DB: "${DATABASE_DB:-django}"
-      DATABASE_USER: "${DATABASE_USER:-django}"
-      DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
-      # HEROIC configuration
-      HEROIC_BASE_URL: "${HEROIC_BASE_URL:-}"
-      # Application configuration
-      APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
-    volumes:
-      - ../crossmatch:/opt/crossmatch
 
   django-db:
     image: postgres:18.3
@@ -222,9 +172,22 @@ services:
     volumes:
       - django-db:/var/lib/postgresql
 
-  redis:
-    image: redis:8.6.1-alpine
+  valkey:
+    image: valkey/valkey:9.0.3
+    command: [ "valkey-server", "/usr/local/etc/valkey/valkey.conf" ]
     ports:
-      - 127.0.0.1:${REDIS_PORT:-6379}:6379
+      - 127.0.0.1:${VALKEY_PORT:-6379}:6379
     networks:
-      - internal
+      internal:
+        aliases:
+          - "${MESSAGE_BROKER_HOST:-redis}"
+    volumes:
+      - valkey-data:/data
+      - ./valkey:/usr/local/etc/valkey:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "valkey-cli -p ${MESSAGE_BROKER_PORT:-6379} ping | grep PONG"]
+      interval: 20s
+      timeout: 10s
+      retries: 3
+      start_interval: 5s
+      start_period: 5s

@@ -32,7 +32,7 @@ spec:
           {{- include "common.env" . | nindent 10 }}
           {{- include "django.env" . | nindent 10 }}
           {{- include "db.env" . | nindent 10 }}
-          {{- include "redis.env" . | nindent 10 }}
+          {{- include "rabbitmq.env" . | nindent 10 }}
           {{- include "celery.env" . | nindent 10 }}
         {{- with  .Values.alert_consumer.resources }}
         resources:
@@ -79,7 +79,7 @@ spec:
         command:
         - /bin/bash
         - -c
-        - bash entrypoints/run_celery_worker.sh crossmatch
+        - bash entrypoints/run_celery_worker.sh alerts
         env:
           - name: CELERY_CONCURRENCY
             value: {{ .Values.celery.workers.concurrency | quote }}
@@ -87,7 +87,7 @@ spec:
             value: {{ .Values.celery.log_level | quote }}
           {{- include "common.env" . | nindent 10 }}
           {{- include "db.env" . | nindent 10 }}
-          {{- include "redis.env" . | nindent 10 }}
+          {{- include "rabbitmq.env" . | nindent 10 }}
           {{- include "celery.env" . | nindent 10 }}
         {{- with  .Values.celery.workers.resources }}
         resources:
@@ -172,5 +172,5 @@ spec:
         env:
           {{- include "common.env" . | nindent 10 }}
           {{- include "db.env" . | nindent 10 }}
-          {{- include "redis.env" . | nindent 10 }}
+          {{- include "rabbitmq.env" . | nindent 10 }}
 {{- end }}

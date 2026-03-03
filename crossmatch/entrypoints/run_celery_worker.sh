@@ -7,7 +7,7 @@ QUEUES=$1
 cd "${APP_ROOT_DIR:-/opt}/crossmatch"
 
 bash entrypoints/wait-for-it.sh ${DATABASE_HOST}:${DATABASE_PORT:-5432} --timeout=0
-bash entrypoints/wait-for-it.sh ${REDIS_SERVICE:-redis}:${REDIS_PORT:-6379} --timeout=0
+bash entrypoints/wait-for-it.sh ${MESSAGE_BROKER_HOST}:${MESSAGE_BROKER_PORT} --timeout=0
 
 # Start worker
 if [[ $DEV_MODE == "true" ]]; then
