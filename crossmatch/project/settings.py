@@ -90,7 +90,8 @@ TEMPLATES = [
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_TIMEZONE = "UTC"
 CELERY_IMPORTS = [
-    "tasks.tasks",
+    "tasks.crossmatch",
+    "tasks.schedule",
 ]
 CELERY_TASK_ROUTES = {}
 CELERY_TASK_DEFAULT_QUEUE = 'alerts'
