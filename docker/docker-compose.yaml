@@ -38,8 +38,8 @@ services:
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       # Message broker configuration
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-redis}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-6379}"
+      VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
+      VALKEY_PORT: "${VALKEY_PORT:-6379}"
       # Application configuration
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
       # TODO: Increase interval when running real task
@@ -86,8 +86,8 @@ services:
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       # Message broker configuration
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-redis}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-6379}"
+      VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
+      VALKEY_PORT: "${VALKEY_PORT:-6379}"
       # Application configuration
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
     volumes:
@@ -116,8 +116,8 @@ services:
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       # Message broker configuration
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-redis}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-6379}"
+      VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
+      VALKEY_PORT: "${VALKEY_PORT:-6379}"
       # QUERY_HEROIC_INTERVAL
       # TODO: Increase interval when running real task
       QUERY_HEROIC_INTERVAL: "${QUERY_HEROIC_INTERVAL:-15}"
@@ -143,8 +143,8 @@ services:
       - 127.0.0.1:${FLOWER_PORT:-8888}:${FLOWER_PORT:-8888}
     environment:
       # Message broker configuration
-      MESSAGE_BROKER_HOST: "${MESSAGE_BROKER_HOST:-redis}"
-      MESSAGE_BROKER_PORT: "${MESSAGE_BROKER_PORT:-6379}"
+      VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
+      VALKEY_PORT: "${VALKEY_PORT:-6379}"
       # Flower configuration
       FLOWER_LOG_LEVEL: "${FLOWER_LOG_LEVEL:-INFO}"
       FLOWER_URL_PREFIX: "${FLOWER_URL_PREFIX:-}"
@@ -180,12 +180,12 @@ services:
     networks:
       internal:
         aliases:
-          - "${MESSAGE_BROKER_HOST:-redis}"
+          - "${VALKEY_SERVICE:-redis}"
     volumes:
       - valkey-data:/data
       - ./valkey:/usr/local/etc/valkey:ro
     healthcheck:
-      test: [ "CMD-SHELL", "valkey-cli -p ${MESSAGE_BROKER_PORT:-6379} ping | grep PONG"]
+      test: [ "CMD-SHELL", "valkey-cli -p ${VALKEY_PORT:-6379} ping | grep PONG"]
       interval: 20s
       timeout: 10s
       retries: 3

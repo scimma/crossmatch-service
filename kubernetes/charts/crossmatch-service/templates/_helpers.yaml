@@ -60,13 +60,11 @@
       name: {{ .Values.database.initdb.existingSecret | quote }}
 {{- end }}
 
-{{- define "rabbitmq.env" -}}
-- name: MESSAGE_BROKER_HOST
-  value: {{ .Values.rabbitmq.fullnameOverride }}
-- name: MESSAGE_BROKER_PORT
-  value: {{ .Values.rabbitmq.service.amqp.port | default 5672 | quote }}
-- name: MESSAGE_BROKER_MANAGEMENT_PORT
-  value: {{ .Values.rabbitmq.service.mgmt.port | default 15672 | quote }}
+{{- define "valkey.env" -}}
+- name: VALKEY_SERVICE
+  value: {{ .Values.valkey.fullnameOverride | default "redis" }}
+- name: VALKEY_PORT
+  value: "6379"
 {{- end }}
 
 {{- define "flower.env" -}}
