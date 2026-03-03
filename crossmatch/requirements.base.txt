@@ -5,4 +5,5 @@ django-tables2
 flower
 psycopg2-binary
 redis  # TODO: Replace with https://pypi.org/project/valkey/ ?
+structlog
 watchdog
