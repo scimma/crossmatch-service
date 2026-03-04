@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from alerts.consumer import consume_alerts
+from antares.consumer import consume_alerts
 
 
 class Command(BaseCommand):

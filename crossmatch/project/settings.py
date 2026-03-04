@@ -52,16 +52,16 @@ USE_TZ = True
 DATETIME_FORMAT = 'Y-m-d H:m:s'
 DATE_FORMAT = 'Y-m-d'
 # Caching
-REDIS_SERVICE = os.environ.get('REDIS_SERVICE', 'redis')
-REDIS_PORT = int(os.environ.get('REDIS_PORT', '6379'))
+VALKEY_SERVICE = os.environ.get('VALKEY_SERVICE', 'redis')
+VALKEY_PORT = int(os.environ.get('VALKEY_PORT', '6379'))
 # If running Redis in high-availability mode using Sentinel, there must be a master group name set
-REDIS_MASTER_GROUP_NAME = os.environ.get('REDIS_MASTER_GROUP_NAME', '')
-REDIS_OR_SENTINEL = 'sentinel' if REDIS_MASTER_GROUP_NAME else 'redis'
+VALKEY_MASTER_GROUP_NAME = os.environ.get('VALKEY_MASTER_GROUP_NAME', '')
+VALKEY_OR_SENTINEL = 'sentinel' if VALKEY_MASTER_GROUP_NAME else 'redis'
 # Caching config
 CACHES = {
     'default': {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": f"{REDIS_OR_SENTINEL}://{REDIS_SERVICE}:{REDIS_PORT}",
+        "LOCATION": f"{VALKEY_OR_SENTINEL}://{VALKEY_SERVICE}:{VALKEY_PORT}",
     }
 }
 
@@ -87,16 +87,41 @@ TEMPLATES = [
 ######################################################################
 # Celery config
 #
-# Celery settings are loaded from CELERY_ prefix variabled in "celery.py"
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+CELERY_TIMEZONE = "UTC"
+CELERY_IMPORTS = [
+    "tasks.crossmatch",
+    "tasks.schedule",
+]
+CELERY_TASK_ROUTES = {}
+CELERY_TASK_DEFAULT_QUEUE = 'alerts'
+VALKEY_SERVICE = os.environ.get('VALKEY_SERVICE', 'redis')
+VALKEY_PORT = int(os.environ.get('VALKEY_PORT', '6379'))
+# If running Redis in high-availability mode using Sentinel, there must be a master group name set
+VALKEY_MASTER_GROUP_NAME = os.environ.get('VALKEY_MASTER_GROUP_NAME', '')
+VALKEY_OR_SENTINEL = 'sentinel' if VALKEY_MASTER_GROUP_NAME else 'redis'
+# Caching config
+CACHES = {
+    'default': {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": f"{VALKEY_OR_SENTINEL}://{VALKEY_SERVICE}:{VALKEY_PORT}",
+    }
+}
+# Backends & brokers
+CELERY_BROKER_URL = f"{VALKEY_OR_SENTINEL}://{VALKEY_SERVICE}:{VALKEY_PORT}"
+CELERY_BROKER_TRANSPORT_OPTIONS = {'master_name': VALKEY_MASTER_GROUP_NAME}
 # Results backend
-CELERY_RESULT_BACKEND = f"{REDIS_OR_SENTINEL}://{REDIS_SERVICE}:{REDIS_PORT}"
+CELERY_RESULT_BACKEND = f"{VALKEY_OR_SENTINEL}://{VALKEY_SERVICE}:{VALKEY_PORT}"
 CELERY_RESULT_BACKEND_TRANSPORT_OPTIONS = {
-    'master_name': REDIS_MASTER_GROUP_NAME,
+    'master_name': VALKEY_MASTER_GROUP_NAME,
     'retry_policy': {
         'timeout': 5.0
     }
 }
 CELERYD_REDIRECT_STDOUTS_LEVEL = "INFO"
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get("CELERY_TASK_SOFT_TIME_LIMIT", "3600"))
+CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", "3800"))
+CELERY_TASK_TRACK_STARTED = True
 
 ######################################################################
 # Database

@@ -4,11 +4,7 @@ description: This service consumes the Vera Rubin Observatory transient alert st
 type: application
 version: 1.0.0
 dependencies:
-- name: rabbitmq
+- name: valkey
   version: "2.1.x"
   repository: https://groundhog2k.github.io/helm-charts/
-  condition: rabbitmq.enabled
-- name: redis
-  version: "2.1.x"
-  repository: https://groundhog2k.github.io/helm-charts/
-  condition: redis.enabled
+  condition: valkey.enabled
