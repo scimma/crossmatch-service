@@ -21,7 +21,7 @@ echo "Running initialization script..."
 bash entrypoints/django_init.sh
 echo "Django database initialization complete."
 
-# Start alert consumer
+# Start ANTARES alert ingest
 cd "${APP_ROOT_DIR:-/opt}/crossmatch"
 
-python manage.py run_alert_consumer
+python manage.py run_antares_ingest

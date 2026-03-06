@@ -3,7 +3,7 @@ from antares.consumer import consume_alerts
 
 
 class Command(BaseCommand):
-    help = "Run alert consumer"
+    help = "Run ANTARES alert ingest"
 
     def handle(self, *args, **options):
         self.stdout.write(

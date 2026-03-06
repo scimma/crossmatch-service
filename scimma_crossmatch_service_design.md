@@ -650,21 +650,35 @@ Rationale:
 ### 8.2 Suggested package layout
 
 ```
-alertmatch/
+crossmatch/
   manage.py
-  alertmatch_project/
+  requirements.base.txt
+  entrypoints/
+    django_init.sh
+    run_antares_ingest.sh
+    run_celery_beat.sh
+    run_celery_worker.sh
+    run_flower.sh
+    wait-for-it.sh
+  project/
     __init__.py
+    celery.py            # Celery app configured from Django settings
     settings.py
-    urls.py              # optional now; useful later for a web UI
-    asgi.py
-    wsgi.py
+    management/
+      __init__.py
+      commands/
+        __init__.py
+        initialize_periodic_tasks.py
+        run_antares_ingest.py
+        run_lasair_ingest.py   # Lasair Kafka consumer loop (planned)
+        run_notifier.py
+        sync_pointings.py
   core/
     __init__.py
-    apps.py
+    apps.py              # Django AppConfig (to be created)
     models.py            # Django models for alerts/matches/pointings/notifications
-    admin.py             # optional
     migrations/
-  brokers/
+  brokers/               # TARGET LAYOUT — current code has antares/ at top level pending this refactor
     __init__.py
     normalize.py         # shared LSST field extraction (ra, dec, diaObjectId, ...)
     antares/
@@ -690,15 +704,8 @@ alertmatch/
     impl_http.py
   tasks/
     __init__.py
-    celery_app.py        # Celery app configured from Django settings
     crossmatch.py
     schedule.py
-  management/
-    commands/
-      run_antares_ingest.py
-      run_lasair_ingest.py   # Lasair Kafka consumer loop
-      run_notifier.py
-      sync_pointings.py
 ```
 
 ### 8.3 Key processes (containers)
@@ -706,8 +713,8 @@ We will run the long-lived processes as Django management commands (so they shar
 
 - **ANTARES ingest service**: `python manage.py run_antares_ingest`
 - **Lasair ingest service**: `python manage.py run_lasair_ingest`
-- **Celery worker(s)** (crossmatch): `celery -A alertmatch.tasks.celery_app worker -Q crossmatch -l INFO`
-- **Celery beat** (optional) for periodic schedule refresh: `celery -A alertmatch.tasks.celery_app beat`
+- **Celery worker(s)** (crossmatch): `celery -A project worker -Q crossmatch -l INFO`
+- **Celery beat** (optional) for periodic schedule refresh: `celery -A project beat`
 - **Schedule sync worker** (alternative to beat): `python manage.py sync_pointings --loop`
 - **Notifier**: `python manage.py run_notifier`
 

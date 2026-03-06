@@ -27,7 +27,7 @@ spec:
         command:
         - /bin/bash
         - -c
-        - bash entrypoints/run_alert_consumer.sh
+        - bash entrypoints/run_antares_ingest.sh
         env:
           {{- include "common.env" . | nindent 10 }}
           {{- include "django.env" . | nindent 10 }}

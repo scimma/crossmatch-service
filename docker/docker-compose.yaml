@@ -20,7 +20,7 @@ services:
       dockerfile: ../docker/Dockerfile
       args:
         UID: "${USERID:-1000}"
-    command: bash entrypoints/run_alert_consumer.sh
+    command: bash entrypoints/run_antares_ingest.sh
     environment:
       # Dev environment settings
       MAKE_MIGRATIONS: "${MAKE_MIGRATIONS:-false}"
