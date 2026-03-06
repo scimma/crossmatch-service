@@ -83,10 +83,52 @@ Two independent ingest services consume from separate broker streams and write t
 - Records the delivery in `alert_deliveries` (broker=`'lasair'`).
 - Enqueues a `crossmatch_alert` Celery task **only if the UPSERT created a new row** (i.e., ANTARES has not already delivered the same alert).
 
-#### Lasair Filter Selection Criteria (Open Question)
-The Lasair filter is configured via the Lasair web UI and produces a named Kafka topic.
-The filter criteria should mirror the ANTARES criteria (SNR, artifact flags, Solar System exclusion) to the extent that Lasair's filter language allows.
-The exact Lasair filter definition is **TBD** — to be determined once a Lasair account is established and the available filter fields are confirmed.
+#### Lasair Filter Selection Criteria
+
+The Lasair filter `reliability_moderate` has been created on the Lasair web UI and
+produces the Kafka topic `lasair_366SCiMMA_reliability_moderate`.
+
+**Filter SQL:**
+
+```sql
+SELECT objects.diaObjectId,
+       objects.ra,
+       objects.decl,
+       objects.nDiaSources,
+       mjdnow() - objects.lastDiaSourceMjdTai AS age
+FROM objects
+WHERE objects.nDiaSources >= 1
+  AND objects.latestR > 0.7
+  AND mjdnow() - objects.lastDiaSourceMjdTai < 1
+```
+
+**Field descriptions:**
+
+| Field | Description |
+|---|---|
+| `diaObjectId` | LSST DIA object identifier — maps to `lsst_diaObject_diaObjectId` |
+| `ra`, `decl` | LSST positional fields (degrees) |
+| `nDiaSources` | Number of individual DIA detections linked to this object |
+| `lastDiaSourceMjdTai` | MJD of the most recent detection |
+| `latestR` | Lasair Real/Bogus ML score for the latest source (0–1; 1 = real transient) |
+| `age` | Computed days since last detection (display only; not stored) |
+
+**Filter criteria semantics:**
+- `nDiaSources >= 1` — any object with at least one detection. Minimal gate;
+  the `latestR` threshold handles quality filtering.
+- `latestR > 0.7` — Lasair's ML Real/Bogus score above 0.7. This is a
+  Lasair-computed score that acts as a single proxy for the many individual
+  artifact flags used by the ANTARES filter (dipole, streak, saturation, edge,
+  cosmic ray). The filter name `reliability_moderate` reflects this threshold.
+- `lastDiaSourceMjdTai` within 1 day — only recent/active transients are
+  delivered; avoids re-delivering old objects on Kafka replay.
+
+**Comparison with ANTARES filter:**
+The two filters are complementary rather than equivalent. ANTARES uses explicit
+boolean flags plus an SNR threshold and Solar System exclusion; Lasair uses a
+single ML score plus a recency window. Both paths write to the same `alerts`
+table; the deduplication UPSERT ensures each `diaObjectId` is crossmatched
+exactly once regardless of which broker delivers it first.
 
 **C. HEROIC Schedule Ingest Worker (runs in our Kubernetes cluster)**
 - Periodically fetches planned Rubin pointings from HEROIC (which itself ingests the ObsLocTAP schedule endpoint).
@@ -262,10 +304,10 @@ a streaming filter is saved. The topic name changes if the filter is renamed.
 - Change the GroupID in development/testing to replay all cached alerts (last ~7 days
   retained by the Kafka server).
 
-**Authentication**: The mechanism for `lasair_consumer` Kafka access is **TBD** — the
-public documentation does not explicitly state whether SASL credentials are required.
-The Lasair REST API uses a bearer token (`lasair_client(token=...)`), but the Kafka
-consumer may be unauthenticated. **Confirm before implementation.**
+**Authentication**: `lasair_consumer` connects to `kafka.lsst.ac.uk:9092`
+**without any credentials** — no SASL username/password and no bearer token are
+required. The Lasair REST API uses a bearer token (`lasair_client(token=...)`),
+but this is not needed for the Kafka consumer ingest path.
 
 **Ingest requirements**:
 - Reconnect/resume semantics via the Kafka GroupID (automatic on restart with a stable GroupID).
@@ -277,7 +319,7 @@ consumer may be unauthenticated. **Confirm before implementation.**
 | Variable | Example | Notes |
 |---|---|---|
 | `LASAIR_KAFKA_SERVER` | `kafka.lsst.ac.uk:9092` | |
-| `LASAIR_TOPIC` | `lasair_42_high-snr-transients` | from Lasair web UI |
+| `LASAIR_TOPIC` | `lasair_366SCiMMA_reliability_moderate` | created on Lasair web UI |
 | `LASAIR_GROUP_ID` | `scimma-crossmatch-prod` | stable in production |
 | `LASAIR_TOKEN` | `<api-token>` | REST API token (if needed for auth) |
 
@@ -737,7 +779,6 @@ Secrets:
 - ANTARES credentials
 - HEROIC credentials (if required)
 - LSST return credentials (future)
-- `LASAIR_TOKEN` — Lasair REST API token (if required for Kafka auth; TBD)
 
 #### 9.1.4 Health checks
 - Ingest: readiness requires DB connectivity and successful ANTARES client init.
@@ -775,8 +816,8 @@ Notes:
 3. **Match radius and columns**: what initial radius (arcsec) and which Gaia columns are needed in `gaia_payload`.
 4. **Planned footprint gating**: do we skip crossmatch if alert is outside planned pointings, or just annotate?
 5. **HEROIC API details**: exact endpoint path(s), pagination, auth, and any query params we can use for planned pointings.
-6. **Lasair Kafka auth**: does `lasair_consumer` require SASL credentials for `kafka.lsst.ac.uk:9092`? If so, what format (SASL/PLAIN? API token as SASL password)?
-7. **Lasair filter/topic**: what filter criteria should the Lasair filter implement? Should it mirror the ANTARES criteria (SNR > 10, no dipole, no artifacts)? The filter must be created on the Lasair web UI before a topic is available.
+6. ~~**Lasair Kafka auth**~~ — **Resolved**: `lasair_consumer` connects to `kafka.lsst.ac.uk:9092` without credentials. No SASL config or token required for the ingest path.
+7. ~~**Lasair filter/topic**~~ — **Resolved**: filter `reliability_moderate` created on Lasair web UI; topic `lasair_366SCiMMA_reliability_moderate`. Criteria: `latestR > 0.7` AND `nDiaSources >= 1` AND last detection within 1 day. See §2.1 B2 for full SQL.
 8. **Lasair alert schema**: what is the full JSON schema of a Lasair alert? Lasair uses `objectId` as the top-level key — confirm this is always identical to `lsst_diaObject_diaObjectId`. Confirm which field maps to LSST positional fields (RA/Dec).
 9. **Lasair annotations to store**: which Lasair-side fields (Sherlock cross-matches, classification scores, etc.) should be preserved in `alert_deliveries.raw_payload`?
 
