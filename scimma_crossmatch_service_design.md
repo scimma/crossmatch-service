@@ -1,6 +1,6 @@
-# LSST Alert Matching Service Architecture (ANTARES + Gaia)
+# LSST Alert Matching Service Architecture (ANTARES + Lasair + Gaia)
 
-This document defines a Python-based service architecture that receives Rubin/LSST alerts from the **ANTARES broker**, matches them against the **Gaia** catalog using **LSDB**, incorporates Rubin pointing forecasts via **HEROIC**, and records results for eventual **feedback to LSST** (return mechanism TBD).
+This document defines a Python-based service architecture that receives Rubin/LSST alerts from the **ANTARES** and **Lasair** brokers, matches them against the **Gaia** catalog using **LSDB**, incorporates Rubin pointing forecasts via **HEROIC**, and records results for eventual **feedback to LSST** (return mechanism TBD).
 
 It is an iteration of the original design, updated to:
 - Use **Celery** for work orchestration
@@ -13,7 +13,7 @@ It is an iteration of the original design, updated to:
 ## 1. Goals and Non-Goals
 
 ### Goals
-- Reliable ingestion of ANTARES-delivered LSST alerts.
+- Reliable ingestion of LSST alerts from **multiple brokers** (ANTARES + Lasair) for stream resilience and richer science filtering.
 - Idempotent processing (safe to retry alert ingest, match jobs, and notifications).
 - Horizontal scalability: multiple workers consuming queued crossmatch work.
 - Separation of concerns: ingest vs. schedule ingest vs. match vs. notify.
@@ -65,11 +65,28 @@ These criteria are intended to:
 
 The exact implementation will follow ANTARES filter syntax and available alert schema fields.
 
-**B. ANTARES Client / Ingest Service (runs in our Kubernetes cluster)**
+**B. Alert Ingest Services (runs in our Kubernetes cluster)**
+
+Two independent ingest services consume from separate broker streams and write to the same shared `alerts` table.
+
+**B1. ANTARES Ingest Service**
 - Subscribes to the ANTARES topic produced by our filter.
 - Validates/normalizes alert payload.
-- Upserts alert records into PostgreSQL.
-- Enqueues crossmatch work with **Celery**.
+- UPSERTs the alert into `alerts` keyed by `lsst_diaObject_diaObjectId`.
+- Records the delivery in `alert_deliveries` (broker=`'antares'`).
+- Enqueues a `crossmatch_alert` Celery task **only if the UPSERT created a new row** (i.e., Lasair has not already delivered the same alert).
+
+**B2. Lasair Ingest Service**
+- Subscribes to a Lasair Kafka topic produced by our Lasair user-defined streaming filter.
+- Validates/normalizes alert payload against the shared LSST field schema.
+- UPSERTs the alert into `alerts` keyed by `lsst_diaObject_diaObjectId`.
+- Records the delivery in `alert_deliveries` (broker=`'lasair'`).
+- Enqueues a `crossmatch_alert` Celery task **only if the UPSERT created a new row** (i.e., ANTARES has not already delivered the same alert).
+
+#### Lasair Filter Selection Criteria (Open Question)
+The Lasair filter is configured via the Lasair web UI and produces a named Kafka topic.
+The filter criteria should mirror the ANTARES criteria (SNR, artifact flags, Solar System exclusion) to the extent that Lasair's filter language allows.
+The exact Lasair filter definition is **TBD** — to be determined once a Lasair account is established and the available filter fields are confirmed.
 
 **C. HEROIC Schedule Ingest Worker (runs in our Kubernetes cluster)**
 - Periodically fetches planned Rubin pointings from HEROIC (which itself ingests the ObsLocTAP schedule endpoint).
@@ -105,9 +122,11 @@ The exact implementation will follow ANTARES filter syntax and available alert s
 
 1. LSST publishes alert packets → ANTARES receives.
 2. Our ANTARES filter selects a subset → ANTARES publishes to our subscription topic.
-3. Ingest service receives alert:
-   - UPSERT into `alerts`
-   - Submit a Celery task `crossmatch_alert(lsst_diaObject_diaObjectId)`
+3. **Either** ingest service (ANTARES or Lasair) receives the alert:
+   - UPSERT into `alerts` keyed by `lsst_diaObject_diaObjectId` (`ON CONFLICT DO NOTHING`)
+   - INSERT into `alert_deliveries` recording the broker name and broker-specific envelope (`ON CONFLICT DO NOTHING`)
+   - If the UPSERT created a new `alerts` row → submit Celery task `crossmatch_alert(lsst_diaObject_diaObjectId)`
+   - If the UPSERT hit a conflict (alert already delivered by the other broker) → skip task enqueue
 4. HEROIC schedule ingestion worker periodically refreshes planned pointings:
    - Fetch from HEROIC API
    - Replace/refresh `planned_pointings` table
@@ -128,8 +147,10 @@ sequenceDiagram
   autonumber
   participant LSST as LSST Alert Stream
   participant ANT as ANTARES Broker
-  participant FIL as ANTARES Filter
-  participant ING as Ingest Service
+  participant AFIL as ANTARES Filter
+  participant AING as ANTARES Ingest
+  participant LAS as Lasair Broker
+  participant LING as Lasair Ingest
   participant PG as PostgreSQL
   participant RED as Redis (Celery broker)
   participant CEL as Celery
@@ -140,22 +161,36 @@ sequenceDiagram
   participant LSSTRET as LSST Update Receiver (TBD)
 
   LSST->>ANT: Publish alert packet
-  ANT->>FIL: Evaluate alert against filter criteria
-  alt Passes filter
-    ANT-->>ING: Stream alert on topic
-    ING->>PG: UPSERT alerts(lsst_diaObject_diaObjectId, ra/dec/time, payload)
-    ING->>CEL: Enqueue crossmatch task (lsst_diaObject_diaObjectId)
-    CEL->>RED: Store task message
-    RED-->>WRK: Deliver task
-    WRK->>PG: Read alert + planned pointings
-    WRK->>LSDB: Gaia crossmatch (cone/patch constrained)
-    WRK->>PG: UPSERT gaia_matches
-    NOT->>PG: Watch for new matches
-    NOT->>LSSTRET: Send match update (TBD)
-    NOT->>PG: Record notifications state
-  else Filtered out
-    FIL-->>ANT: Drop / no tag
+  LSST->>LAS: Publish alert packet
+
+  par ANTARES delivery
+    ANT->>AFIL: Evaluate alert against ANTARES filter criteria
+    alt Passes ANTARES filter
+      ANT-->>AING: Stream alert on ANTARES topic
+      AING->>PG: UPSERT alerts (ON CONFLICT DO NOTHING) + INSERT alert_deliveries (broker=antares)
+      alt New alert (first delivery)
+        AING->>CEL: Enqueue crossmatch_alert task
+        CEL->>RED: Store task message
+      end
+    else Filtered out
+      AFIL-->>ANT: Drop / no tag
+    end
+  and Lasair delivery
+    LAS->>LING: Stream alert on Lasair Kafka topic (filtered by Lasair filter)
+    LING->>PG: UPSERT alerts (ON CONFLICT DO NOTHING) + INSERT alert_deliveries (broker=lasair)
+    alt New alert (first delivery)
+      LING->>CEL: Enqueue crossmatch_alert task
+      CEL->>RED: Store task message
+    end
   end
+
+  RED-->>WRK: Deliver task
+  WRK->>PG: Read alert + planned pointings
+  WRK->>LSDB: Gaia crossmatch (cone/patch constrained)
+  WRK->>PG: UPSERT gaia_matches
+  NOT->>PG: Watch for new matches
+  NOT->>LSSTRET: Send match update (TBD)
+  NOT->>PG: Record notifications state
 
   loop Every N minutes
     SCH->>PG: Refresh planned_pointings from HEROIC API
@@ -189,6 +224,62 @@ Key HEROIC notes:
 - HEROIC refreshes planned pointings periodically (commonly every ~10 minutes) by deleting old planned pointings and inserting the refreshed set.
 
 The schedule ingest worker should mirror this behavior in our Postgres table so workers always query a current set of “planned future pointings.”
+
+### 4.5 Lasair → Ingest
+
+Lasair delivers alerts via **Apache Kafka** using the `lasair` PyPI package (which wraps `confluent_kafka`).
+
+**Connection**:
+- Kafka server: `kafka.lsst.ac.uk:9092`
+- Python package: `lasair` (installs `confluent_kafka` as a dependency)
+
+**Consuming alerts**:
+
+```python
+# brokers/lasair/ingest.py
+import json
+from lasair import lasair_consumer
+
+consumer = lasair_consumer(
+    kafka_server=settings.LASAIR_KAFKA_SERVER,   # kafka.lsst.ac.uk:9092
+    group_id=settings.LASAIR_GROUP_ID,           # stable string in production
+    topic=settings.LASAIR_TOPIC,                 # lasair_{uid}_{filter_name}
+)
+while True:
+    msg = consumer.poll(timeout=20)
+    if msg:
+        alert = json.loads(msg.value())
+        handle_alert(alert)
+```
+
+**Topic naming**: Topics follow the pattern `lasair_{user_id}_{sanitised_filter_name}`
+(e.g., `lasair_42_high-snr-transients`). Topics are created via the Lasair web UI when
+a streaming filter is saved. The topic name changes if the filter is renamed.
+
+**GroupID semantics**:
+- Keep the GroupID **constant in production** — Kafka uses it to track the consumer's
+  read position and delivers each message exactly once, resuming after restarts.
+- Change the GroupID in development/testing to replay all cached alerts (last ~7 days
+  retained by the Kafka server).
+
+**Authentication**: The mechanism for `lasair_consumer` Kafka access is **TBD** — the
+public documentation does not explicitly state whether SASL credentials are required.
+The Lasair REST API uses a bearer token (`lasair_client(token=...)`), but the Kafka
+consumer may be unauthenticated. **Confirm before implementation.**
+
+**Ingest requirements**:
+- Reconnect/resume semantics via the Kafka GroupID (automatic on restart with a stable GroupID).
+- Backpressure (limit concurrent DB writes; retry on DB unavailability).
+- Deduplication keyed by `lsst_diaObject_diaObjectId` (UPSERT handles this; alert_deliveries UNIQUE constraint prevents duplicate delivery rows).
+
+**Environment variables**:
+
+| Variable | Example | Notes |
+|---|---|---|
+| `LASAIR_KAFKA_SERVER` | `kafka.lsst.ac.uk:9092` | |
+| `LASAIR_TOPIC` | `lasair_42_high-snr-transients` | from Lasair web UI |
+| `LASAIR_GROUP_ID` | `scimma-crossmatch-prod` | stable in production |
+| `LASAIR_TOKEN` | `<api-token>` | REST API token (if needed for auth) |
 
 ### 4.4 Notifier → LSST (TBD)
 We define a stable internal interface so multiple outbound mechanisms can be swapped in later.
@@ -232,6 +323,26 @@ Indexes:
 - `INDEX(event_time)`
 - `INDEX(status)`
 - Optional: `GIN(payload)` if querying payload fields.
+
+#### 5.2.1b `alert_deliveries`
+Records each broker delivery separately. Allows tracking which broker(s) delivered a
+given alert, with per-broker metadata.
+
+| column | type | notes |
+|---|---|---|
+| id | BIGSERIAL PK | |
+| lsst_diaObject_diaObjectId | TEXT NOT NULL REFERENCES alerts(lsst_diaObject_diaObjectId) | |
+| broker | TEXT NOT NULL | `'antares'` or `'lasair'` |
+| broker_alert_id | TEXT NULL | broker-specific alert/event id if available |
+| delivered_at | TIMESTAMPTZ NOT NULL DEFAULT now() | time of this delivery |
+| raw_payload | JSONB NULL | broker-specific envelope/annotations (not the LSST payload, which lives in `alerts.payload`) |
+
+Constraints:
+- `UNIQUE(lsst_diaObject_diaObjectId, broker)` — one record per broker per alert; re-deliveries from the same broker are discarded with `ON CONFLICT DO NOTHING`.
+
+Indexes:
+- `INDEX(broker)`
+- `INDEX(delivered_at)`
 
 #### 5.2.2 `planned_pointings`
 Stores the *planned* Rubin pointings as exposed by the HEROIC API. This table is intentionally limited to the distilled fields that HEROIC persists (derived from the Rubin ObsLocTAP schedule) and then returns via its API.
@@ -336,10 +447,38 @@ Indexes:
 
 ### 5.3 Transaction Boundaries & Idempotency
 
-**Ingest service**
-- UPSERT into `alerts` keyed by `lsst_diaObject_diaObjectId`.
-- Create/UPSERT a `crossmatch_runs` row (queued).
-- Enqueue Celery task. If enqueue fails, keep DB state at `ingested` and retry enqueue.
+**Ingest service (atomic two-step pattern)**
+
+With ANTARES and Lasair ingest processes running concurrently, the following two-step
+pattern is safe and race-condition-free under concurrent access:
+
+```sql
+-- Step 1: attempt to create the canonical alert row
+INSERT INTO alerts (lsst_diaObject_diaObjectId, ra_deg, dec_deg, ...)
+VALUES (...)
+ON CONFLICT (lsst_diaObject_diaObjectId) DO NOTHING
+RETURNING id;
+-- Row returned → new alert → enqueue crossmatch_alert Celery task
+-- Nothing returned → alert already ingested by the other broker → skip enqueue
+```
+
+PostgreSQL guarantees exactly one `INSERT` wins under concurrent access, so exactly one
+ingest process enqueues the crossmatch task — even if both brokers deliver the same alert
+within milliseconds of each other.
+
+```sql
+-- Step 2: record the broker delivery (always; idempotent)
+INSERT INTO alert_deliveries (lsst_diaObject_diaObjectId, broker, broker_alert_id, raw_payload)
+VALUES (...)
+ON CONFLICT (lsst_diaObject_diaObjectId, broker) DO NOTHING;
+-- Re-deliveries from the same broker are silently discarded
+```
+
+Both steps should be executed in a single database transaction.
+
+Additionally:
+- Create/UPSERT a `crossmatch_runs` row (queued) when enqueuing.
+- If Celery enqueue fails, keep DB state at `ingested` and retry enqueue.
 
 **Crossmatch worker**
 - Mark `crossmatch_runs.state=running`, increment `attempts`.
@@ -483,10 +622,17 @@ alertmatch/
     models.py            # Django models for alerts/matches/pointings/notifications
     admin.py             # optional
     migrations/
-  antares/
+  brokers/
     __init__.py
-    ingest.py            # streaming client runner (invoked via management command)
-    normalize.py
+    normalize.py         # shared LSST field extraction (ra, dec, diaObjectId, ...)
+    antares/
+      __init__.py
+      ingest.py          # ANTARES StreamingClient runner (invoked via management command)
+      normalize.py       # ANTARES-specific annotation handling
+    lasair/
+      __init__.py
+      ingest.py          # lasair_consumer runner (invoked via management command)
+      normalize.py       # Lasair-specific annotation handling
   heroic/
     __init__.py
     client.py
@@ -508,6 +654,7 @@ alertmatch/
   management/
     commands/
       run_antares_ingest.py
+      run_lasair_ingest.py   # Lasair Kafka consumer loop
       run_notifier.py
       sync_pointings.py
 ```
@@ -515,7 +662,8 @@ alertmatch/
 ### 8.3 Key processes (containers)
 We will run the long-lived processes as Django management commands (so they share settings, logging, ORM initialization, and consistent configuration).
 
-- **Ingest service**: `python manage.py run_antares_ingest`
+- **ANTARES ingest service**: `python manage.py run_antares_ingest`
+- **Lasair ingest service**: `python manage.py run_lasair_ingest`
 - **Celery worker(s)** (crossmatch): `celery -A alertmatch.tasks.celery_app worker -Q crossmatch -l INFO`
 - **Celery beat** (optional) for periodic schedule refresh: `celery -A alertmatch.tasks.celery_app beat`
 - **Schedule sync worker** (alternative to beat): `python manage.py sync_pointings --loop`
@@ -542,7 +690,8 @@ The schedule task should:
 ### 9.1 Kubernetes
 
 Deployments (recommended):
-- `ingest` Deployment (1–N replicas; typically 1 unless ANTARES supports fan-out)
+- `ingest` Deployment (1–N replicas; ANTARES Kafka consumer)
+- `lasair-ingest` Deployment (1 replica; Lasair Kafka consumer)
 - `worker-crossmatch` Deployment (N replicas)
 - `notifier` Deployment (1–2 replicas)
 - `schedule-sync` (either Celery Beat or dedicated worker)
@@ -579,12 +728,16 @@ Environment variables (examples):
 - `HEROIC_BASE_URL=https://<heroic>/api`
 - `GAIA_HATS_URL=https://...` or `s3://...`
 - `MATCH_RADIUS_ARCSEC=...`
+- `LASAIR_KAFKA_SERVER=kafka.lsst.ac.uk:9092`
+- `LASAIR_TOPIC=lasair_<uid>_<filter-name>`
+- `LASAIR_GROUP_ID=scimma-crossmatch-prod`
 
 Secrets:
 - DB password
 - ANTARES credentials
 - HEROIC credentials (if required)
 - LSST return credentials (future)
+- `LASAIR_TOKEN` — Lasair REST API token (if required for Kafka auth; TBD)
 
 #### 9.1.4 Health checks
 - Ingest: readiness requires DB connectivity and successful ANTARES client init.
@@ -621,7 +774,11 @@ Notes:
 2. **ANTARES topic and auth**: exact configuration fields for `StreamingClient` (topic name, resume semantics).
 3. **Match radius and columns**: what initial radius (arcsec) and which Gaia columns are needed in `gaia_payload`.
 4. **Planned footprint gating**: do we skip crossmatch if alert is outside planned pointings, or just annotate?
-6. **HEROIC API details**: exact endpoint path(s), pagination, auth, and any query params we can use for planned pointings.
+5. **HEROIC API details**: exact endpoint path(s), pagination, auth, and any query params we can use for planned pointings.
+6. **Lasair Kafka auth**: does `lasair_consumer` require SASL credentials for `kafka.lsst.ac.uk:9092`? If so, what format (SASL/PLAIN? API token as SASL password)?
+7. **Lasair filter/topic**: what filter criteria should the Lasair filter implement? Should it mirror the ANTARES criteria (SNR > 10, no dipole, no artifacts)? The filter must be created on the Lasair web UI before a topic is available.
+8. **Lasair alert schema**: what is the full JSON schema of a Lasair alert? Lasair uses `objectId` as the top-level key — confirm this is always identical to `lsst_diaObject_diaObjectId`. Confirm which field maps to LSST positional fields (RA/Dec).
+9. **Lasair annotations to store**: which Lasair-side fields (Sherlock cross-matches, classification scores, etc.) should be preserved in `alert_deliveries.raw_payload`?
 
 ---
 
