@@ -48,7 +48,33 @@ class Alert(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['status']),
+            models.Index(fields=['status'], name='core_alert_status_idx'),
+        ]
+
+
+class AlertDelivery(models.Model):
+    """One row per broker per alert — idempotency gate for multi-broker ingest (§5.2.1b)."""
+    id = models.BigAutoField(primary_key=True)
+    alert = models.ForeignKey(
+        Alert,
+        to_field='lsst_diaObject_diaObjectId',
+        on_delete=models.CASCADE,
+        db_column='lsst_diaObject_diaObjectId',
+    )
+    # 'antares' | 'lasair'
+    broker = models.TextField(null=False)
+    ingest_time = models.DateTimeField(null=False, auto_now_add=True)
+
+    class Meta:
+        db_table = 'alert_deliveries'
+        indexes = [
+            models.Index(fields=['alert'], name='core_ad_alert_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['alert', 'broker'],
+                name='unique_alert_delivery',
+            )
         ]
 
 
@@ -71,12 +97,13 @@ class PlannedPointing(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['ingest_time']),
-            models.Index(fields=['t_min_mjd', 't_max_mjd']),
+            models.Index(fields=['ingest_time'], name='core_pp_ingest_time_idx'),
+            models.Index(fields=['t_min_mjd', 't_max_mjd'], name='core_pp_time_window_idx'),
         ]
 
 
-class GaiaMatch(models.Model):
+class CatalogMatch(models.Model):
+    """Crossmatch results for any HATS catalog (Gaia, DES, SkyMapper, PS1, etc.)."""
     id = models.BigAutoField(primary_key=True)
     alert = models.ForeignKey(
         Alert,
@@ -84,24 +111,29 @@ class GaiaMatch(models.Model):
         on_delete=models.CASCADE,
         db_column='lsst_diaObject_diaObjectId',
     )
-    gaia_source_id = models.BigIntegerField(null=False)
+    # e.g. 'gaia_dr3', 'des_dr2', 'ps1_dr2'
+    catalog_name = models.TextField(null=False)
+    # Source identifier in the named catalog (TEXT for universal compatibility)
+    catalog_source_id = models.TextField(null=False)
     match_distance_arcsec = models.FloatField(null=False)
     match_score = models.FloatField(null=True)
-    gaia_ra_deg = models.FloatField(null=True)
-    gaia_dec_deg = models.FloatField(null=True)
-    gaia_payload = models.JSONField(null=True)
+    source_ra_deg = models.FloatField(null=True)
+    source_dec_deg = models.FloatField(null=True)
+    catalog_payload = models.JSONField(null=True)
     match_version = models.IntegerField(null=False, default=1)
     created_at = models.DateTimeField(null=False, auto_now_add=True)
 
     class Meta:
+        db_table = 'catalog_matches'
         indexes = [
-            models.Index(fields=['alert']),
-            models.Index(fields=['gaia_source_id']),
+            models.Index(fields=['alert'], name='core_cm_alert_idx'),
+            models.Index(fields=['catalog_name'], name='core_cm_catalog_name_idx'),
+            models.Index(fields=['catalog_source_id'], name='core_cm_catalog_source_id_idx'),
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=['alert', 'gaia_source_id', 'match_version'],
-                name='unique_gaia_match',
+                fields=['alert', 'catalog_name', 'catalog_source_id', 'match_version'],
+                name='unique_catalog_match',
             )
         ]
 
@@ -136,8 +168,8 @@ class CrossmatchRun(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['alert']),
-            models.Index(fields=['state']),
+            models.Index(fields=['alert'], name='core_cmr_alert_idx'),
+            models.Index(fields=['state'], name='core_cmr_state_idx'),
         ]
 
 
@@ -154,10 +186,11 @@ class Notification(models.Model):
         on_delete=models.CASCADE,
         db_column='lsst_diaObject_diaObjectId',
     )
-    gaia_match = models.ForeignKey(
-        GaiaMatch,
+    catalog_match = models.ForeignKey(
+        CatalogMatch,
         on_delete=models.SET_NULL,
         null=True,
+        db_column='catalog_match_id',
     )
     destination = models.TextField(null=False)
     payload = models.JSONField(null=False)
@@ -174,6 +207,6 @@ class Notification(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['state']),
-            models.Index(fields=['alert']),
+            models.Index(fields=['state'], name='core_notif_state_idx'),
+            models.Index(fields=['alert'], name='core_notif_alert_idx'),
         ]

@@ -174,3 +174,45 @@ spec:
           {{- include "db.env" . | nindent 10 }}
           {{- include "valkey.env" . | nindent 10 }}
 {{- end }}
+
+{{- if .Values.lasair_consumer.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.lasair_consumer.service.host | quote }}
+  {{- with .Values.common.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.lasair_consumer.replicaCount }}
+  serviceName: {{ .Values.lasair_consumer.service.host | quote }}
+  selector:
+    matchLabels:
+      app: {{ .Values.lasair_consumer.service.host | quote }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.lasair_consumer.service.host | quote }}
+        app.kubernetes.io/component: lasair-consumer
+    spec:
+      containers:
+      - name: lasair-consumer
+        image: {{ .Values.common.image.repo }}:{{ .Values.common.image.tag }}
+        imagePullPolicy: {{ .Values.common.image.imagePullPolicy }}
+        command:
+        - /bin/bash
+        - -c
+        - bash entrypoints/run_lasair_ingest.sh
+        env:
+          {{- include "common.env" . | nindent 10 }}
+          {{- include "django.env" . | nindent 10 }}
+          {{- include "db.env" . | nindent 10 }}
+          {{- include "valkey.env" . | nindent 10 }}
+          {{- include "celery.env" . | nindent 10 }}
+        {{- with .Values.lasair_consumer.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+{{- end }}
