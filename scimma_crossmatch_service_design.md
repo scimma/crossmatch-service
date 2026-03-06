@@ -176,7 +176,7 @@ exactly once regardless of which broker delivers it first.
    - Load alert coordinates/time from DB
    - Optionally constrain search using planned pointings
    - Use LSDB to crossmatch with Gaia
-   - Write results to `gaia_matches`
+   - Write results to `catalog_matches`
 6. Notifier service:
    - Detect new match rows
    - Send an LSST update (TBD)
@@ -229,7 +229,7 @@ sequenceDiagram
   RED-->>WRK: Deliver task
   WRK->>PG: Read alert + planned pointings
   WRK->>LSDB: Gaia crossmatch (cone/patch constrained)
-  WRK->>PG: UPSERT gaia_matches
+  WRK->>PG: UPSERT catalog_matches
   NOT->>PG: Watch for new matches
   NOT->>LSSTRET: Send match update (TBD)
   NOT->>PG: Record notifications state
@@ -423,28 +423,32 @@ Constraints / indexes:
 Implementation note:
 - Workers should primarily filter pointings by time window (`t_min_mjd/t_max_mjd`) and then compute angular distance to `(s_ra_deg, s_dec_deg)` in Python using `radius_deg` (no PostGIS required for v1).
 
-#### 5.2.3 `gaia_matches`
-Stores match outputs.
+#### 5.2.3 `catalog_matches`
+Stores match outputs for all catalog crossmatches (Gaia, DES, SkyMapper, etc.).
 
 | column | type | notes |
 |---|---|---|
 | id | BIGSERIAL PK | |
 | lsst_diaObject_diaObjectId | TEXT NOT NULL REFERENCES alerts(lsst_diaObject_diaObjectId) | |
-| gaia_source_id | BIGINT NOT NULL | Gaia source identifier |
+| catalog_name | TEXT NOT NULL | e.g., `'gaia_dr3'`, `'des_dr2'`, `'ps1_dr2'` |
+| catalog_source_id | TEXT NOT NULL | Source identifier in the named catalog |
 | match_distance_arcsec | DOUBLE PRECISION NOT NULL | angular separation |
 | match_score | DOUBLE PRECISION NULL | optional scoring |
-| gaia_ra_deg | DOUBLE PRECISION NULL | cached Gaia position (optional) |
-| gaia_dec_deg | DOUBLE PRECISION NULL | |
-| gaia_payload | JSONB NULL | optional Gaia columns |
+| source_ra_deg | DOUBLE PRECISION NULL | cached source position (optional) |
+| source_dec_deg | DOUBLE PRECISION NULL | |
+| catalog_payload | JSONB NULL | catalog-specific columns (e.g., parallax, mag) |
 | match_version | INTEGER NOT NULL DEFAULT 1 | algorithm versioning |
 | created_at | TIMESTAMPTZ NOT NULL DEFAULT now() | |
 
 Constraints:
-- `UNIQUE(lsst_diaObject_diaObjectId, gaia_source_id, match_version)`
+- `UNIQUE(lsst_diaObject_diaObjectId, catalog_name, catalog_source_id, match_version)`
 
 Indexes:
 - `INDEX(lsst_diaObject_diaObjectId)`
-- `INDEX(gaia_source_id)`
+- `INDEX(catalog_name)`
+- `INDEX(catalog_source_id)`
+
+> **Note on `catalog_source_id` type:** Gaia uses 64-bit integer IDs, but DES, PS1, and SkyMapper also use numeric IDs in different formats. Storing as TEXT is universally compatible without data loss.
 
 #### 5.2.4 `crossmatch_runs`
 Optional: tracks worker execution attempts for auditing and retries (recommended when using Celery).
@@ -473,7 +477,7 @@ Tracks outbound updates to LSST.
 |---|---|---|
 | id | BIGSERIAL PK | |
 | lsst_diaObject_diaObjectId | TEXT NOT NULL REFERENCES alerts(lsst_diaObject_diaObjectId) | |
-| gaia_match_id | BIGINT NULL REFERENCES gaia_matches(id) | nullable if aggregated |
+| catalog_match_id | BIGINT NULL REFERENCES catalog_matches(id) | nullable if aggregated |
 | destination | TEXT NOT NULL | e.g., lsst-http, kafka-topic |
 | payload | JSONB NOT NULL | what we attempted to send |
 | state | TEXT NOT NULL DEFAULT 'pending' | pending, sent, failed |
@@ -624,7 +628,32 @@ This combined filtering minimizes the Gaia HATS data that must be read and proce
 - Recommended config:
   - `MATCH_RADIUS_ARCSEC` (e.g., 1.0–2.0 arcsec initially)
   - `N_NEIGHBORS=1`
-- Tie-breaking: smallest separation; if equal, lowest Gaia source id.
+- Tie-breaking: smallest separation; if equal, lowest source id.
+
+### 7.4 Planned Expansion to Additional Catalogs
+
+After the Gaia crossmatching workflow is fully operational and validated, the system will extend to additional large-area survey catalogs:
+
+- **Dark Energy Survey (DES)**
+- **DECam Local Volume Exploration Survey (DELVE)**
+- **SkyMapper**
+- **Pan-STARRS1 (PS1)**
+
+Motivation:
+- Deeper and complementary photometric coverage beyond Gaia.
+- Improved counterpart identification for faint extragalactic or transient sources.
+- Richer annotation of LSST alerts with multi-survey context.
+
+The architectural design already supports this:
+- LSDB provides a uniform interface for HATS-formatted catalogs.
+- Crossmatch logic is encapsulated in Celery tasks and matching modules.
+- The `catalog_matches` table (see §5.2.3) uses a `catalog_name` column to store results from any catalog in a single table.
+
+When additional catalogs are introduced, anticipated changes:
+- Adding separate LSDB catalog URL configs (e.g., `DES_HATS_URL`, `PS1_HATS_URL`).
+- Extending the matching layer to support per-catalog matching policies.
+- Adding per-catalog env vars following the pattern `{CATALOG}_HATS_URL`.
+- No changes to the core ingestion, queueing, or deployment architecture.
 
 ---
 
@@ -820,7 +849,7 @@ Notes:
 
 1. **LSST return channel**: what mechanism do we implement first (HTTP endpoint? Kafka? Rubin-specific API)?
 2. **ANTARES topic and auth**: exact configuration fields for `StreamingClient` (topic name, resume semantics).
-3. **Match radius and columns**: what initial radius (arcsec) and which Gaia columns are needed in `gaia_payload`.
+3. **Match radius and columns**: what initial radius (arcsec) and which Gaia columns are needed in `catalog_payload`.
 4. **Planned footprint gating**: do we skip crossmatch if alert is outside planned pointings, or just annotate?
 5. **HEROIC API details**: exact endpoint path(s), pagination, auth, and any query params we can use for planned pointings.
 6. ~~**Lasair Kafka auth**~~ — **Resolved**: `lasair_consumer` connects to `kafka.lsst.ac.uk:9092` without credentials. No SASL config or token required for the ingest path.
