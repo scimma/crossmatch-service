@@ -272,7 +272,7 @@ The schedule ingest worker should mirror this behavior in our Postgres table so 
 Lasair delivers alerts via **Apache Kafka** using the `lasair` PyPI package (which wraps `confluent_kafka`).
 
 **Connection**:
-- Kafka server: `kafka.lsst.ac.uk:9092`
+- Kafka server: `lasair-lsst-kafka.lsst.ac.uk:9092`
 - Python package: `lasair` (installs `confluent_kafka` as a dependency)
 
 **Consuming alerts**:
@@ -283,7 +283,7 @@ import json
 from lasair import lasair_consumer
 
 consumer = lasair_consumer(
-    kafka_server=settings.LASAIR_KAFKA_SERVER,   # kafka.lsst.ac.uk:9092
+    kafka_server=settings.LASAIR_KAFKA_SERVER,   # lasair-lsst-kafka.lsst.ac.uk:9092
     group_id=settings.LASAIR_GROUP_ID,           # stable string in production
     topic=settings.LASAIR_TOPIC,                 # lasair_{uid}_{filter_name}
 )
@@ -304,7 +304,7 @@ a streaming filter is saved. The topic name changes if the filter is renamed.
 - Change the GroupID in development/testing to replay all cached alerts (last ~7 days
   retained by the Kafka server).
 
-**Authentication**: `lasair_consumer` connects to `kafka.lsst.ac.uk:9092`
+**Authentication**: `lasair_consumer` connects to `lasair-lsst-kafka.lsst.ac.uk:9092`
 **without any credentials** — no SASL username/password and no bearer token are
 required. The Lasair REST API uses a bearer token (`lasair_client(token=...)`),
 but this is not needed for the Kafka consumer ingest path.
@@ -318,7 +318,7 @@ but this is not needed for the Kafka consumer ingest path.
 
 | Variable | Example | Notes |
 |---|---|---|
-| `LASAIR_KAFKA_SERVER` | `kafka.lsst.ac.uk:9092` | |
+| `LASAIR_KAFKA_SERVER` | `lasair-lsst-kafka.lsst.ac.uk:9092` | |
 | `LASAIR_TOPIC` | `lasair_366SCiMMA_reliability_moderate` | created on Lasair web UI |
 | `LASAIR_GROUP_ID` | `scimma-crossmatch-prod` | stable in production |
 | `LASAIR_TOKEN` | `<api-token>` | REST API token (if needed for auth) |
@@ -806,7 +806,7 @@ Environment variables (examples):
 - `HEROIC_BASE_URL=https://<heroic>/api`
 - `GAIA_HATS_URL=https://...` or `s3://...`
 - `MATCH_RADIUS_ARCSEC=...`
-- `LASAIR_KAFKA_SERVER=kafka.lsst.ac.uk:9092`
+- `LASAIR_KAFKA_SERVER=lasair-lsst-kafka.lsst.ac.uk:9092`
 - `LASAIR_TOPIC=lasair_<uid>_<filter-name>`
 - `LASAIR_GROUP_ID=scimma-crossmatch-prod`
 
@@ -852,7 +852,7 @@ Notes:
 3. **Match radius and columns**: what initial radius (arcsec) and which Gaia columns are needed in `catalog_payload`.
 4. **Planned footprint gating**: do we skip crossmatch if alert is outside planned pointings, or just annotate?
 5. **HEROIC API details**: exact endpoint path(s), pagination, auth, and any query params we can use for planned pointings.
-6. ~~**Lasair Kafka auth**~~ — **Resolved**: `lasair_consumer` connects to `kafka.lsst.ac.uk:9092` without credentials. No SASL config or token required for the ingest path.
+6. ~~**Lasair Kafka auth**~~ — **Resolved**: `lasair_consumer` connects to `lasair-lsst-kafka.lsst.ac.uk:9092` without credentials. No SASL config or token required for the ingest path.
 7. ~~**Lasair filter/topic**~~ — **Resolved**: filter `reliability_moderate` created on Lasair web UI; topic `lasair_366SCiMMA_reliability_moderate`. Criteria: `latestR > 0.7` AND `nDiaSources >= 1` AND last detection within 1 day. See §2.1 B2 for full SQL.
 8. **Lasair alert schema**: what is the full JSON schema of a Lasair alert? Lasair uses `objectId` as the top-level key — confirm this is always identical to `lsst_diaObject_diaObjectId`. Confirm which field maps to LSST positional fields (RA/Dec).
 9. **Lasair annotations to store**: which Lasair-side fields (Sherlock cross-matches, classification scores, etc.) should be preserved in `alert_deliveries.raw_payload`?

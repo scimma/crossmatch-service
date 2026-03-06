@@ -12,7 +12,7 @@ Design document updates to close two open questions in
 `scimma_crossmatch_service_design.md`:
 
 1. **Kafka authentication** (§4.5, §9.1.3, §10 question #6): confirm that
-   `lasair_consumer` requires no credentials for `kafka.lsst.ac.uk:9092`.
+   `lasair_consumer` requires no credentials for `lasair-lsst-kafka.lsst.ac.uk:9092`.
 2. **Lasair filter criteria** (§2.1 B2, §4.5, §10 question #7): document the
    actual filter SQL, the `latestR` ML score, and the concrete Kafka topic name.
 
@@ -25,7 +25,7 @@ exploration and online research. No code changes are implied.
 
 ### 1. Kafka authentication: none required
 
-`lasair_consumer` connects to `kafka.lsst.ac.uk:9092` without any credentials.
+`lasair_consumer` connects to `lasair-lsst-kafka.lsst.ac.uk:9092` without any credentials.
 No SASL username/password and no bearer token are passed to the Kafka consumer.
 
 **Implications for the design document:**

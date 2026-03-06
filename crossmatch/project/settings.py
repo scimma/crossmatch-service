@@ -109,6 +109,17 @@ CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", "3800"))
 CELERY_TASK_TRACK_STARTED = True
 
 ######################################################################
+# Lasair Kafka consumer
+#
+_lasair_group_id = os.environ.get('LASAIR_GROUP_ID', '')
+if not _lasair_group_id:
+    import time as _time
+    _lasair_group_id = f'scimma-crossmatch-dev-{int(_time.time())}'
+LASAIR_KAFKA_SERVER = os.environ.get('LASAIR_KAFKA_SERVER', 'lasair-lsst-kafka.lsst.ac.uk:9092')
+LASAIR_TOPIC = os.environ.get('LASAIR_TOPIC', 'lasair_366SCiMMA_reliability_moderate')
+LASAIR_GROUP_ID = _lasair_group_id
+
+######################################################################
 # Database
 #
 DATABASES = {

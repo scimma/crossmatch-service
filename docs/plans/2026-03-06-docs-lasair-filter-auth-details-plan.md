@@ -13,7 +13,7 @@ Update `scimma_crossmatch_service_design.md` to close two open questions with
 first-hand information from a live Lasair account:
 
 1. **Kafka authentication** — `lasair_consumer` requires no credentials for
-   `kafka.lsst.ac.uk:9092`. Replace all "TBD" auth text and remove
+   `lasair-lsst-kafka.lsst.ac.uk:9092`. Replace all "TBD" auth text and remove
    `LASAIR_TOKEN` from the ingest deployment secrets.
 2. **Lasair filter criteria** — A filter named `reliability_moderate` has been
    created on the Lasair web UI. Document the full SQL, field explanations,
@@ -101,7 +101,7 @@ consumer may be unauthenticated. **Confirm before implementation.**
 
 **Replacement:**
 ```markdown
-**Authentication**: `lasair_consumer` connects to `kafka.lsst.ac.uk:9092`
+**Authentication**: `lasair_consumer` connects to `lasair-lsst-kafka.lsst.ac.uk:9092`
 **without any credentials** — no SASL username/password and no bearer token are
 required. The Lasair REST API uses a bearer token (`lasair_client(token=...)`),
 but this is not used by the Kafka consumer and is not needed for the ingest path.
@@ -147,7 +147,7 @@ separate concern not part of the ingest path.
 Replace with:
 ```
 6. ~~**Lasair Kafka auth**~~ — **Resolved**: `lasair_consumer` connects to
-   `kafka.lsst.ac.uk:9092` without credentials. No SASL config or token needed.
+   `lasair-lsst-kafka.lsst.ac.uk:9092` without credentials. No SASL config or token needed.
 ```
 
 **Question #7** (Lasair filter/topic):
