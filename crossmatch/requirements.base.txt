@@ -1,9 +1,14 @@
+astropy
 django
 django_celery_results
 django-celery-beat
 django-tables2
 flower
-psycopg2-binary
-redis  # TODO: Replace with https://pypi.org/project/valkey/ ?
+httpx
+lsdb
+prometheus-client
+psycopg[binary]
+redis
 structlog
+valkey
 watchdog

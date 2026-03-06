@@ -12,9 +12,24 @@ common:
 alert_consumer:
   enabled: true
   replicaCount: 3
+  service:
+    host: "alert-consumer"
   app_root_dir: /opt
   django_debug: "false"
   log_level: "WARNING"
+  resources:
+    requests:
+      cpu: '500m'
+      memory: 100Mi
+    limits:
+      cpu: '2'
+      memory: 2Gi
+
+lasair_consumer:
+  enabled: false        # disabled until real Lasair integration is implemented
+  replicaCount: 1
+  service:
+    host: "lasair-consumer"
   resources:
     requests:
       cpu: '500m'
