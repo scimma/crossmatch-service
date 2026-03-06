@@ -116,8 +116,8 @@ WHERE objects.nDiaSources >= 1
 **Filter criteria semantics:**
 - `nDiaSources >= 1` — any object with at least one detection. Minimal gate;
   the `latestR` threshold handles quality filtering.
-- `latestR > 0.7` — Lasair's ML Real/Bogus score above 0.7. This is a
-  Lasair-computed score that acts as a single proxy for the many individual
+- `latestR > 0.7` — LSST ML Real/Bogus score above 0.7. This is taken from the
+  LSST alert reliability value that acts as a single proxy for the many individual
   artifact flags used by the ANTARES filter (dipole, streak, saturation, edge,
   cosmic ray). The filter name `reliability_moderate` reflects this threshold.
 - `lastDiaSourceMjdTai` within 1 day — only recent/active transients are
