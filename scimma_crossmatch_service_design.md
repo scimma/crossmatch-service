@@ -373,7 +373,7 @@ given alert, with per-broker metadata.
 | column | type | notes |
 |---|---|---|
 | id | BIGSERIAL PK | |
-| lsst_diaobject_diaobjectid | TEXT NOT NULL REFERENCES alerts(lsst_diaobject_diaobjectid) | |
+| lsst_diaobject_diaobjectid | BIGINT NOT NULL REFERENCES alerts(lsst_diaobject_diaobjectid) | |
 | broker | TEXT NOT NULL | `'antares'` or `'lasair'` |
 | broker_alert_id | TEXT NULL | broker-specific alert/event id if available |
 | delivered_at | TIMESTAMPTZ NOT NULL DEFAULT now() | time of this delivery |
@@ -429,7 +429,7 @@ Stores match outputs for all catalog crossmatches (Gaia, DES, SkyMapper, etc.).
 | column | type | notes |
 |---|---|---|
 | id | BIGSERIAL PK | |
-| lsst_diaobject_diaobjectid | TEXT NOT NULL REFERENCES alerts(lsst_diaobject_diaobjectid) | |
+| lsst_diaobject_diaobjectid | BIGINT NOT NULL REFERENCES alerts(lsst_diaobject_diaobjectid) | |
 | catalog_name | TEXT NOT NULL | e.g., `'gaia_dr3'`, `'des_dr2'`, `'ps1_dr2'` |
 | catalog_source_id | TEXT NOT NULL | Source identifier in the named catalog |
 | match_distance_arcsec | DOUBLE PRECISION NOT NULL | angular separation |
@@ -456,7 +456,7 @@ Optional: tracks worker execution attempts for auditing and retries (recommended
 | column | type | notes |
 |---|---|---|
 | id | BIGSERIAL PK | |
-| lsst_diaobject_diaobjectid | TEXT NOT NULL REFERENCES alerts(lsst_diaobject_diaobjectid) | |
+| lsst_diaobject_diaobjectid | BIGINT NOT NULL REFERENCES alerts(lsst_diaobject_diaobjectid) | |
 | match_version | INTEGER NOT NULL DEFAULT 1 | |
 | celery_task_id | TEXT NULL | for correlation |
 | state | TEXT NOT NULL DEFAULT 'queued' | queued, running, succeeded, failed |
@@ -476,7 +476,7 @@ Tracks outbound updates to LSST.
 | column | type | notes |
 |---|---|---|
 | id | BIGSERIAL PK | |
-| lsst_diaobject_diaobjectid | TEXT NOT NULL REFERENCES alerts(lsst_diaobject_diaobjectid) | |
+| lsst_diaobject_diaobjectid | BIGINT NOT NULL REFERENCES alerts(lsst_diaobject_diaobjectid) | |
 | catalog_match_id | BIGINT NULL REFERENCES catalog_matches(id) | nullable if aggregated |
 | destination | TEXT NOT NULL | e.g., lsst-http, kafka-topic |
 | payload | JSONB NOT NULL | what we attempted to send |
