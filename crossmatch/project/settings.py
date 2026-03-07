@@ -125,7 +125,7 @@ LASAIR_GROUP_ID = _lasair_group_id
 DATABASES = {
     'default': {
         'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
-        'NAME': os.getenv('DATABASE_DB', 'postgres'),
+        'NAME': os.getenv('DATABASE_DB', 'scimma_crossmatch_service'),
         'USER': os.getenv('DATABASE_USER', 'postgres'),
         'PASSWORD': os.getenv('DATABASE_PASSWORD', 'postgres'),
         'HOST': os.getenv('DATABASE_HOST', '127.0.0.1'),
