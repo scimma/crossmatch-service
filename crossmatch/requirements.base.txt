@@ -1,5 +1,5 @@
 astropy
-django
+django>=6.0,<6.1
 django_celery_results
 django-celery-beat
 django-tables2
