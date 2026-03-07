@@ -21,8 +21,8 @@ class Migration(migrations.Migration):
                     primary_key=True,
                     serialize=False,
                 )),
-                ('lsst_diaObject_diaObjectId', models.TextField(unique=True)),
-                ('lsst_diaSource_diaSourceId', models.TextField(null=True)),
+                ('lsst_diaObject_diaObjectId', models.TextField(unique=True, db_column='lsst_diaobject_diaobjectid')),
+                ('lsst_diaSource_diaSourceId', models.TextField(null=True, db_column='lsst_diasource_diasourceid')),
                 ('ra_deg', models.FloatField()),
                 ('dec_deg', models.FloatField()),
                 ('event_time', models.DateTimeField()),
@@ -51,7 +51,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(primary_key=True, serialize=False)),
                 ('alert', models.ForeignKey(
-                    db_column='lsst_diaObject_diaObjectId',
+                    db_column='lsst_diaobject_diaobjectid',
                     on_delete=django.db.models.deletion.CASCADE,
                     to='core.alert',
                     to_field='lsst_diaObject_diaObjectId',
@@ -111,7 +111,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(primary_key=True, serialize=False)),
                 ('alert', models.ForeignKey(
-                    db_column='lsst_diaObject_diaObjectId',
+                    db_column='lsst_diaobject_diaobjectid',
                     on_delete=django.db.models.deletion.CASCADE,
                     to='core.alert',
                     to_field='lsst_diaObject_diaObjectId',
@@ -156,7 +156,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(primary_key=True, serialize=False)),
                 ('alert', models.ForeignKey(
-                    db_column='lsst_diaObject_diaObjectId',
+                    db_column='lsst_diaobject_diaobjectid',
                     on_delete=django.db.models.deletion.CASCADE,
                     to='core.alert',
                     to_field='lsst_diaObject_diaObjectId',
@@ -195,7 +195,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(primary_key=True, serialize=False)),
                 ('alert', models.ForeignKey(
-                    db_column='lsst_diaObject_diaObjectId',
+                    db_column='lsst_diaobject_diaobjectid',
                     on_delete=django.db.models.deletion.CASCADE,
                     to='core.alert',
                     to_field='lsst_diaObject_diaObjectId',

@@ -350,8 +350,8 @@ Stores raw alerts and normalized fields.
 | column | type | notes |
 |---|---|---|
 | id | BIGSERIAL PK | internal |
-| lsst_diaObject_diaObjectId | TEXT UNIQUE NOT NULL | stable identifier from alert |
-| lsst_diaSource_diaSourceId | TEXT NULL | candidate identifier |
+| lsst_diaobject_diaobjectid | TEXT UNIQUE NOT NULL | stable identifier from alert |
+| lsst_diasource_diasourceid | TEXT NULL | candidate identifier |
 | ra_deg | DOUBLE PRECISION NOT NULL | normalized |
 | dec_deg | DOUBLE PRECISION NOT NULL | normalized |
 | event_time | TIMESTAMPTZ NOT NULL | candidate/observation time |
@@ -361,7 +361,7 @@ Stores raw alerts and normalized fields.
 | status | TEXT NOT NULL DEFAULT 'ingested' | ingested, queued, matched, notified |
 
 Indexes:
-- `UNIQUE(lsst_diaObject_diaObjectId)`
+- `UNIQUE(lsst_diaobject_diaobjectid)`
 - `INDEX(event_time)`
 - `INDEX(status)`
 - Optional: `GIN(payload)` if querying payload fields.
@@ -373,14 +373,14 @@ given alert, with per-broker metadata.
 | column | type | notes |
 |---|---|---|
 | id | BIGSERIAL PK | |
-| lsst_diaObject_diaObjectId | TEXT NOT NULL REFERENCES alerts(lsst_diaObject_diaObjectId) | |
+| lsst_diaobject_diaobjectid | TEXT NOT NULL REFERENCES alerts(lsst_diaobject_diaobjectid) | |
 | broker | TEXT NOT NULL | `'antares'` or `'lasair'` |
 | broker_alert_id | TEXT NULL | broker-specific alert/event id if available |
 | delivered_at | TIMESTAMPTZ NOT NULL DEFAULT now() | time of this delivery |
 | raw_payload | JSONB NULL | broker-specific envelope/annotations (not the LSST payload, which lives in `alerts.payload`) |
 
 Constraints:
-- `UNIQUE(lsst_diaObject_diaObjectId, broker)` — one record per broker per alert; re-deliveries from the same broker are discarded with `ON CONFLICT DO NOTHING`.
+- `UNIQUE(lsst_diaobject_diaobjectid, broker)` — one record per broker per alert; re-deliveries from the same broker are discarded with `ON CONFLICT DO NOTHING`.
 
 Indexes:
 - `INDEX(broker)`
@@ -429,7 +429,7 @@ Stores match outputs for all catalog crossmatches (Gaia, DES, SkyMapper, etc.).
 | column | type | notes |
 |---|---|---|
 | id | BIGSERIAL PK | |
-| lsst_diaObject_diaObjectId | TEXT NOT NULL REFERENCES alerts(lsst_diaObject_diaObjectId) | |
+| lsst_diaobject_diaobjectid | TEXT NOT NULL REFERENCES alerts(lsst_diaobject_diaobjectid) | |
 | catalog_name | TEXT NOT NULL | e.g., `'gaia_dr3'`, `'des_dr2'`, `'ps1_dr2'` |
 | catalog_source_id | TEXT NOT NULL | Source identifier in the named catalog |
 | match_distance_arcsec | DOUBLE PRECISION NOT NULL | angular separation |
@@ -441,10 +441,10 @@ Stores match outputs for all catalog crossmatches (Gaia, DES, SkyMapper, etc.).
 | created_at | TIMESTAMPTZ NOT NULL DEFAULT now() | |
 
 Constraints:
-- `UNIQUE(lsst_diaObject_diaObjectId, catalog_name, catalog_source_id, match_version)`
+- `UNIQUE(lsst_diaobject_diaobjectid, catalog_name, catalog_source_id, match_version)`
 
 Indexes:
-- `INDEX(lsst_diaObject_diaObjectId)`
+- `INDEX(lsst_diaobject_diaobjectid)`
 - `INDEX(catalog_name)`
 - `INDEX(catalog_source_id)`
 
@@ -456,7 +456,7 @@ Optional: tracks worker execution attempts for auditing and retries (recommended
 | column | type | notes |
 |---|---|---|
 | id | BIGSERIAL PK | |
-| lsst_diaObject_diaObjectId | TEXT NOT NULL REFERENCES alerts(lsst_diaObject_diaObjectId) | |
+| lsst_diaobject_diaobjectid | TEXT NOT NULL REFERENCES alerts(lsst_diaobject_diaobjectid) | |
 | match_version | INTEGER NOT NULL DEFAULT 1 | |
 | celery_task_id | TEXT NULL | for correlation |
 | state | TEXT NOT NULL DEFAULT 'queued' | queued, running, succeeded, failed |
@@ -468,7 +468,7 @@ Optional: tracks worker execution attempts for auditing and retries (recommended
 | updated_at | TIMESTAMPTZ NOT NULL DEFAULT now() | |
 
 Constraints:
-- Optional: `UNIQUE(lsst_diaObject_diaObjectId, match_version)` if we only want one canonical run per version.
+- Optional: `UNIQUE(lsst_diaobject_diaobjectid, match_version)` if we only want one canonical run per version.
 
 #### 5.2.5 `notifications`
 Tracks outbound updates to LSST.
@@ -476,7 +476,7 @@ Tracks outbound updates to LSST.
 | column | type | notes |
 |---|---|---|
 | id | BIGSERIAL PK | |
-| lsst_diaObject_diaObjectId | TEXT NOT NULL REFERENCES alerts(lsst_diaObject_diaObjectId) | |
+| lsst_diaobject_diaobjectid | TEXT NOT NULL REFERENCES alerts(lsst_diaobject_diaobjectid) | |
 | catalog_match_id | BIGINT NULL REFERENCES catalog_matches(id) | nullable if aggregated |
 | destination | TEXT NOT NULL | e.g., lsst-http, kafka-topic |
 | payload | JSONB NOT NULL | what we attempted to send |
@@ -489,7 +489,7 @@ Tracks outbound updates to LSST.
 
 Indexes:
 - `INDEX(state)`
-- `INDEX(lsst_diaObject_diaObjectId)`
+- `INDEX(lsst_diaobject_diaobjectid)`
 
 ### 5.3 Transaction Boundaries & Idempotency
 
@@ -500,9 +500,9 @@ pattern is safe and race-condition-free under concurrent access:
 
 ```sql
 -- Step 1: attempt to create the canonical alert row
-INSERT INTO alerts (lsst_diaObject_diaObjectId, ra_deg, dec_deg, ...)
+INSERT INTO alerts (lsst_diaobject_diaobjectid, ra_deg, dec_deg, ...)
 VALUES (...)
-ON CONFLICT (lsst_diaObject_diaObjectId) DO NOTHING
+ON CONFLICT (lsst_diaobject_diaobjectid) DO NOTHING
 RETURNING id;
 -- Row returned → new alert → enqueue crossmatch_alert Celery task
 -- Nothing returned → alert already ingested by the other broker → skip enqueue
@@ -514,9 +514,9 @@ within milliseconds of each other.
 
 ```sql
 -- Step 2: record the broker delivery (always; idempotent)
-INSERT INTO alert_deliveries (lsst_diaObject_diaObjectId, broker, broker_alert_id, raw_payload)
+INSERT INTO alert_deliveries (lsst_diaobject_diaobjectid, broker, broker_alert_id, raw_payload)
 VALUES (...)
-ON CONFLICT (lsst_diaObject_diaObjectId, broker) DO NOTHING;
+ON CONFLICT (lsst_diaobject_diaobjectid, broker) DO NOTHING;
 -- Re-deliveries from the same broker are silently discarded
 ```
 

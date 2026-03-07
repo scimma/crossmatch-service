@@ -24,9 +24,9 @@ class Alert(models.Model):
         primary_key=True
     )
     # TEXT UNIQUE NOT NULL    stable identifier from alert
-    lsst_diaObject_diaObjectId = models.TextField(unique=True, null=False)
+    lsst_diaObject_diaObjectId = models.TextField(unique=True, null=False, db_column='lsst_diaobject_diaobjectid')
     # TEXT NULL    candidate identifier
-    lsst_diaSource_diaSourceId = models.TextField(null=True)
+    lsst_diaSource_diaSourceId = models.TextField(null=True, db_column='lsst_diasource_diasourceid')
     # DOUBLE PRECISION NOT NULL    normalized
     ra_deg = models.FloatField(null=False)
     # DOUBLE PRECISION NOT NULL    normalized
@@ -59,7 +59,7 @@ class AlertDelivery(models.Model):
         Alert,
         to_field='lsst_diaObject_diaObjectId',
         on_delete=models.CASCADE,
-        db_column='lsst_diaObject_diaObjectId',
+        db_column='lsst_diaobject_diaobjectid',
     )
     # 'antares' | 'lasair'
     broker = models.TextField(null=False)
@@ -109,7 +109,7 @@ class CatalogMatch(models.Model):
         Alert,
         to_field='lsst_diaObject_diaObjectId',
         on_delete=models.CASCADE,
-        db_column='lsst_diaObject_diaObjectId',
+        db_column='lsst_diaobject_diaobjectid',
     )
     # e.g. 'gaia_dr3', 'des_dr2', 'ps1_dr2'
     catalog_name = models.TextField(null=False)
@@ -150,7 +150,7 @@ class CrossmatchRun(models.Model):
         Alert,
         to_field='lsst_diaObject_diaObjectId',
         on_delete=models.CASCADE,
-        db_column='lsst_diaObject_diaObjectId',
+        db_column='lsst_diaobject_diaobjectid',
     )
     match_version = models.IntegerField(null=False, default=1)
     celery_task_id = models.TextField(null=True)
@@ -184,7 +184,7 @@ class Notification(models.Model):
         Alert,
         to_field='lsst_diaObject_diaObjectId',
         on_delete=models.CASCADE,
-        db_column='lsst_diaObject_diaObjectId',
+        db_column='lsst_diaobject_diaobjectid',
     )
     catalog_match = models.ForeignKey(
         CatalogMatch,
