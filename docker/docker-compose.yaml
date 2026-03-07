@@ -34,7 +34,7 @@ services:
       # Django database configuration
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
       DATABASE_PORT: "${DATABASE_PORT:-5432}"
-      DATABASE_DB: "${DATABASE_DB:-django}"
+      DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       # Message broker configuration
@@ -70,7 +70,7 @@ services:
       # Django database configuration
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
       DATABASE_PORT: "${DATABASE_PORT:-5432}"
-      DATABASE_DB: "${DATABASE_DB:-django}"
+      DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
@@ -117,7 +117,7 @@ services:
       # Django database configuration
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
       DATABASE_PORT: "${DATABASE_PORT:-5432}"
-      DATABASE_DB: "${DATABASE_DB:-django}"
+      DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       # Message broker configuration
@@ -147,7 +147,7 @@ services:
       # Django database configuration
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
       DATABASE_PORT: "${DATABASE_PORT:-5432}"
-      DATABASE_DB: "${DATABASE_DB:-django}"
+      DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       # Message broker configuration
@@ -188,7 +188,7 @@ services:
       # Django database configuration
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
       DATABASE_PORT: "${DATABASE_PORT:-5432}"
-      DATABASE_DB: "${DATABASE_DB:-django}"
+      DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
       DATABASE_USER: "${DATABASE_USER:-django}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
 
@@ -203,7 +203,7 @@ services:
     environment:
       POSTGRES_USER: "${DATABASE_USER:-django}"
       POSTGRES_PASSWORD: "${DATABASE_PASSWORD:-password}"
-      POSTGRES_DB: "${DATABASE_DB:-django}"
+      POSTGRES_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
     volumes:
       - django-db:/var/lib/postgresql
 

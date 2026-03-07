@@ -86,7 +86,7 @@ database:
   replicaCount: 3
   port: 5432
   initdb:
-    database: "django"
+    database: "scimma_crossmatch_service"
     username: "django"
     existingSecret: "database"
   storage:
