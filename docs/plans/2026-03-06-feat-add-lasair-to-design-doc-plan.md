@@ -126,7 +126,7 @@ Add a new section **4.5 Lasair → Ingest** (analogous to §4.1 ANTARES → Inge
 
 **Connection**:
 ```
-Kafka server: kafka.lsst.ac.uk:9092
+Kafka server: lasair-lsst-kafka.lsst.ac.uk:9092
 ```
 
 **Topic naming**: `lasair_{user_id}_{sanitised_filter_name}`. Topics are created via the
@@ -164,7 +164,7 @@ explicit credentials for Kafka consumption, but this must be confirmed.
 **Environment variables** (new):
 | Variable | Example | Notes |
 |---|---|---|
-| `LASAIR_KAFKA_SERVER` | `kafka.lsst.ac.uk:9092` | |
+| `LASAIR_KAFKA_SERVER` | `lasair-lsst-kafka.lsst.ac.uk:9092` | |
 | `LASAIR_TOPIC` | `lasair_42_high-snr-transients` | from Lasair UI |
 | `LASAIR_GROUP_ID` | `scimma-crossmatch-prod` | stable in production |
 | `LASAIR_TOKEN` | `<api-token>` | REST API token (if needed) |

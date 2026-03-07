@@ -4,7 +4,10 @@ set -e
 echo "Begin Django initialization..."
 
 echo "Apply database migrations..."
-python manage.py migrate
+until python manage.py migrate; do
+  echo "Migration failed (concurrent startup race), retrying in 2 seconds..."
+  sleep 2
+done
 # echo "Provision database..."
 # python manage.py createcachetable
 # echo "Collect static files..."
@@ -24,6 +27,10 @@ while [[ "$SUCCESS" != "true" ]]; do
   fi
   if [[ "$ERR_MSG" =~ $regex ]]; then
     echo "superuser already exists"
+    SUCCESS="true"
+  fi
+  if [[ "$ERR_MSG" =~ "You must use --username" ]]; then
+    echo "Superuser env vars not configured, skipping superuser creation"
     SUCCESS="true"
   fi
   if [[ "$SUCCESS" == "true" ]]; then

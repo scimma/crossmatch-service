@@ -303,7 +303,7 @@ logger = get_logger(__name__)
 def consume_alerts():
     """Consume alerts from the Lasair Kafka broker.
 
-    Lasair broker: kafka.lsst.ac.uk:9092
+    Lasair broker: lasair-lsst-kafka.lsst.ac.uk:9092
     Topic: lasair_366SCiMMA_reliability_moderate
     Auth: no credentials required
     """
@@ -387,7 +387,7 @@ lasair-consumer:
     VALKEY_PORT: "${VALKEY_PORT:-6379}"
     APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
     # Lasair broker configuration (stub — not yet active)
-    # LASAIR_KAFKA_HOST: "${LASAIR_KAFKA_HOST:-kafka.lsst.ac.uk}"
+    # LASAIR_KAFKA_HOST: "${LASAIR_KAFKA_HOST:-lasair-lsst-kafka.lsst.ac.uk}"
     # LASAIR_KAFKA_PORT: "${LASAIR_KAFKA_PORT:-9092}"
     # LASAIR_TOPIC: "${LASAIR_TOPIC:-lasair_366SCiMMA_reliability_moderate}"
   volumes:

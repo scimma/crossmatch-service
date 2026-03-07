@@ -26,10 +26,13 @@ alert_consumer:
       memory: 2Gi
 
 lasair_consumer:
-  enabled: false        # disabled until real Lasair integration is implemented
+  enabled: false        # disabled until Kafka auth is confirmed in dev
   replicaCount: 1
   service:
     host: "lasair-consumer"
+  kafka_server: "lasair-lsst-kafka.lsst.ac.uk:9092"
+  topic: "lasair_366SCiMMA_reliability_moderate"
+  group_id: "scimma-crossmatch-prod"
   resources:
     requests:
       cpu: '500m'

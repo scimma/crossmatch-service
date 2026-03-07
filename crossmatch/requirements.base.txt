@@ -5,6 +5,8 @@ django-celery-beat
 django-tables2
 flower
 httpx
+confluent_kafka
+lasair
 lsdb
 prometheus-client
 psycopg[binary]

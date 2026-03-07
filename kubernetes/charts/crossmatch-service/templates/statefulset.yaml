@@ -211,6 +211,12 @@ spec:
           {{- include "db.env" . | nindent 10 }}
           {{- include "valkey.env" . | nindent 10 }}
           {{- include "celery.env" . | nindent 10 }}
+          - name: LASAIR_KAFKA_SERVER
+            value: {{ .Values.lasair_consumer.kafka_server | quote }}
+          - name: LASAIR_TOPIC
+            value: {{ .Values.lasair_consumer.topic | quote }}
+          - name: LASAIR_GROUP_ID
+            value: {{ .Values.lasair_consumer.group_id | quote }}
         {{- with .Values.lasair_consumer.resources }}
         resources:
           {{- toYaml . | nindent 10 }}

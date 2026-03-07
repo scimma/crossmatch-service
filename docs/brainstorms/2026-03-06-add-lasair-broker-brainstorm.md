@@ -166,7 +166,7 @@ Lasair delivers alerts via **Apache Kafka** and provides a thin Python wrapper i
 ### Connection
 
 ```
-Kafka server: kafka.lsst.ac.uk:9092
+Kafka server: lasair-lsst-kafka.lsst.ac.uk:9092
 Python package: lasair  (pip install lasair)
 Dependency:     confluent_kafka
 ```
@@ -176,7 +176,7 @@ Dependency:     confluent_kafka
 ```python
 from lasair import lasair_consumer
 consumer = lasair_consumer(
-    kafka_server='kafka.lsst.ac.uk:9092',
+    kafka_server='lasair-lsst-kafka.lsst.ac.uk:9092',
     group_id='scimma-crossmatch-prod',   # stable string; tracks consumption position
     topic='lasair_<uid>_<filter-name>',
 )

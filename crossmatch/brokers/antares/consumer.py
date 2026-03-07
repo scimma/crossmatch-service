@@ -1,9 +1,9 @@
 from time import sleep
 from random import randint
-from datetime import datetime
-from tasks.crossmatch import crossmatch_alert
-from core.models import Alert, AlertDelivery
+from brokers import ingest_alert
+from brokers.normalize import normalize_antares
 from core.log import get_logger
+
 logger = get_logger(__name__)
 
 BROKER_NAME = 'antares'
@@ -13,38 +13,9 @@ def consume_alerts():
     logger.info('Listening to alert broker...')
     while True:
         try:
-            alert = mock_alert_generator()
-            alert_id = str(alert['lsst_diaObject_diaObjectId'])
-
-            # Step 1: Upsert the Alert row
-            alert_obj, _ = Alert.objects.get_or_create(
-                lsst_diaObject_diaObjectId=alert_id,
-                defaults=dict(
-                    ra_deg=alert['lsst_diaObject_ra'],
-                    dec_deg=alert['lsst_diaObject_dec'],
-                    lsst_diaSource_diaSourceId=str(alert['lsst_diaSource_diaSourceId']),
-                    event_time=datetime.fromtimestamp(alert['ant_time_received']),
-                    payload=alert,
-                    status=Alert.Status.INGESTED,
-                ),
-            )
-
-            # Step 2: Atomic delivery gate — one Celery task per broker per alert (§5.3)
-            _, created = AlertDelivery.objects.get_or_create(
-                alert=alert_obj,
-                broker=BROKER_NAME,
-            )
-            if not created:
-                logger.info(
-                    'alert already delivered by this broker, skipping',
-                    alert_id=alert_id,
-                    broker=BROKER_NAME,
-                )
-            else:
-                logger.info(f'New alert ingested: {alert_obj}')
-                logger.debug(f'Launching crossmatching task for alert {alert_obj}...')
-                crossmatch_alert.delay(lsst_diaObject_diaObjectId=alert_obj.lsst_diaObject_diaObjectId)
-
+            raw = mock_alert_generator()
+            canonical = normalize_antares(raw)
+            ingest_alert(canonical, broker=BROKER_NAME)
         except Exception as err:
             logger.error(f'Error ingesting alert: {err}')
         # Pause for a random duration between 5 and 15 seconds
