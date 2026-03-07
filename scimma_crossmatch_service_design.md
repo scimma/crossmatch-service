@@ -350,8 +350,8 @@ Stores raw alerts and normalized fields.
 | column | type | notes |
 |---|---|---|
 | id | BIGSERIAL PK | internal |
-| lsst_diaobject_diaobjectid | TEXT UNIQUE NOT NULL | stable identifier from alert |
-| lsst_diasource_diasourceid | TEXT NULL | candidate identifier |
+| lsst_diaobject_diaobjectid | BIGINT UNIQUE NOT NULL | stable identifier from alert |
+| lsst_diasource_diasourceid | BIGINT NULL | candidate identifier |
 | ra_deg | DOUBLE PRECISION NOT NULL | normalized |
 | dec_deg | DOUBLE PRECISION NOT NULL | normalized |
 | event_time | TIMESTAMPTZ NOT NULL | candidate/observation time |

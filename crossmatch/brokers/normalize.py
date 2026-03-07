@@ -10,10 +10,10 @@ def normalize_antares(raw_alert: dict) -> dict:
     and lsst_diaSource_, plus ant_* ANTARES annotations.
     """
     return {
-        'lsst_diaObject_diaObjectId': str(raw_alert['lsst_diaObject_diaObjectId']),
+        'lsst_diaObject_diaObjectId': raw_alert['lsst_diaObject_diaObjectId'],
         'ra_deg': raw_alert['lsst_diaObject_ra'],
         'dec_deg': raw_alert['lsst_diaObject_dec'],
-        'lsst_diaSource_diaSourceId': str(raw_alert['lsst_diaSource_diaSourceId']),
+        'lsst_diaSource_diaSourceId': raw_alert['lsst_diaSource_diaSourceId'],
         'event_time': datetime.fromtimestamp(raw_alert['ant_time_received'], tz=timezone.utc),
         'payload': raw_alert,
     }
@@ -27,7 +27,7 @@ def normalize_lasair(raw_alert: dict) -> dict:
     No diaSource ID is provided.
     """
     return {
-        'lsst_diaObject_diaObjectId': str(raw_alert['diaObjectId']),
+        'lsst_diaObject_diaObjectId': raw_alert['diaObjectId'],
         'ra_deg': raw_alert['ra'],
         'dec_deg': raw_alert['decl'],
         'lsst_diaSource_diaSourceId': None,

@@ -23,10 +23,10 @@ class Alert(models.Model):
         db_index=True,
         primary_key=True
     )
-    # TEXT UNIQUE NOT NULL    stable identifier from alert
-    lsst_diaObject_diaObjectId = models.TextField(unique=True, null=False, db_column='lsst_diaobject_diaobjectid')
-    # TEXT NULL    candidate identifier
-    lsst_diaSource_diaSourceId = models.TextField(null=True, db_column='lsst_diasource_diasourceid')
+    # BIGINT UNIQUE NOT NULL    stable identifier from alert
+    lsst_diaObject_diaObjectId = models.BigIntegerField(unique=True, null=False, db_column='lsst_diaobject_diaobjectid')
+    # BIGINT NULL    candidate identifier
+    lsst_diaSource_diaSourceId = models.BigIntegerField(null=True, db_column='lsst_diasource_diasourceid')
     # DOUBLE PRECISION NOT NULL    normalized
     ra_deg = models.FloatField(null=False)
     # DOUBLE PRECISION NOT NULL    normalized
