@@ -87,7 +87,7 @@ database:
   port: 5432
   initdb:
     database: "scimma_crossmatch_service"
-    username: "django"
+    username: "crossmatch_service_admin"
     existingSecret: "database"
   storage:
     storageClass: "longhorn"
