@@ -91,15 +91,13 @@ produces the Kafka topic `lasair_366SCiMMA_reliability_moderate`.
 **Filter SQL:**
 
 ```sql
-SELECT objects.diaObjectId,
-       objects.ra,
-       objects.decl,
-       objects.nDiaSources,
-       mjdnow() - objects.lastDiaSourceMjdTai AS age
+SELECT
+    objects.diaObjectId, objects.firstDiaSourceMjdTai, objects.ra, objects.decl
 FROM objects
-WHERE objects.nDiaSources >= 1
-  AND objects.latestR > 0.7
-  AND mjdnow() - objects.lastDiaSourceMjdTai < 1
+WHERE
+    objects.nDiaSources >= 1
+    AND objects.latestR > 0.6
+    AND mjdnow() - objects.lastDiaSourceMjdTai < 1
 ```
 
 **Field descriptions:**
@@ -107,19 +105,15 @@ WHERE objects.nDiaSources >= 1
 | Field | Description |
 |---|---|
 | `diaObjectId` | LSST DIA object identifier — maps to `lsst_diaObject_diaObjectId` |
+| `firstDiaSourceMjdTai` | MJD-TAI timestamp of the object's first detection — used as `event_time` |
 | `ra`, `decl` | LSST positional fields (degrees) |
-| `nDiaSources` | Number of individual DIA detections linked to this object |
-| `lastDiaSourceMjdTai` | MJD of the most recent detection |
-| `latestR` | Lasair Real/Bogus ML score for the latest source (0–1; 1 = real transient) |
-| `age` | Computed days since last detection (display only; not stored) |
 
 **Filter criteria semantics:**
 - `nDiaSources >= 1` — any object with at least one detection. Minimal gate;
   the `latestR` threshold handles quality filtering.
-- `latestR > 0.7` — LSST ML Real/Bogus score above 0.7. This is taken from the
-  LSST alert reliability value that acts as a single proxy for the many individual
-  artifact flags used by the ANTARES filter (dipole, streak, saturation, edge,
-  cosmic ray). The filter name `reliability_moderate` reflects this threshold.
+- `latestR > 0.6` — LSST ML Real/Bogus score above 0.6. Lowered from 0.7 to
+  admit more candidates while still rejecting the majority of artifacts. The
+  filter name `reliability_moderate` reflects this threshold range.
 - `lastDiaSourceMjdTai` within 1 day — only recent/active transients are
   delivered; avoids re-delivering old objects on Kafka replay.
 

@@ -3,7 +3,8 @@
 Lasair broker: lasair-lsst-kafka.lsst.ac.uk:9092
 Topic: lasair_366SCiMMA_reliability_moderate
 Auth: no credentials required for ingest path
-Filter: reliability_moderate — latestR > 0.7, nDiaSources >= 1, age < 1 day
+Filter: reliability_moderate — latestR > 0.6, nDiaSources >= 1, lastDiaSource < 1 day ago
+Columns: diaObjectId, firstDiaSourceMjdTai, ra, decl
 """
 import json
 import time
