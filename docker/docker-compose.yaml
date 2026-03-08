@@ -35,7 +35,7 @@ services:
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
       DATABASE_PORT: "${DATABASE_PORT:-5432}"
       DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
-      DATABASE_USER: "${DATABASE_USER:-django}"
+      DATABASE_USER: "${DATABASE_USER:-crossmatch_service_admin}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       # Message broker configuration
       VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
@@ -71,7 +71,7 @@ services:
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
       DATABASE_PORT: "${DATABASE_PORT:-5432}"
       DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
-      DATABASE_USER: "${DATABASE_USER:-django}"
+      DATABASE_USER: "${DATABASE_USER:-crossmatch_service_admin}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
       VALKEY_PORT: "${VALKEY_PORT:-6379}"
@@ -118,7 +118,7 @@ services:
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
       DATABASE_PORT: "${DATABASE_PORT:-5432}"
       DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
-      DATABASE_USER: "${DATABASE_USER:-django}"
+      DATABASE_USER: "${DATABASE_USER:-crossmatch_service_admin}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       # Message broker configuration
       VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
@@ -148,7 +148,7 @@ services:
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
       DATABASE_PORT: "${DATABASE_PORT:-5432}"
       DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
-      DATABASE_USER: "${DATABASE_USER:-django}"
+      DATABASE_USER: "${DATABASE_USER:-crossmatch_service_admin}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
       # Message broker configuration
       VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
@@ -189,7 +189,7 @@ services:
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
       DATABASE_PORT: "${DATABASE_PORT:-5432}"
       DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
-      DATABASE_USER: "${DATABASE_USER:-django}"
+      DATABASE_USER: "${DATABASE_USER:-crossmatch_service_admin}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
 
   django-db:
@@ -201,7 +201,7 @@ services:
         aliases:
           - ${DATABASE_HOST:-django-db}
     environment:
-      POSTGRES_USER: "${DATABASE_USER:-django}"
+      POSTGRES_USER: "${DATABASE_USER:-crossmatch_service_admin}"
       POSTGRES_PASSWORD: "${DATABASE_PASSWORD:-password}"
       POSTGRES_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
     volumes:
