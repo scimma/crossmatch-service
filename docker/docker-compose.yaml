@@ -125,6 +125,9 @@ services:
       VALKEY_PORT: "${VALKEY_PORT:-6379}"
       # Application configuration
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
+      # Batch crossmatch thresholds
+      CROSSMATCH_BATCH_MAX_WAIT_SECONDS: "${CROSSMATCH_BATCH_MAX_WAIT_SECONDS:-900}"
+      CROSSMATCH_BATCH_MAX_SIZE: "${CROSSMATCH_BATCH_MAX_SIZE:-100000}"
     volumes:
       - ../crossmatch:/opt/crossmatch
 
@@ -156,6 +159,9 @@ services:
       # QUERY_HEROIC_INTERVAL
       # TODO: Increase interval when running real task
       QUERY_HEROIC_INTERVAL: "${QUERY_HEROIC_INTERVAL:-15}"
+      # Batch crossmatch thresholds
+      CROSSMATCH_BATCH_MAX_WAIT_SECONDS: "${CROSSMATCH_BATCH_MAX_WAIT_SECONDS:-900}"
+      CROSSMATCH_BATCH_MAX_SIZE: "${CROSSMATCH_BATCH_MAX_SIZE:-100000}"
     networks:
       - internal
     volumes:
