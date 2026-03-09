@@ -78,6 +78,10 @@ celery:
         cpu: '12'
         memory: 48Gi
 
+crossmatch:
+  batch_max_wait_seconds: 900
+  batch_max_size: 100000
+
 database:
   enabled: true
   log_level: "debug"

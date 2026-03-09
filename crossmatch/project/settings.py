@@ -8,6 +8,14 @@ import os
 APP_VERSION = '0.0.0'
 QUERY_HEROIC_INTERVAL = int(os.getenv('QUERY_HEROIC_INTERVAL', 3600))
 
+# Batch crossmatch thresholds
+CROSSMATCH_BATCH_MAX_WAIT_SECONDS = int(
+    os.getenv('CROSSMATCH_BATCH_MAX_WAIT_SECONDS', '900')
+)
+CROSSMATCH_BATCH_MAX_SIZE = int(
+    os.getenv('CROSSMATCH_BATCH_MAX_SIZE', '100000')
+)
+
 ######################################################################
 # Django apps and middlewares
 #
