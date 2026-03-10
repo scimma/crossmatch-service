@@ -42,8 +42,6 @@ services:
       VALKEY_PORT: "${VALKEY_PORT:-6379}"
       # Application configuration
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
-      # TODO: Increase interval when running real task
-      QUERY_HEROIC_INTERVAL: "${QUERY_HEROIC_INTERVAL:-15}"
     volumes:
       - "django-static:${APP_ROOT_DIR:-/opt}/static"
       - ../crossmatch:/opt/crossmatch
@@ -128,6 +126,9 @@ services:
       # Batch crossmatch thresholds
       CROSSMATCH_BATCH_MAX_WAIT_SECONDS: "${CROSSMATCH_BATCH_MAX_WAIT_SECONDS:-900}"
       CROSSMATCH_BATCH_MAX_SIZE: "${CROSSMATCH_BATCH_MAX_SIZE:-100000}"
+      # LSDB crossmatch settings
+      GAIA_HATS_URL: "${GAIA_HATS_URL:-s3://stpubdata/gaia/gaia_dr3/public/hats}"
+      CROSSMATCH_RADIUS_ARCSEC: "${CROSSMATCH_RADIUS_ARCSEC:-1.0}"
     volumes:
       - ../crossmatch:/opt/crossmatch
 
@@ -156,9 +157,6 @@ services:
       # Message broker configuration
       VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
       VALKEY_PORT: "${VALKEY_PORT:-6379}"
-      # QUERY_HEROIC_INTERVAL
-      # TODO: Increase interval when running real task
-      QUERY_HEROIC_INTERVAL: "${QUERY_HEROIC_INTERVAL:-15}"
       # Batch crossmatch thresholds
       CROSSMATCH_BATCH_MAX_WAIT_SECONDS: "${CROSSMATCH_BATCH_MAX_WAIT_SECONDS:-900}"
       CROSSMATCH_BATCH_MAX_SIZE: "${CROSSMATCH_BATCH_MAX_SIZE:-100000}"

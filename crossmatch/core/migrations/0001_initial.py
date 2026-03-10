@@ -75,36 +75,6 @@ class Migration(migrations.Migration):
             ),
         ),
 
-        # ── planned_pointings ────────────────────────────────────────────────────
-        migrations.CreateModel(
-            name='PlannedPointing',
-            fields=[
-                ('id', models.BigAutoField(primary_key=True, serialize=False)),
-                ('source', models.TextField(default='heroic')),
-                ('heroic_pointing_id', models.TextField(null=True)),
-                ('obs_id', models.TextField(null=True)),
-                ('target_name', models.TextField(null=True)),
-                ('planned', models.BooleanField(default=True)),
-                ('s_ra_deg', models.FloatField()),
-                ('s_dec_deg', models.FloatField()),
-                ('radius_deg', models.FloatField()),
-                ('field_geojson', models.JSONField(null=True)),
-                ('t_min_mjd', models.FloatField()),
-                ('t_max_mjd', models.FloatField()),
-                ('t_planning_mjd', models.FloatField(null=True)),
-                ('instrument_name', models.TextField(null=True)),
-                ('ingest_time', models.DateTimeField(auto_now_add=True)),
-            ],
-        ),
-        migrations.AddIndex(
-            model_name='plannedpointing',
-            index=models.Index(fields=['ingest_time'], name='core_pp_ingest_time_idx'),
-        ),
-        migrations.AddIndex(
-            model_name='plannedpointing',
-            index=models.Index(fields=['t_min_mjd', 't_max_mjd'], name='core_pp_time_window_idx'),
-        ),
-
         # ── catalog_matches ──────────────────────────────────────────────────────
         migrations.CreateModel(
             name='CatalogMatch',

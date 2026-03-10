@@ -81,6 +81,8 @@ celery:
 crossmatch:
   batch_max_wait_seconds: 900
   batch_max_size: 100000
+  gaia_hats_url: "s3://stpubdata/gaia/gaia_dr3/public/hats"
+  radius_arcsec: 1.0
 
 database:
   enabled: true
