@@ -44,12 +44,12 @@ def crossmatch_batch(batch_ids: list, match_version: int = 1) -> None:
             matches_to_create = []
             for _, row in result_df.iterrows():
                 matches_to_create.append(CatalogMatch(
-                    alert_id=row['lsst_diaObject_diaObjectId_alert'],
+                    alert_id=row['lsst_diaObject_diaObjectId'],
                     catalog_name='gaia_dr3',
-                    catalog_source_id=str(row['source_id_gaia']),
+                    catalog_source_id=str(row['source_id']),
                     match_distance_arcsec=row['_dist_arcsec'],
-                    source_ra_deg=row['ra_gaia'],
-                    source_dec_deg=row['dec_gaia'],
+                    source_ra_deg=row['ra'],
+                    source_dec_deg=row['dec'],
                     match_version=match_version,
                 ))
             CatalogMatch.objects.bulk_create(
