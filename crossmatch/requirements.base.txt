@@ -8,6 +8,7 @@ httpx
 confluent_kafka
 lasair
 lsdb
+s3fs
 prometheus-client
 psycopg[binary]
 redis

@@ -6,7 +6,10 @@ import os
 # Application config
 #
 APP_VERSION = '0.0.0'
-QUERY_HEROIC_INTERVAL = int(os.getenv('QUERY_HEROIC_INTERVAL', 3600))
+
+# LSDB crossmatch settings
+GAIA_HATS_URL = os.getenv('GAIA_HATS_URL', 's3://stpubdata/gaia/gaia_dr3/public/hats')
+CROSSMATCH_RADIUS_ARCSEC = float(os.getenv('CROSSMATCH_RADIUS_ARCSEC', '1.0'))
 
 # Batch crossmatch thresholds
 CROSSMATCH_BATCH_MAX_WAIT_SECONDS = int(

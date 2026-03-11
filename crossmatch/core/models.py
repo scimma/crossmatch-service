@@ -78,30 +78,6 @@ class AlertDelivery(models.Model):
         ]
 
 
-class PlannedPointing(models.Model):
-    id = models.BigAutoField(primary_key=True)
-    source = models.TextField(null=False, default='heroic')
-    heroic_pointing_id = models.TextField(null=True)
-    obs_id = models.TextField(null=True)
-    target_name = models.TextField(null=True)
-    planned = models.BooleanField(null=False, default=True)
-    s_ra_deg = models.FloatField(null=False)
-    s_dec_deg = models.FloatField(null=False)
-    radius_deg = models.FloatField(null=False)
-    field_geojson = models.JSONField(null=True)
-    t_min_mjd = models.FloatField(null=False)
-    t_max_mjd = models.FloatField(null=False)
-    t_planning_mjd = models.FloatField(null=True)
-    instrument_name = models.TextField(null=True)
-    ingest_time = models.DateTimeField(null=False, auto_now_add=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=['ingest_time'], name='core_pp_ingest_time_idx'),
-            models.Index(fields=['t_min_mjd', 't_max_mjd'], name='core_pp_time_window_idx'),
-        ]
-
-
 class CatalogMatch(models.Model):
     """Crossmatch results for any HATS catalog (Gaia, DES, SkyMapper, PS1, etc.)."""
     id = models.BigAutoField(primary_key=True)
