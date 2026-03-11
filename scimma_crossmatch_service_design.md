@@ -507,7 +507,7 @@ Alerts are processed in batches (up to 100k per batch). The crossmatch workflow 
 
 1. **Load QUEUED alerts** into a pandas DataFrame with `uuid`, `lsst_diaObject_diaObjectId`, `ra_deg`, `dec_deg`.
 2. **Convert to LSDB catalog** via `lsdb.from_dataframe(df, ra_column=’ra_deg’, dec_column=’dec_deg’)`. This assigns adaptive HEALPix partitioning (orders 0-7) based on the alert sky positions.
-3. **Crossmatch against the cached Gaia catalog** via `alerts_catalog.crossmatch(gaia, n_neighbors=1, radius_arcsec=CROSSMATCH_RADIUS_ARCSEC, suffixes=(‘_alert’, ‘_gaia’))`. LSDB only loads Gaia HATS partitions overlapping the alert positions.
+3. **Crossmatch against the cached Gaia catalog** via `alerts_catalog.crossmatch(gaia, n_neighbors=1, radius_arcsec=CROSSMATCH_RADIUS_ARCSEC, suffixes=(‘_alert’, ‘_gaia’), suffix_method=’overlapping_columns’)`. LSDB only loads Gaia HATS partitions overlapping the alert positions. Suffixes are applied only to columns that exist in both catalogs (`ra`, `dec`).
 4. **Compute results** via `matches.compute()`, which materializes the Dask task graph and returns a pandas DataFrame of matched rows with a `_dist_arcsec` column.
 5. **Write CatalogMatch rows** for matched alerts and transition all alerts in the batch to MATCHED.
 
@@ -524,7 +524,6 @@ def _get_gaia_catalog():
         _gaia_catalog = lsdb.open_catalog(
             settings.GAIA_HATS_URL,
             columns=[‘source_id’, ‘ra’, ‘dec’],
-            storage_options={‘anon’: True},
         )
     return _gaia_catalog
 
@@ -536,6 +535,7 @@ def crossmatch_alerts_against_gaia(alerts_df):
         gaia, n_neighbors=1,
         radius_arcsec=settings.CROSSMATCH_RADIUS_ARCSEC,
         suffixes=(‘_alert’, ‘_gaia’),
+        suffix_method=’overlapping_columns’,
     )
     return matches.compute()
 ```

@@ -32,7 +32,8 @@ def crossmatch_alerts_against_gaia(alerts_df: pd.DataFrame) -> pd.DataFrame:
 
     Returns:
         DataFrame with matched rows containing merged alert + Gaia columns
-        plus _dist_arcsec distance column. Column suffixes: _alert, _gaia.
+        plus _dist_arcsec distance column. Suffixes (_alert, _gaia) applied
+        only to overlapping columns (ra, dec).
         Returns empty DataFrame if no alerts have valid coordinates.
     """
     clean_df = alerts_df.dropna(subset=['ra_deg', 'dec_deg'])
@@ -49,5 +50,6 @@ def crossmatch_alerts_against_gaia(alerts_df: pd.DataFrame) -> pd.DataFrame:
         n_neighbors=1,
         radius_arcsec=settings.CROSSMATCH_RADIUS_ARCSEC,
         suffixes=('_alert', '_gaia'),
+        suffix_method='overlapping_columns',
     )
     return matches.compute()
