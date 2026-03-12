@@ -224,12 +224,72 @@ sequenceDiagram
 ## 4. Interfaces
 
 ### 4.1 ANTARES → Ingest
-We use ANTARES’ Python client (e.g., `StreamingClient`) to subscribe to the topic populated by our filter.
 
-Ingest must support:
-- Reconnect/resume semantics supported by ANTARES streaming.
-- Backpressure (limit concurrent writes; drop into retries if DB down).
-- Deduplication keyed by `lsst_diaObject_diaObjectId`.
+ANTARES delivers alerts via **Apache Kafka** using the `antares-client` PyPI package
+(which wraps `confluent_kafka`). The `StreamingClient` abstracts Kafka consumer setup
+including SASL authentication.
+
+**Connection**:
+- Python package: `antares-client[subscriptions]` (the `subscriptions` extra installs `confluent_kafka`)
+- Source: https://gitlab.com/nsf-noirlab/csdc/antares/client
+
+**Consuming alerts**:
+
+```python
+# brokers/antares/consumer.py
+from antares_client import StreamingClient
+
+client = StreamingClient(
+    topics=[settings.ANTARES_TOPIC],       # e.g. ‘lsst_scimma_quality_transient’
+    api_key=settings.ANTARES_API_KEY,      # credentials from ANTARES team
+    api_secret=settings.ANTARES_API_SECRET,
+    group=settings.ANTARES_GROUP_ID,       # stable string in production
+)
+
+for topic, locus in client.iter():
+    newest_alert = locus.alerts[0]
+    raw = newest_alert.properties          # flat dict with lsst_diaObject_*, ant_* keys
+    canonical = normalize_antares(raw)
+    ingest_alert(canonical, broker=’antares’)
+```
+
+**Data model**: `StreamingClient.iter()` yields `(topic, locus)` tuples. The `Locus`
+object has top-level attributes (`locus_id`, `ra`, `dec`, `properties`) but the LSST
+alert fields (`lsst_diaObject_*`, `lsst_diaSource_*`, `ant_*`) are in
+`locus.alerts[0].properties`, not `locus.properties`. The `locus.properties` dict
+contains only summary metadata (`num_alerts`, `brightest_alert_magnitude`, etc.).
+
+**Filtering**: Not all alerts from ANTARES carry `lsst_diaObject_diaObjectId`. Alerts
+missing this field are skipped with an info-level log (not treated as errors).
+
+**GroupID semantics**:
+- Keep the GroupID **constant in production** — Kafka uses it to track the consumer’s
+  read position and delivers each message exactly once, resuming after restarts.
+- Leave the GroupID **empty in development** — `settings.py` generates a unique
+  timestamp-suffixed ID so each container restart replays all cached alerts.
+
+**Authentication**: `StreamingClient` authenticates via SASL using `api_key` and
+`api_secret` credentials obtained from the ANTARES team. Typically one set of
+credentials per institution; only one active streaming client per credential set
+unless authorized otherwise.
+
+**Error handling**: Exponential backoff (1 s initial, 60 s max) on streaming errors.
+On exception, the consumer reconnects by creating a new `StreamingClient`. Per-alert
+ingestion errors are logged but do not interrupt the stream.
+
+**Ingest requirements**:
+- Reconnect/resume semantics via the Kafka GroupID (automatic on restart with a stable GroupID).
+- Backpressure (limit concurrent DB writes; retry on DB unavailability).
+- Deduplication keyed by `lsst_diaObject_diaObjectId` (UPSERT handles this; `alert_deliveries` UNIQUE constraint prevents duplicate delivery rows).
+
+**Environment variables**:
+
+| Variable | Example | Notes |
+|---|---|---|
+| `ANTARES_API_KEY` | `<api-key>` | SASL credential from ANTARES team |
+| `ANTARES_API_SECRET` | `<api-secret>` | SASL credential from ANTARES team |
+| `ANTARES_TOPIC` | `lsst_scimma_quality_transient` | topic name from ANTARES |
+| `ANTARES_GROUP_ID` | `scimma-crossmatch-prod` | stable in production; empty in dev |
 
 ### 4.2 Ingest → Celery
 We enqueue a Celery task with the minimal durable key (`lsst_diaObject_diaObjectId`). The worker loads all needed fields from Postgres to avoid large messages.
