@@ -131,6 +131,18 @@ LASAIR_TOPIC = os.environ.get('LASAIR_TOPIC', 'lasair_366SCiMMA_reliability_mode
 LASAIR_GROUP_ID = _lasair_group_id
 
 ######################################################################
+# ANTARES streaming consumer
+#
+ANTARES_API_KEY = os.environ.get('ANTARES_API_KEY', '')
+ANTARES_API_SECRET = os.environ.get('ANTARES_API_SECRET', '')
+ANTARES_TOPIC = os.environ.get('ANTARES_TOPIC', 'lsst_scimma_quality_transient')
+_antares_group_id = os.environ.get('ANTARES_GROUP_ID', '')
+if not _antares_group_id:
+    import time as _time
+    _antares_group_id = f'scimma-crossmatch-dev-{int(_time.time())}'
+ANTARES_GROUP_ID = _antares_group_id
+
+######################################################################
 # Database
 #
 DATABASES = {

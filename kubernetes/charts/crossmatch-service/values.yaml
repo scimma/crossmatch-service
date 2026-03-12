@@ -9,14 +9,18 @@ common:
     # keel.sh/trigger: "poll"
     # keel.sh/pollSchedule: "@every 10m"
 
-alert_consumer:
+antares_consumer:
   enabled: true
   replicaCount: 3
   service:
-    host: "alert-consumer"
+    host: "antares-consumer"
   app_root_dir: /opt
   django_debug: "false"
   log_level: "WARNING"
+  api_key: ""
+  api_secret: ""
+  topic: "lsst_scimma_quality_transient"
+  group_id: ""
   resources:
     requests:
       cpu: '500m'
