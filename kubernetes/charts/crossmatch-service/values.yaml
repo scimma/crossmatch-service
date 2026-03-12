@@ -82,6 +82,17 @@ celery:
         cpu: '12'
         memory: 48Gi
 
+hopskotch:
+  broker_url: "kafka://kafka.scimma.org"
+  topic: ""
+  username: ""
+  password: ""
+
+local_kafka:
+  enabled: false
+  image: scimma/server:latest
+  replicas: 0
+
 crossmatch:
   batch_max_wait_seconds: 900
   batch_max_size: 100000

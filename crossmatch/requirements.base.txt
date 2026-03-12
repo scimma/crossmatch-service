@@ -5,6 +5,7 @@ django_celery_results
 django-celery-beat
 django-tables2
 flower
+hop-client
 httpx
 confluent_kafka
 lasair

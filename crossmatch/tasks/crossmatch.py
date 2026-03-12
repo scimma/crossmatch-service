@@ -1,6 +1,6 @@
 import pandas as pd
 from celery import shared_task
-from core.models import Alert, CatalogMatch
+from core.models import Alert, CatalogMatch, Notification
 from matching.gaia import crossmatch_alerts_against_gaia
 from core.log import get_logger
 logger = get_logger(__name__)
@@ -57,6 +57,23 @@ def crossmatch_batch(batch_ids: list, match_version: int = 1) -> None:
             )
             logger.info('Wrote CatalogMatch rows',
                         matched=len(matches_to_create), total=len(alerts_df))
+
+            # 3b. Create Notification rows for Hopskotch publishing
+            notifications_to_create = []
+            for _, row in result_df.iterrows():
+                notifications_to_create.append(Notification(
+                    alert_id=row['lsst_diaObject_diaObjectId'],
+                    destination='hopskotch',
+                    payload={
+                        'diaObjectId': int(row['lsst_diaObject_diaObjectId']),
+                        'ra': float(row['ra']),
+                        'dec': float(row['dec']),
+                        'gaia_source_id': str(row['source_id']),
+                        'separation_arcsec': float(row['_dist_arcsec']),
+                    },
+                ))
+            Notification.objects.bulk_create(notifications_to_create)
+            logger.info('Created Notification rows', count=len(notifications_to_create))
         else:
             logger.info('No Gaia matches found', total=len(alerts_df))
 

@@ -1,6 +1,6 @@
-"""Watch for new CatalogMatch rows and trigger notifications — deferred to future work."""
+"""Notification dispatch — superseded by Celery Beat task dispatch_notifications.
 
-
-def watch_and_notify() -> None:
-    """Poll catalog_matches for pending notifications and dispatch them."""
-    raise NotImplementedError("deferred to future work")
+The dispatch_notifications periodic task in tasks/schedule.py polls for pending
+Notification rows and dispatches them via destination handlers. See
+notifier/dispatch.py for the handler registry.
+"""

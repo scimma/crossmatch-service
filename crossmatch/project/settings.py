@@ -143,6 +143,14 @@ if not _antares_group_id:
 ANTARES_GROUP_ID = _antares_group_id
 
 ######################################################################
+# SCiMMA Hopskotch publisher
+#
+HOPSKOTCH_BROKER_URL = os.environ.get('HOPSKOTCH_BROKER_URL', 'kafka://kafka.scimma.org')
+HOPSKOTCH_TOPIC = os.environ.get('HOPSKOTCH_TOPIC', '')
+HOPSKOTCH_USERNAME = os.environ.get('HOPSKOTCH_USERNAME', '')
+HOPSKOTCH_PASSWORD = os.environ.get('HOPSKOTCH_PASSWORD', '')
+
+######################################################################
 # Database
 #
 DATABASES = {
