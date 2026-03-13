@@ -16,7 +16,7 @@ def dispatch_crossmatch_batch() -> None:
     """Check batch thresholds and dispatch a crossmatch batch if met.
 
     Runs every 30 seconds via Celery Beat. Checks:
-    1. Concurrency guard: if any QUEUED alerts exist, skip.
+    1. Concurrency guard: if any QUEUED alerts exist, skip (unless stuck).
     2. Count threshold: INGESTED count >= CROSSMATCH_BATCH_MAX_SIZE.
     3. Time threshold: oldest INGESTED alert age >= CROSSMATCH_BATCH_MAX_WAIT_SECONDS.
     """
@@ -25,9 +25,20 @@ def dispatch_crossmatch_batch() -> None:
     from core.models import Alert
     from tasks.crossmatch import crossmatch_batch
 
-    # Concurrency guard: skip if a batch is already in progress
-    if Alert.objects.filter(status=Alert.Status.QUEUED).exists():
-        return
+    # Concurrency guard: skip if a batch is legitimately in progress.
+    # If QUEUED alerts are older than 2x the task time limit, assume
+    # the worker was killed and auto-recover by reverting to INGESTED.
+    queued = Alert.objects.filter(status=Alert.Status.QUEUED)
+    if queued.exists():
+        oldest_queued = queued.order_by('ingest_time').first()
+        age = (timezone.now() - oldest_queued.ingest_time).total_seconds()
+        stuck_threshold = settings.CELERY_TASK_TIME_LIMIT * 2
+        if age < stuck_threshold:
+            return  # Batch legitimately in progress
+        count_recovered = queued.update(status=Alert.Status.INGESTED)
+        logger.warning('Auto-recovered stuck QUEUED alerts',
+                       count=count_recovered, oldest_age_seconds=age,
+                       threshold_seconds=stuck_threshold)
 
     # Check thresholds
     ingested = Alert.objects.filter(status=Alert.Status.INGESTED)
