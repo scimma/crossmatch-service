@@ -362,6 +362,82 @@ class LsstReturnClient(Protocol):
         ...
 ```
 
+### 4.5 Notifier → SCiMMA Hopskotch
+
+Crossmatch results are published to the **SCiMMA Hopskotch** Kafka service using
+the `hop-client` PyPI package. This is the first concrete output channel; the LSST
+return channel (§4.4) remains TBD.
+
+**Publishing library**: `hop-client` on PyPI (wraps `confluent_kafka`).
+- Source: https://github.com/scimma/hop-client
+- Docs: https://hop-client.readthedocs.io/en/stable/
+
+**Publishing messages**:
+
+```python
+# notifier/impl_hopskotch.py
+from hop import Stream
+from hop.auth import Auth
+
+auth = Auth(user=settings.HOPSKOTCH_USERNAME, password=settings.HOPSKOTCH_PASSWORD)
+stream = Stream(auth=auth)
+
+url = f"{settings.HOPSKOTCH_BROKER_URL}/{settings.HOPSKOTCH_TOPIC}"
+with stream.open(url, "w") as producer:
+    producer.write(payload)   # plain dict → auto-serialized as JSON
+```
+
+**Message payload**: Each published message is a flat JSON dict:
+
+```json
+{
+    "diaObjectId": 123456789,
+    "ra": 150.123,
+    "dec": 2.456,
+    "gaia_source_id": "4567890123456789",
+    "separation_arcsec": 0.42
+}
+```
+
+**Notification lifecycle**:
+1. `crossmatch_batch` creates `Notification` rows (state=`pending`,
+   destination=`hopskotch`) alongside `CatalogMatch` rows.
+2. A periodic Celery Beat task (`dispatch_notifications`, every 10 s) polls for
+   `pending` notifications using `select_for_update(skip_locked=True)`.
+3. The dispatcher groups notifications by `destination` and routes to the
+   appropriate backend handler via a registry (`notifier/dispatch.py`).
+4. The Hopskotch handler opens one Kafka connection per batch, publishes each
+   notification individually, and marks each `sent` or `failed`.
+5. After a batch, alerts with all notifications `sent` transition to `NOTIFIED`.
+
+**Destination routing**: The `Notification.destination` field enables multiple
+output channels. Hopskotch is the first backend (`destination='hopskotch'`).
+Adding the LSST return channel requires only a new handler implementation
+registered in `notifier/dispatch.py`.
+
+**Authentication**: `hop.auth.Auth(user, password)` using SASL credentials
+configured via environment variables.
+
+**Error handling**: Per-notification failures are isolated — a failed publish
+marks that notification `FAILED` with `last_error` but does not interrupt the
+batch. No automatic retry in the initial implementation.
+
+**Environment variables**:
+
+| Variable | Example | Notes |
+|---|---|---|
+| `HOPSKOTCH_BROKER_URL` | `kafka://kafka.scimma.org` | Kafka broker URL |
+| `HOPSKOTCH_TOPIC` | `crossmatch-results` | topic name for publishing |
+| `HOPSKOTCH_USERNAME` | `<username>` | SASL credential |
+| `HOPSKOTCH_PASSWORD` | `<password>` | SASL credential |
+
+**Local Kafka for testing**: A local Kafka server (`scimma/server:latest` with
+`--noSecurity`) can be used instead of production Hopskotch. In Docker Compose,
+enable the `local-kafka` profile: `docker compose --profile local-kafka up`.
+Then update `.env` to set `HOPSKOTCH_BROKER_URL=kafka://local-kafka:9092` and
+`HOPSKOTCH_TOPIC=crossmatch-test`. Leave `HOPSKOTCH_USERNAME` empty — the
+publisher automatically disables authentication when credentials are not set.
+
 ---
 
 ## 5. PostgreSQL Database Design

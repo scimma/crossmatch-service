@@ -135,6 +135,11 @@ services:
       # LSDB crossmatch settings
       GAIA_HATS_URL: "${GAIA_HATS_URL:-s3://stpubdata/gaia/gaia_dr3/public/hats}"
       CROSSMATCH_RADIUS_ARCSEC: "${CROSSMATCH_RADIUS_ARCSEC:-1.0}"
+      # Hopskotch publisher configuration
+      HOPSKOTCH_BROKER_URL: "${HOPSKOTCH_BROKER_URL:-kafka://kafka.scimma.org}"
+      HOPSKOTCH_TOPIC: "${HOPSKOTCH_TOPIC:-}"
+      HOPSKOTCH_USERNAME: "${HOPSKOTCH_USERNAME:-}"
+      HOPSKOTCH_PASSWORD: "${HOPSKOTCH_PASSWORD:-}"
     volumes:
       - ../crossmatch:/opt/crossmatch
 
@@ -236,3 +241,22 @@ services:
       retries: 3
       start_interval: 5s
       start_period: 5s
+
+  local-kafka:
+    image: scimma/server:latest
+    command: ["--noSecurity"]
+    hostname: local-kafka
+    profiles:
+      - local-kafka
+    networks:
+      internal:
+        aliases:
+          - local-kafka
+    ports:
+      - 127.0.0.1:9092:9092
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
