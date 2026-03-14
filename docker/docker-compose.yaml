@@ -260,3 +260,26 @@ services:
       timeout: 5s
       retries: 6
       start_period: 30s
+
+  local-kafka-init:
+    image: scimma/server:latest
+    profiles:
+      - local-kafka
+    depends_on:
+      local-kafka:
+        condition: service_healthy
+    networks:
+      - internal
+    entrypoint: /usr/bin/kafka-topics
+    command:
+      - --bootstrap-server
+      - local-kafka:9092
+      - --create
+      - --if-not-exists
+      - --topic
+      - ${HOPSKOTCH_TOPIC:-crossmatch-test}
+      - --partitions
+      - "1"
+      - --replication-factor
+      - "1"
+    restart: "no"
