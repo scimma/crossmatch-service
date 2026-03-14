@@ -9,7 +9,25 @@ APP_VERSION = '0.0.0'
 
 # LSDB crossmatch settings
 GAIA_HATS_URL = os.getenv('GAIA_HATS_URL', 's3://stpubdata/gaia/gaia_dr3/public/hats')
+DES_HATS_URL = os.getenv('DES_HATS_URL', 'https://data.lsdb.io/hats/des/des_y6_gold')
 CROSSMATCH_RADIUS_ARCSEC = float(os.getenv('CROSSMATCH_RADIUS_ARCSEC', '1.0'))
+
+CROSSMATCH_CATALOGS = [
+    {
+        'name': 'gaia_dr3',
+        'hats_url': GAIA_HATS_URL,
+        'source_id_column': 'source_id',
+        'ra_column': 'ra',
+        'dec_column': 'dec',
+    },
+    {
+        'name': 'des_y6_gold',
+        'hats_url': DES_HATS_URL,
+        'source_id_column': 'COADD_OBJECT_ID',
+        'ra_column': 'RA',
+        'dec_column': 'DEC',
+    },
+]
 
 # Batch crossmatch thresholds
 CROSSMATCH_BATCH_MAX_WAIT_SECONDS = int(

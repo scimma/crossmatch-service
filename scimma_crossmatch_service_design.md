@@ -1,6 +1,6 @@
-# LSST Alert Matching Service Architecture (ANTARES + Lasair + Gaia)
+# LSST Alert Matching Service Architecture (ANTARES + Lasair + Gaia + DES)
 
-This document defines a Python-based service architecture that receives Rubin/LSST alerts from the **ANTARES** and **Lasair** brokers, matches them against the **Gaia** catalog using **LSDB**, and records results for eventual **feedback to LSST** (return mechanism TBD).
+This document defines a Python-based service architecture that receives Rubin/LSST alerts from the **ANTARES** and **Lasair** brokers, matches them against the **Gaia DR3** and **DES Y6 Gold** catalogs using **LSDB**, and records results for eventual **feedback to LSST** (return mechanism TBD).
 
 It is an iteration of the original design, updated to:
 - Use **Celery** for work orchestration
@@ -126,12 +126,14 @@ exactly once regardless of which broker delivers it first.
 
 **C. Crossmatch Workers (Celery workers; runs in our Kubernetes cluster; horizontally scaled)**
 - Consume batch crossmatch jobs from Celery.
-- Use LSDB to match alerts against the Gaia catalog via `lsdb.from_dataframe()` + `catalog.crossmatch()`.
+- Use LSDB to match alerts against all configured HATS catalogs (currently **Gaia DR3** and **DES Y6 Gold**) via `lsdb.from_dataframe()` + `catalog.crossmatch()`.
 - LSDB operates on HATS-formatted (HEALPix-partitioned Parquet) catalogs and uses **Dask** under the hood for parallel, distributed computation. Each worker process invokes LSDB APIs, which internally construct Dask task graphs for crossmatches and execute them locally within the worker container.
-- The Gaia DR3 HATS catalog is accessed from the **public S3 bucket** `s3://stpubdata/hats/gaia/dr3/` (no credentials required; pass `storage_options={'anon': True}`).
-- The Gaia catalog object is cached as a module-level singleton within each worker process (metadata only; lightweight).
-- Alert batches (up to 100k) are converted to an LSDB catalog via `from_dataframe()` with adaptive HEALPix partitioning, then crossmatched against Gaia. LSDB loads only the Gaia HATS partitions that overlap the alert positions.
-- A later enhancement may introduce a **locally cached copy** of the relevant Gaia HATS partitions to reduce latency and egress costs.
+- Catalogs are defined in a configurable registry (`CROSSMATCH_CATALOGS` in Django settings). Each entry specifies the catalog name, HATS URL, source ID column, and RA/Dec column names (which vary per catalog — e.g., lowercase `ra`/`dec` for Gaia, uppercase `RA`/`DEC` for DES).
+- The Gaia DR3 HATS catalog is accessed from the **public S3 bucket** `s3://stpubdata/hats/gaia/dr3/` (no credentials required). The DES Y6 Gold HATS catalog is accessed from `https://data.lsdb.io/hats/des/des_y6_gold`.
+- Each catalog object is cached in a module-level dict (`_catalog_cache`) keyed by catalog name within each worker process (metadata only; lightweight).
+- Alert batches (up to 100k) are converted to an LSDB catalog via `from_dataframe()` with adaptive HEALPix partitioning, then crossmatched sequentially against each configured catalog. LSDB loads only the HATS partitions that overlap the alert positions.
+- Per-catalog error isolation: if crossmatching fails for one catalog, the remaining catalogs are still processed.
+- A later enhancement may introduce **locally cached copies** of relevant HATS partitions to reduce latency and egress costs.
 - Record match outputs into PostgreSQL.
 
 **E. Match Notifier Service (runs in our Kubernetes cluster)**
@@ -159,8 +161,8 @@ exactly once regardless of which broker delivers it first.
    - Celery Beat dispatches batch every 30s when thresholds are met
    - Load batch of QUEUED alerts into pandas DataFrame
    - Convert to LSDB catalog via `from_dataframe()`
-   - Crossmatch against cached Gaia HATS catalog via `catalog.crossmatch()`
-   - Write results to `catalog_matches`
+   - Crossmatch sequentially against all configured HATS catalogs (Gaia DR3, DES Y6 Gold)
+   - Write results to `catalog_matches` (one row per catalog match)
    - Transition all alerts in batch to MATCHED
 6. Notifier service:
    - Detect new match rows
@@ -182,7 +184,7 @@ sequenceDiagram
   participant RED as Valkey (Celery broker)
   participant CEL as Celery
   participant WRK as Crossmatch Workers
-  participant LSDB as LSDB (Gaia)
+  participant LSDB as LSDB (Gaia, DES)
   participant NOT as Match Notifier
   participant LSSTRET as LSST Update Receiver (TBD)
 
@@ -212,7 +214,7 @@ sequenceDiagram
 
   RED-->>WRK: Deliver batch task
   WRK->>PG: Load QUEUED alerts (batch_ids)
-  WRK->>LSDB: from_dataframe() + crossmatch(gaia)
+  WRK->>LSDB: from_dataframe() + crossmatch(gaia, des, ...)
   WRK->>PG: UPSERT catalog_matches + transition to MATCHED
   NOT->>PG: Watch for new matches
   NOT->>LSSTRET: Send match update (TBD)
@@ -387,14 +389,15 @@ with stream.open(url, "w") as producer:
     producer.write(payload)   # plain dict → auto-serialized as JSON
 ```
 
-**Message payload**: Each published message is a flat JSON dict:
+**Message payload**: Each published message is a flat JSON dict containing the catalog name and source ID (generic across all catalogs):
 
 ```json
 {
     "diaObjectId": 123456789,
     "ra": 150.123,
     "dec": 2.456,
-    "gaia_source_id": "4567890123456789",
+    "catalog_name": "gaia_dr3",
+    "catalog_source_id": "4567890123456789",
     "separation_arcsec": 0.42
 }
 ```
@@ -631,7 +634,7 @@ Additionally:
 
 ---
 
-## 7. LSDB + Gaia Crossmatch Design
+## 7. LSDB Multi-Catalog Crossmatch Design
 
 ### 7.1 LSDB Native Batch Crossmatching
 
@@ -642,35 +645,39 @@ LSDB is designed to efficiently perform large-catalog crossmatches by leveraging
 Alerts are processed in batches (up to 100k per batch). The crossmatch workflow uses LSDB’s `from_dataframe()` + `crossmatch()` API:
 
 1. **Load QUEUED alerts** into a pandas DataFrame with `uuid`, `lsst_diaObject_diaObjectId`, `ra_deg`, `dec_deg`.
-2. **Convert to LSDB catalog** via `lsdb.from_dataframe(df, ra_column=’ra_deg’, dec_column=’dec_deg’)`. This assigns adaptive HEALPix partitioning (orders 0-7) based on the alert sky positions.
-3. **Crossmatch against the cached Gaia catalog** via `alerts_catalog.crossmatch(gaia, n_neighbors=1, radius_arcsec=CROSSMATCH_RADIUS_ARCSEC, suffixes=(‘_alert’, ‘_gaia’), suffix_method=’overlapping_columns’)`. LSDB only loads Gaia HATS partitions overlapping the alert positions. Suffixes are applied only to columns that exist in both catalogs (`ra`, `dec`).
-4. **Compute results** via `matches.compute()`, which materializes the Dask task graph and returns a pandas DataFrame of matched rows with a `_dist_arcsec` column.
-5. **Write CatalogMatch rows** for matched alerts and transition all alerts in the batch to MATCHED.
+2. **Convert to LSDB catalog** via `lsdb.from_dataframe(df, ra_column=’ra_deg’, dec_column=’dec_deg’)`. This assigns adaptive HEALPix partitioning (orders 0-7) based on the alert sky positions. The LSDB alerts catalog is built once and reused for all reference catalogs.
+3. **Loop through configured catalogs** (`settings.CROSSMATCH_CATALOGS`). For each catalog:
+   - Load/cache the HATS catalog via `lsdb.open_catalog()` with catalog-specific columns (source ID, RA, Dec).
+   - Crossmatch via `alerts_catalog.crossmatch(catalog, n_neighbors=1, radius_arcsec=CROSSMATCH_RADIUS_ARCSEC, suffixes=(‘_alert’, ‘_catalog’), suffix_method=’overlapping_columns’)`. LSDB only loads HATS partitions overlapping the alert positions.
+   - Compute results via `matches.compute()`, returning a pandas DataFrame with a `_dist_arcsec` column.
+   - Write `CatalogMatch` and `Notification` rows for each match.
+   - Per-catalog error isolation: if one catalog fails, remaining catalogs are still processed.
+4. **Transition all alerts** in the batch to MATCHED after all catalogs are processed.
 
 ```python
 import lsdb
 from django.conf import settings
 
-# Cached Gaia catalog (module-level singleton, metadata only)
-_gaia_catalog = None
+# Module-level cache: {catalog_name: lsdb_catalog}
+_catalog_cache = {}
 
-def _get_gaia_catalog():
-    global _gaia_catalog
-    if _gaia_catalog is None:
-        _gaia_catalog = lsdb.open_catalog(
-            settings.GAIA_HATS_URL,
-            columns=[‘source_id’, ‘ra’, ‘dec’],
+def _get_catalog(catalog_config):
+    name = catalog_config[‘name’]
+    if name not in _catalog_cache:
+        _catalog_cache[name] = lsdb.open_catalog(
+            catalog_config[‘hats_url’],
+            columns=[catalog_config[‘source_id_column’],
+                     catalog_config[‘ra_column’],
+                     catalog_config[‘dec_column’]],
         )
-    return _gaia_catalog
+    return _catalog_cache[name]
 
-def crossmatch_alerts_against_gaia(alerts_df):
-    clean_df = alerts_df.dropna(subset=[‘ra_deg’, ‘dec_deg’])
-    alerts_catalog = lsdb.from_dataframe(clean_df, ra_column=’ra_deg’, dec_column=’dec_deg’)
-    gaia = _get_gaia_catalog()
+def crossmatch_alerts(alerts_catalog, catalog_config):
+    catalog = _get_catalog(catalog_config)
     matches = alerts_catalog.crossmatch(
-        gaia, n_neighbors=1,
+        catalog, n_neighbors=1,
         radius_arcsec=settings.CROSSMATCH_RADIUS_ARCSEC,
-        suffixes=(‘_alert’, ‘_gaia’),
+        suffixes=(‘_alert’, ‘_catalog’),
         suffix_method=’overlapping_columns’,
     )
     return matches.compute()
@@ -698,30 +705,22 @@ LSDB supports **margin caches** — additional overlap regions around HEALPix pa
 - `n_neighbors=1` (hardcoded; add configurable setting only when a science use case emerges).
 - Tie-breaking: smallest separation (handled by LSDB's KDTreeCrossmatch).
 
-### 7.3 Planned Expansion to Additional Catalogs
+### 7.3 Catalog Registry and Expansion
 
-After the Gaia crossmatching workflow is fully operational and validated, the system will extend to additional large-area survey catalogs:
+The system uses a configurable catalog registry (`CROSSMATCH_CATALOGS` in Django settings) that currently includes:
 
-- **Dark Energy Survey (DES)**
+- **Gaia DR3** — accessed from `s3://stpubdata/gaia/gaia_dr3/public/hats` (source ID: `source_id`, RA/Dec columns: `ra`/`dec`)
+- **DES Y6 Gold** — accessed from `https://data.lsdb.io/hats/des/des_y6_gold` (source ID: `COADD_OBJECT_ID`, RA/Dec columns: `RA`/`DEC`)
+
+Each catalog entry specifies: `name`, `hats_url`, `source_id_column`, `ra_column`, `dec_column`. RA/Dec column names vary per catalog (e.g., lowercase for Gaia, uppercase for DES).
+
+Planned future catalogs:
+
 - **DECam Local Volume Exploration Survey (DELVE)**
 - **SkyMapper**
 - **Pan-STARRS1 (PS1)**
 
-Motivation:
-- Deeper and complementary photometric coverage beyond Gaia.
-- Improved counterpart identification for faint extragalactic or transient sources.
-- Richer annotation of LSST alerts with multi-survey context.
-
-The architectural design already supports this:
-- LSDB provides a uniform interface for HATS-formatted catalogs.
-- Crossmatch logic is encapsulated in Celery tasks and matching modules.
-- The `catalog_matches` table (see §5.2.3) uses a `catalog_name` column to store results from any catalog in a single table.
-
-When additional catalogs are introduced, anticipated changes:
-- Adding separate LSDB catalog URL configs (e.g., `DES_HATS_URL`, `PS1_HATS_URL`).
-- Extending the matching layer to support per-catalog matching policies.
-- Adding per-catalog env vars following the pattern `{CATALOG}_HATS_URL`.
-- No changes to the core ingestion, queueing, or deployment architecture.
+Adding a new catalog requires only a new entry in `CROSSMATCH_CATALOGS` and the corresponding `{CATALOG}_HATS_URL` env var. No changes to the core ingestion, queueing, matching logic, or deployment architecture are needed.
 
 ---
 
@@ -787,7 +786,7 @@ crossmatch/
       normalize.py       # Lasair-specific annotation handling
   matching/
     __init__.py
-    gaia.py
+    catalog.py
   notifier/
     __init__.py
     watch.py
@@ -814,7 +813,7 @@ Database schema changes are managed with Django migrations:
 
 ### 8.4 Celery task definitions
 
-- `tasks.crossmatch.crossmatch_batch(batch_ids: list, match_version: int = 1)` — processes a batch of alert UUIDs through LSDB crossmatch against Gaia DR3.
+- `tasks.crossmatch.crossmatch_batch(batch_ids: list, match_version: int = 1)` — processes a batch of alert UUIDs through LSDB crossmatch against all configured catalogs (Gaia DR3, DES Y6 Gold).
 - `tasks.schedule.dispatch_crossmatch_batch()` — periodic task (every 30s) that checks batch thresholds and dispatches `crossmatch_batch` with the selected alert IDs.
 
 ---
@@ -859,7 +858,8 @@ Environment variables (examples):
 - `CELERY_BROKER_URL=redis://valkey:6379/0`
 - `CELERY_RESULT_BACKEND=redis://valkey:6379/1` (optional)
 - `ANTARES_TOPIC=...`
-- `GAIA_HATS_URL=s3://stpubdata/hats/gaia/dr3/`
+- `GAIA_HATS_URL=s3://stpubdata/gaia/gaia_dr3/public/hats`
+- `DES_HATS_URL=https://data.lsdb.io/hats/des/des_y6_gold`
 - `CROSSMATCH_RADIUS_ARCSEC=1.0`
 - `LASAIR_KAFKA_SERVER=lasair-lsst-kafka.lsst.ac.uk:9092`
 - `LASAIR_TOPIC=lasair_<uid>_<filter-name>`
@@ -917,7 +917,7 @@ Notes:
 
 ### 11.1 Suggested first implementation milestone
 - Ingest alert → store in DB → batch dispatcher enqueues crossmatch task
-- Crossmatch worker: batch match against Gaia DR3 via LSDB (`from_dataframe()` + `crossmatch()`)
-- Store match rows in `catalog_matches`
+- Crossmatch worker: batch match against Gaia DR3 and DES Y6 Gold via LSDB (`from_dataframe()` + `crossmatch()`)
+- Store match rows in `catalog_matches` (one row per catalog match)
 - Notifier: dummy implementation (logs payload) + `notifications` bookkeeping
 
