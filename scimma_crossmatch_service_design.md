@@ -727,7 +727,7 @@ Adding a new catalog requires only a new entry in `CROSSMATCH_CATALOGS` and the 
 ## 8. Python Implementation
 
 ### 8.1 Runtime and libraries
-- Python 3.11+
+- Python 3.12 (constrained by Dask cluster compatibility)
 
 Core libraries:
 - **Web/ORM framework:** **Django** (Django ORM + built-in migrations)
