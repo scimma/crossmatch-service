@@ -1,6 +1,6 @@
 common:
   image:
-    repo: hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev
+    repo: ghcr.io/scimma/crossmatch-service
     tag: dev
     imagePullPolicy: Always
   uid: 1000
