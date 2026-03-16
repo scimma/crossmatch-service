@@ -11,7 +11,7 @@ volumes:
 
 services:
   antares-consumer:
-    image: ghcr.io/scimma/crossmatch-service:dev
+    image: 585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev
     platform: linux/x86_64
     networks:
       - internal
@@ -52,7 +52,7 @@ services:
       - ../crossmatch:/opt/crossmatch
 
   lasair-consumer:
-    image: ghcr.io/scimma/crossmatch-service:dev
+    image: 585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev
     platform: linux/x86_64
     networks:
       - internal
@@ -87,7 +87,7 @@ services:
       - ../crossmatch:/opt/crossmatch
 
   celery-worker:
-    image: ghcr.io/scimma/crossmatch-service:dev
+    image: 585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev
     platform: linux/x86_64
     build:
       context: ../crossmatch
@@ -151,7 +151,7 @@ services:
     depends_on:
       valkey:
         condition: service_healthy
-    image: ghcr.io/scimma/crossmatch-service:dev
+    image: 585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev
     build:
       context: ../crossmatch
       dockerfile: ../docker/Dockerfile
@@ -180,7 +180,7 @@ services:
       - ../crossmatch:/opt/crossmatch
 
   flower:
-    image: ghcr.io/scimma/crossmatch-service:dev
+    image: 585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev
     platform: linux/x86_64
     build:
       context: ../crossmatch

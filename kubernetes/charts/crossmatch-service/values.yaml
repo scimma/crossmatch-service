@@ -1,6 +1,6 @@
 common:
   image:
-    repo: ghcr.io/scimma/crossmatch-service
+    repo: 585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service
     tag: dev
     imagePullPolicy: Always
   uid: 1000
