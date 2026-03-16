@@ -100,6 +100,7 @@ crossmatch:
   batch_max_wait_seconds: 900
   batch_max_size: 100000
   gaia_hats_url: "s3://stpubdata/gaia/gaia_dr3/public/hats"
+  des_hats_url: "https://data.lsdb.io/hats/des/des_y6_gold"
   radius_arcsec: 1.0
 
 database:

@@ -1,23 +1,23 @@
-{{- if .Values.alert_consumer.enabled }}
+{{- if .Values.antares_consumer.enabled }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ .Values.alert_consumer.service.host | quote }}
+  name: {{ .Values.antares_consumer.service.host | quote }}
   {{- with .Values.common.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  replicas: {{ .Values.alert_consumer.replicaCount }}
-  serviceName: {{ .Values.alert_consumer.service.host | quote }}
+  replicas: {{ .Values.antares_consumer.replicaCount }}
+  serviceName: {{ .Values.antares_consumer.service.host | quote }}
   selector:
     matchLabels:
-      app: {{ .Values.alert_consumer.service.host | quote }}
+      app: {{ .Values.antares_consumer.service.host | quote }}
   template:
     metadata:
       labels:
-        app: {{ .Values.alert_consumer.service.host | quote }}
+        app: {{ .Values.antares_consumer.service.host | quote }}
         app.kubernetes.io/component: alert-consumer
     spec:
       containers:
@@ -34,7 +34,8 @@ spec:
           {{- include "db.env" . | nindent 10 }}
           {{- include "valkey.env" . | nindent 10 }}
           {{- include "celery.env" . | nindent 10 }}
-        {{- with  .Values.alert_consumer.resources }}
+          {{- include "antares.env" . | nindent 10 }}
+        {{- with  .Values.antares_consumer.resources }}
         resources:
           {{- toYaml . | nindent 10 }}
         {{- end }}
@@ -89,6 +90,8 @@ spec:
           {{- include "db.env" . | nindent 10 }}
           {{- include "valkey.env" . | nindent 10 }}
           {{- include "celery.env" . | nindent 10 }}
+          {{- include "hopskotch.env" . | nindent 10 }}
+          {{- include "crossmatch.env" . | nindent 10 }}
         {{- with  .Values.celery.workers.resources }}
         resources:
           {{- toYaml . | nindent 10 }}
@@ -173,6 +176,7 @@ spec:
           {{- include "common.env" . | nindent 10 }}
           {{- include "db.env" . | nindent 10 }}
           {{- include "valkey.env" . | nindent 10 }}
+          {{- include "crossmatch.env" . | nindent 10 }}
 {{- end }}
 
 {{- if .Values.lasair_consumer.enabled }}

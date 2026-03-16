@@ -136,3 +136,6 @@ dmypy.json
 .DS_Store
 
 .vscode/
+
+# Kubernetes overrides (may contain environment-specific values)
+kubernetes/dev-overrides.yaml

@@ -1,0 +1,22 @@
+# Copy to dev-overrides.yaml and fill in values.
+# dev-overrides.yaml is gitignored.
+#
+# Before deploying, create K8s secrets:
+#   kubectl create secret generic django --from-literal=SECRET_KEY='...' --from-literal=DJANGO_SUPERUSER_PASSWORD='...'
+#   kubectl create secret generic database --from-literal=password='...'
+#   kubectl create secret generic antares --from-literal=ANTARES_API_KEY='...' --from-literal=ANTARES_API_SECRET='...'
+#   kubectl create secret generic hopskotch --from-literal=HOPSKOTCH_USERNAME='...' --from-literal=HOPSKOTCH_PASSWORD='...'
+
+antares_consumer:
+  topic: "in_lsst_ddf"
+  group_id: ""
+
+hopskotch:
+  broker_url: "kafka://kafka.scimma.org"
+  topic: ""
+
+crossmatch:
+  batch_max_wait_seconds: 60
+  gaia_hats_url: "s3://stpubdata/gaia/gaia_dr3/public/hats"
+  des_hats_url: "https://data.lsdb.io/hats/des/des_y6_gold"
+  radius_arcsec: 1.0
