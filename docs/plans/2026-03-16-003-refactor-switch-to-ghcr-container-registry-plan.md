@@ -1,22 +1,22 @@
 ---
-title: Switch Container Images to GitHub Container Registry
+title: Switch Container Images to AWS ECR
 type: refactor
 status: completed
 date: 2026-03-16
 origin: docs/brainstorms/2026-03-16-ghcr-container-registry-brainstorm.md
 ---
 
-# Switch Container Images to GitHub Container Registry
+# Switch Container Images to AWS ECR
 
 ## Overview
 
-Replace all container image references from `hub.ncsa.illinois.edu/crossmatch-service/...` with `ghcr.io/scimma/crossmatch-service`. Consolidate multiple image names into a single image since all services share the same Dockerfile.
+Replace all container image references from `hub.ncsa.illinois.edu/crossmatch-service/...` with `585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service`. Consolidate multiple image names into a single image since all services share the same Dockerfile.
 
 (See brainstorm: docs/brainstorms/2026-03-16-ghcr-container-registry-brainstorm.md)
 
 ## Acceptance Criteria
 
-- [x] All `hub.ncsa.illinois.edu` image references replaced with `ghcr.io/scimma/crossmatch-service` in docker-compose.yaml
+- [x] All `hub.ncsa.illinois.edu` image references replaced with `585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service` in docker-compose.yaml
 - [x] All services in docker-compose.yaml use the same image name (no separate alert-consumer/celery names)
 - [x] Helm chart `values.yaml` updated with new image repo
 - [x] Docker image builds and tags correctly with new name
@@ -29,11 +29,11 @@ Replace all image references. Currently there are separate names per service —
 
 | Service | Current image | New image |
 |---------|--------------|-----------|
-| antares-consumer | `hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev` | `ghcr.io/scimma/crossmatch-service:dev` |
-| lasair-consumer | `hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev` | `ghcr.io/scimma/crossmatch-service:dev` |
-| celery-worker | `hub.ncsa.illinois.edu/crossmatch-service/celery:dev` | `ghcr.io/scimma/crossmatch-service:dev` |
-| celery-beat | `hub.ncsa.illinois.edu/crossmatch-service/celery:dev` | `ghcr.io/scimma/crossmatch-service:dev` |
-| flower | `hub.ncsa.illinois.edu/crossmatch-service/celery:dev` | `ghcr.io/scimma/crossmatch-service:dev` |
+| antares-consumer | `hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev` | `585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev` |
+| lasair-consumer | `hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev` | `585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev` |
+| celery-worker | `hub.ncsa.illinois.edu/crossmatch-service/celery:dev` | `585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev` |
+| celery-beat | `hub.ncsa.illinois.edu/crossmatch-service/celery:dev` | `585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev` |
+| flower | `hub.ncsa.illinois.edu/crossmatch-service/celery:dev` | `585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev` |
 
 ### 2. `kubernetes/charts/crossmatch-service/values.yaml`
 
@@ -44,7 +44,7 @@ Change `common.image.repo` (line 3):
 repo: hub.ncsa.illinois.edu/crossmatch-service/alert-consumer:dev
 
 # After
-repo: ghcr.io/scimma/crossmatch-service
+repo: 585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service
 ```
 
 Helm templates already use `{{ .Values.common.image.repo }}:{{ .Values.common.image.tag }}` — no template changes needed.
