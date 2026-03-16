@@ -7,6 +7,13 @@ import os
 #
 APP_VERSION = '0.0.0'
 
+# Dask distributed scheduler (optional)
+# When set, Celery workers connect to a remote Dask scheduler.
+# When empty, Dask uses its default local synchronous scheduler.
+# In K8s, set from HOPDEVEL_DASK_SCHEDULER_SERVICE_HOST and
+# HOPDEVEL_DASK_SCHEDULER_SERVICE_PORT_TCP_COMM.
+DASK_SCHEDULER_ADDRESS = os.getenv('DASK_SCHEDULER_ADDRESS', '')
+
 # LSDB crossmatch settings
 GAIA_HATS_URL = os.getenv('GAIA_HATS_URL', 's3://stpubdata/gaia/gaia_dr3/public/hats')
 DES_HATS_URL = os.getenv('DES_HATS_URL', 'https://data.lsdb.io/hats/des/des_y6_gold')

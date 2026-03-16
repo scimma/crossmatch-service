@@ -59,6 +59,9 @@ celery:
   log_level: "INFO"
   task_time_limit: 129600
   task_soft_time_limit: 129400
+  # Remote Dask scheduler address (e.g., tcp://10.0.0.5:8786)
+  # Set from K8s service discovery: tcp://${HOPDEVEL_DASK_SCHEDULER_SERVICE_HOST}:${HOPDEVEL_DASK_SCHEDULER_SERVICE_PORT_TCP_COMM}
+  dask_scheduler_address: ""
   beat:
     replicaCount: 1
   workers_api:

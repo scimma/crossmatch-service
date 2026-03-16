@@ -127,7 +127,7 @@ exactly once regardless of which broker delivers it first.
 **C. Crossmatch Workers (Celery workers; runs in our Kubernetes cluster; horizontally scaled)**
 - Consume batch crossmatch jobs from Celery.
 - Use LSDB to match alerts against all configured HATS catalogs (currently **Gaia DR3** and **DES Y6 Gold**) via `lsdb.from_dataframe()` + `catalog.crossmatch()`.
-- LSDB operates on HATS-formatted (HEALPix-partitioned Parquet) catalogs and uses **Dask** under the hood for parallel, distributed computation. Each worker process invokes LSDB APIs, which internally construct Dask task graphs for crossmatches and execute them locally within the worker container.
+- LSDB operates on HATS-formatted (HEALPix-partitioned Parquet) catalogs and uses **Dask** under the hood for parallel, distributed computation. When `DASK_SCHEDULER_ADDRESS` is set, each worker connects to a remote Dask scheduler at startup via `dask.distributed.Client`, offloading computation to dedicated Dask workers. When unset, Dask runs locally within the Celery worker process using the default synchronous scheduler.
 - Catalogs are defined in a configurable registry (`CROSSMATCH_CATALOGS` in Django settings). Each entry specifies the catalog name, HATS URL, source ID column, and RA/Dec column names (which vary per catalog — e.g., lowercase `ra`/`dec` for Gaia, uppercase `RA`/`DEC` for DES).
 - The Gaia DR3 HATS catalog is accessed from the **public S3 bucket** `s3://stpubdata/hats/gaia/dr3/` (no credentials required). The DES Y6 Gold HATS catalog is accessed from `https://data.lsdb.io/hats/des/des_y6_gold`.
 - Each catalog object is cached in a module-level dict (`_catalog_cache`) keyed by catalog name within each worker process (metadata only; lightweight).
@@ -861,6 +861,7 @@ Environment variables (examples):
 - `GAIA_HATS_URL=s3://stpubdata/gaia/gaia_dr3/public/hats`
 - `DES_HATS_URL=https://data.lsdb.io/hats/des/des_y6_gold`
 - `CROSSMATCH_RADIUS_ARCSEC=1.0`
+- `DASK_SCHEDULER_ADDRESS=tcp://<host>:<port>` (optional; when unset, Dask runs locally)
 - `LASAIR_KAFKA_SERVER=lasair-lsst-kafka.lsst.ac.uk:9092`
 - `LASAIR_TOPIC=lasair_<uid>_<filter-name>`
 - `LASAIR_GROUP_ID=scimma-crossmatch-prod`
