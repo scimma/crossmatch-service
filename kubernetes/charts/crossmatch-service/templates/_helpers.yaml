@@ -33,6 +33,8 @@
   value: {{ .Values.celery.task_time_limit | quote }}
 - name: TASK_SOFT_TIME_LIMIT
   value: {{ .Values.celery.task_soft_time_limit | quote }}
+- name: DASK_SCHEDULER_ADDRESS
+  value: {{ .Values.celery.dask_scheduler_address | default "" | quote }}
 {{- end }}
 
 {{- define "db.env" -}}

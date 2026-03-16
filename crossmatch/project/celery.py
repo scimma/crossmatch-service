@@ -10,6 +10,9 @@ celery_app.config_from_object('django.conf:settings', namespace='CELERY')
 # Load task modules from all registered Django apps.
 # celery_app.autodiscover_tasks()
 
+# Connect to remote Dask scheduler if configured
+from core import dask  # noqa: F401 — registers worker_process_init signal
+
 # If the worker is running in Kubernetes, enable the liveness probe
 if os.getenv('KUBERNETES_SERVICE_HOST', ''):
     from core.k8s import LivenessProbe
