@@ -11,7 +11,7 @@ common:
 
 antares_consumer:
   enabled: true
-  replicaCount: 3
+  replicaCount: 1
   service:
     host: "antares-consumer"
   app_root_dir: /opt
@@ -30,7 +30,7 @@ antares_consumer:
       memory: 2Gi
 
 lasair_consumer:
-  enabled: false        # disabled until Kafka auth is confirmed in dev
+  enabled: true
   replicaCount: 1
   service:
     host: "lasair-consumer"
@@ -46,7 +46,7 @@ lasair_consumer:
       memory: 2Gi
 
 flower:
-  enabled: false
+  enabled: true
   replicaCount: 1
   flower_unauthenticated_api: false
   port: 5555
@@ -64,26 +64,16 @@ celery:
   dask_scheduler_address: ""
   beat:
     replicaCount: 1
-  workers_api:
+  workers:
     replicaCount: 2
     concurrency: 4
     resources:
       requests:
         cpu: '1'
-        memory: 100Mi
+        memory: 1Gi
       limits:
         cpu: '4'
         memory: 4Gi
-  workers:
-    replicaCount: 3
-    concurrency: 12
-    resources:
-      requests:
-        cpu: '2'
-        memory: 1Gi
-      limits:
-        cpu: '12'
-        memory: 48Gi
 
 hopskotch:
   broker_url: "kafka://kafka.scimma.org"
@@ -105,27 +95,21 @@ crossmatch:
 
 database:
   enabled: true
-  log_level: "debug"
-  description: "Django database"
+  imageTag: "18.3"
   clusterName: "django-db"
-  replicaCount: 3
   port: 5432
   initdb:
     database: "scimma_crossmatch_service"
     username: "crossmatch_service_admin"
     existingSecret: "database"
   storage:
-    storageClass: "longhorn"
+    storageClass: "gp2"
     size: "5Gi"
-    accessModes:
-    - ReadWriteMany
 
 valkey:
   fullnameOverride: "redis"
   service:
     serverPort: 6379
-    sentinelPort: 26379
   haMode:
-    enabled: true
-    replicas: 3
-    masterGroupName: "redisha"
+    enabled: false
+    replicas: 1
