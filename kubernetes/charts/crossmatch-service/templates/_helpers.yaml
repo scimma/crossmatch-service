@@ -4,14 +4,14 @@
 - name: MAKE_MIGRATIONS
   value: "false"
 - name: APP_ROOT_DIR
-  value: {{ .Values.alert_consumer.app_root_dir }}
+  value: {{ .Values.antares_consumer.app_root_dir }}
 {{- end }}
 
 {{- define "django.env" -}}
 - name: LOG_LEVEL
-  value: {{ .Values.alert_consumer.log_level | quote }}
+  value: {{ .Values.antares_consumer.log_level | quote }}
 - name: DJANGO_DEBUG
-  value: {{ .Values.alert_consumer.django_debug | quote }}
+  value: {{ .Values.antares_consumer.django_debug | quote }}
 - name: SECRET_KEY
   valueFrom:
     secretKeyRef:
@@ -67,6 +67,53 @@
   value: {{ .Values.valkey.fullnameOverride | default "redis" }}
 - name: VALKEY_PORT
   value: "6379"
+{{- end }}
+
+{{- define "antares.env" -}}
+- name: ANTARES_API_KEY
+  valueFrom:
+    secretKeyRef:
+      key: ANTARES_API_KEY
+      name: antares
+- name: ANTARES_API_SECRET
+  valueFrom:
+    secretKeyRef:
+      key: ANTARES_API_SECRET
+      name: antares
+- name: ANTARES_TOPIC
+  value: {{ .Values.antares_consumer.topic | quote }}
+- name: ANTARES_GROUP_ID
+  value: {{ .Values.antares_consumer.group_id | quote }}
+{{- end }}
+
+{{- define "hopskotch.env" -}}
+- name: HOPSKOTCH_BROKER_URL
+  value: {{ .Values.hopskotch.broker_url | quote }}
+- name: HOPSKOTCH_TOPIC
+  value: {{ .Values.hopskotch.topic | quote }}
+- name: HOPSKOTCH_USERNAME
+  valueFrom:
+    secretKeyRef:
+      key: HOPSKOTCH_USERNAME
+      name: hopskotch
+- name: HOPSKOTCH_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      key: HOPSKOTCH_PASSWORD
+      name: hopskotch
+{{- end }}
+
+{{- define "crossmatch.env" -}}
+- name: GAIA_HATS_URL
+  value: {{ .Values.crossmatch.gaia_hats_url | quote }}
+- name: DES_HATS_URL
+  value: {{ .Values.crossmatch.des_hats_url | quote }}
+- name: CROSSMATCH_RADIUS_ARCSEC
+  value: {{ .Values.crossmatch.radius_arcsec | quote }}
+- name: CROSSMATCH_BATCH_MAX_WAIT_SECONDS
+  value: {{ .Values.crossmatch.batch_max_wait_seconds | quote }}
+- name: CROSSMATCH_BATCH_MAX_SIZE
+  value: {{ .Values.crossmatch.batch_max_size | quote }}
 {{- end }}
 
 {{- define "flower.env" -}}
