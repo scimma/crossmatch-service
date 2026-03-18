@@ -39,7 +39,7 @@
 
 {{- define "db.env" -}}
 - name: DATABASE_HOST
-  value: {{ .Values.database.clusterName }}-rw
+  value: {{ .Values.database.clusterName }}
 - name: DATABASE_PORT
   value: {{ .Values.database.port | quote }}
 - name: DATABASE_USER

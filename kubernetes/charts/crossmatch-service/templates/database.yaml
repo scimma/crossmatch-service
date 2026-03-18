@@ -1,38 +1,63 @@
-apiVersion: postgresql.cnpg.io/v1
-kind: Cluster
+{{- if .Values.database.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.database.clusterName }}-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.database.storage.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.database.storage.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: {{ .Values.database.clusterName }}
 spec:
-  description: {{ .Values.database.description | quote }}
-  instances: {{ .Values.database.replicaCount }}
-  # superuserSecret:
-  #   name: db-superuser
-  enableSuperuserAccess: true
-  startDelay: 30
-  stopDelay: 100
-  primaryUpdateStrategy: unsupervised
-  logLevel: {{ .Values.database.log_level }}
-  postgresql:
-    parameters:
-      max_connections: '600'
-      shared_buffers: '256MB'
-      effective_cache_size: '768MB'
-      maintenance_work_mem: '64MB'
-      checkpoint_completion_target: '0.9'
-      wal_buffers: '7864kB'
-      default_statistics_target: '100'
-      random_page_cost: '1.1'
-      effective_io_concurrency: '200'
-      work_mem: '655kB'
-      huge_pages: 'off'
-      min_wal_size: '1GB'
-      max_wal_size: '4GB'
-  bootstrap:
-    initdb:
-      database: {{ .Values.database.initdb.database }}
-      owner: {{ .Values.database.initdb.username }}
-      secret:
-        name: {{ .Values.database.initdb.existingSecret }}
-  storage:
-    size: {{ .Values.database.storage.size }}
-    storageClass: {{ .Values.database.storage.storageClass }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.database.clusterName }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.database.clusterName }}
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:{{ .Values.database.imageTag | default "18.3" }}
+        ports:
+        - containerPort: {{ .Values.database.port }}
+        env:
+        - name: POSTGRES_DB
+          value: {{ .Values.database.initdb.database | quote }}
+        - name: POSTGRES_USER
+          value: {{ .Values.database.initdb.username | quote }}
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: {{ .Values.database.initdb.existingSecret | quote }}
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+          subPath: pgdata
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: {{ .Values.database.clusterName }}-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.database.clusterName }}
+spec:
+  selector:
+    app: {{ .Values.database.clusterName }}
+  ports:
+  - port: {{ .Values.database.port }}
+    targetPort: {{ .Values.database.port }}
+{{- end }}

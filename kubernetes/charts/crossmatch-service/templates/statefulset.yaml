@@ -62,17 +62,6 @@ spec:
         app.kubernetes.io/component: celery-worker
         app.kubernetes.io/name: celery-worker
     spec:
-      initContainers:
-      - name: volume-permissions
-        image: busybox:1.36
-        command:
-          - sh
-          - -c
-          - chown {{ .Values.common.uid }}:{{ .Values.common.uid }} /scratch
-        volumeMounts:
-          - name: job-scratch
-            mountPath: /scratch
-            subPath: scratch
       containers:
       - name: worker
         image: {{ .Values.common.image.repo }}:{{ .Values.common.image.tag }}
@@ -115,34 +104,6 @@ spec:
             - test -e /tmp/worker_ready
           initialDelaySeconds: 10
           periodSeconds: 5
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-                - key: celery-workhorse
-                  operator: In
-                  values:
-                  - "true"
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                - key: app.kubernetes.io/component
-                  operator: In
-                  values:
-                  - celery-worker
-              topologyKey: "kubernetes.io/hostname"
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchExpressions:
-              - key: app.kubernetes.io/name
-                operator: In
-                values:
-                - celery-worker
-            topologyKey: "kubernetes.io/hostname"
 
 ---
 apiVersion: apps/v1
