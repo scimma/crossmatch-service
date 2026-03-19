@@ -136,8 +136,8 @@ services:
       GAIA_HATS_URL: "${GAIA_HATS_URL:-s3://stpubdata/gaia/gaia_dr3/public/hats}"
       DES_HATS_URL: "${DES_HATS_URL:-https://data.lsdb.io/hats/des/des_y6_gold}"
       CROSSMATCH_RADIUS_ARCSEC: "${CROSSMATCH_RADIUS_ARCSEC:-1.0}"
-      # Remote Dask scheduler (not used in local dev)
-      # DASK_SCHEDULER_ADDRESS: "${DASK_SCHEDULER_ADDRESS:-}"
+      # Remote Dask scheduler (empty = local Dask scheduler)
+      DASK_SCHEDULER_ADDRESS: "${DASK_SCHEDULER_ADDRESS:-}"
       # Hopskotch publisher configuration
       HOPSKOTCH_BROKER_URL: "${HOPSKOTCH_BROKER_URL:-kafka://kafka.scimma.org}"
       HOPSKOTCH_TOPIC: "${HOPSKOTCH_TOPIC:-}"
