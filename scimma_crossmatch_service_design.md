@@ -722,6 +722,20 @@ Planned future catalogs:
 
 Adding a new catalog requires only a new entry in `CROSSMATCH_CATALOGS` and the corresponding `{CATALOG}_HATS_URL` env var. No changes to the core ingestion, queueing, matching logic, or deployment architecture are needed.
 
+### 7.4 Dask Cluster Requirements
+
+When using a remote Dask scheduler (via `DASK_SCHEDULER_ADDRESS`), both the **scheduler and workers** must have the same Python packages installed as the crossmatch-service. Dask uses pickle serialization to transfer task graphs between the client (Celery worker), scheduler, and Dask workers. If any component is missing a required module, deserialization fails with `ModuleNotFoundError`.
+
+**Required packages on Dask scheduler and workers:**
+- `lsdb` (and its transitive dependencies: `nested_pandas`, `hats`, `mocpy`, etc.)
+- `numpy`, `pandas` — pinned to the same versions as the crossmatch-service
+- `s3fs` — for reading HATS catalogs from S3
+- Python version must match (currently 3.12)
+
+**Local development:** Docker Compose includes optional `dask-scheduler` and `dask-worker` services behind a `dask-scheduler` profile, using the official Dask image (`ghcr.io/dask/dask`) with packages installed at startup via the `EXTRA_PIP_PACKAGES` environment variable. Activate with `docker compose --profile dask-scheduler up`. When the profile is not active, Dask runs locally within each Celery worker using its default synchronous scheduler.
+
+**Kubernetes production:** The Dask cluster is managed as a separate project, not by the crossmatch-service Helm chart. The Dask cluster is shared infrastructure used by multiple consumers. The crossmatch-service connects to it via the `DASK_SCHEDULER_ADDRESS` env var (set in Helm values to the Kubernetes service DNS name). Responsibility for ensuring the Dask cluster has compatible packages installed lies with the Dask cluster project.
+
 ---
 
 ## 8. Python Implementation
