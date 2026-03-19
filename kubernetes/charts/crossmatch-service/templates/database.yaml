@@ -1,17 +1,5 @@
 {{- if .Values.database.enabled }}
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ .Values.database.clusterName }}-data
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: {{ .Values.database.storage.storageClass }}
-  resources:
-    requests:
-      storage: {{ .Values.database.storage.size }}
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -43,12 +31,10 @@ spec:
               name: {{ .Values.database.initdb.existingSecret | quote }}
         volumeMounts:
         - name: postgres-data
-          mountPath: /var/lib/postgresql/data
-          subPath: pgdata
+          mountPath: /var/lib/postgresql
       volumes:
       - name: postgres-data
-        persistentVolumeClaim:
-          claimName: {{ .Values.database.clusterName }}-data
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
