@@ -697,7 +697,18 @@ See `healpix_vs_visit_crossmatch.md` for the full analysis.
 
 ### Margin Caches and Edge Effects
 
-LSDB supports **margin caches** — additional overlap regions around HEALPix partitions so that objects near tile boundaries are not missed. At a 1 arcsec crossmatch radius, edge effects are negligible. If the Gaia DR3 HATS catalog ships with a margin cache, `open_catalog()` picks it up automatically.
+LSDB supports **margin caches** — additional overlap regions around HEALPix partitions so that objects near tile boundaries are not missed. When a catalog lacks a margin cache, LSDB emits a `RuntimeWarning: Right catalog does not have a margin cache. Results may be incomplete and/or inaccurate.`
+
+Current margin cache status (as of 2026-03-23):
+
+| Catalog | Margin Cache |
+|---------|-------------|
+| Gaia DR3 | Yes |
+| DES Y6 Gold | Yes |
+| DELVE DR3 Gold | No |
+| SkyMapper DR4 | No |
+
+At a 1 arcsec crossmatch radius, the practical impact of missing margin caches is small — the fraction of sky area within 1 arcsec of a HEALPix tile boundary is tiny. The vast majority of matches are unaffected. This limitation is accepted for now. If the upstream HATS data providers add margin caches in the future, `open_catalog()` will pick them up automatically with no code changes needed.
 
 ### 7.2 Match policy (initial)
 - Store the best match (nearest neighbor) within a configurable radius.
