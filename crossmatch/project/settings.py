@@ -17,6 +17,7 @@ DASK_SCHEDULER_ADDRESS = os.getenv('DASK_SCHEDULER_ADDRESS', '')
 # LSDB crossmatch settings
 GAIA_HATS_URL = os.getenv('GAIA_HATS_URL', 's3://stpubdata/gaia/gaia_dr3/public/hats')
 DES_HATS_URL = os.getenv('DES_HATS_URL', 'https://data.lsdb.io/hats/des/des_y6_gold')
+DELVE_HATS_URL = os.getenv('DELVE_HATS_URL', 'https://data.lsdb.io/hats/delve/delve_dr3_gold')
 CROSSMATCH_RADIUS_ARCSEC = float(os.getenv('CROSSMATCH_RADIUS_ARCSEC', '1.0'))
 
 CROSSMATCH_CATALOGS = [
@@ -30,6 +31,13 @@ CROSSMATCH_CATALOGS = [
     {
         'name': 'des_y6_gold',
         'hats_url': DES_HATS_URL,
+        'source_id_column': 'COADD_OBJECT_ID',
+        'ra_column': 'RA',
+        'dec_column': 'DEC',
+    },
+    {
+        'name': 'delve_dr3_gold',
+        'hats_url': DELVE_HATS_URL,
         'source_id_column': 'COADD_OBJECT_ID',
         'ra_column': 'RA',
         'dec_column': 'DEC',
