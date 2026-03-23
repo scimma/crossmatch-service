@@ -136,6 +136,7 @@ services:
       GAIA_HATS_URL: "${GAIA_HATS_URL:-s3://stpubdata/gaia/gaia_dr3/public/hats}"
       DES_HATS_URL: "${DES_HATS_URL:-https://data.lsdb.io/hats/des/des_y6_gold}"
       DELVE_HATS_URL: "${DELVE_HATS_URL:-https://data.lsdb.io/hats/delve/delve_dr3_gold}"
+      SKYMAPPER_HATS_URL: "${SKYMAPPER_HATS_URL:-https://data.lsdb.io/hats/skymapper_dr4/catalog}"
       CROSSMATCH_RADIUS_ARCSEC: "${CROSSMATCH_RADIUS_ARCSEC:-1.0}"
       # Remote Dask scheduler (empty = local Dask scheduler)
       DASK_SCHEDULER_ADDRESS: "${DASK_SCHEDULER_ADDRESS:-}"
