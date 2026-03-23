@@ -18,6 +18,7 @@ DASK_SCHEDULER_ADDRESS = os.getenv('DASK_SCHEDULER_ADDRESS', '')
 GAIA_HATS_URL = os.getenv('GAIA_HATS_URL', 's3://stpubdata/gaia/gaia_dr3/public/hats')
 DES_HATS_URL = os.getenv('DES_HATS_URL', 'https://data.lsdb.io/hats/des/des_y6_gold')
 DELVE_HATS_URL = os.getenv('DELVE_HATS_URL', 'https://data.lsdb.io/hats/delve/delve_dr3_gold')
+SKYMAPPER_HATS_URL = os.getenv('SKYMAPPER_HATS_URL', 'https://data.lsdb.io/hats/skymapper_dr4/catalog')
 CROSSMATCH_RADIUS_ARCSEC = float(os.getenv('CROSSMATCH_RADIUS_ARCSEC', '1.0'))
 
 CROSSMATCH_CATALOGS = [
@@ -41,6 +42,13 @@ CROSSMATCH_CATALOGS = [
         'source_id_column': 'COADD_OBJECT_ID',
         'ra_column': 'RA',
         'dec_column': 'DEC',
+    },
+    {
+        'name': 'skymapper_dr4',
+        'hats_url': SKYMAPPER_HATS_URL,
+        'source_id_column': 'object_id',
+        'ra_column': 'raj2000',
+        'dec_column': 'dej2000',
     },
 ]
 

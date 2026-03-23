@@ -110,6 +110,8 @@
   value: {{ .Values.crossmatch.des_hats_url | quote }}
 - name: DELVE_HATS_URL
   value: {{ .Values.crossmatch.delve_hats_url | quote }}
+- name: SKYMAPPER_HATS_URL
+  value: {{ .Values.crossmatch.skymapper_hats_url | quote }}
 - name: CROSSMATCH_RADIUS_ARCSEC
   value: {{ .Values.crossmatch.radius_arcsec | quote }}
 - name: CROSSMATCH_BATCH_MAX_WAIT_SECONDS

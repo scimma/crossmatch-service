@@ -697,7 +697,18 @@ See `healpix_vs_visit_crossmatch.md` for the full analysis.
 
 ### Margin Caches and Edge Effects
 
-LSDB supports **margin caches** — additional overlap regions around HEALPix partitions so that objects near tile boundaries are not missed. At a 1 arcsec crossmatch radius, edge effects are negligible. If the Gaia DR3 HATS catalog ships with a margin cache, `open_catalog()` picks it up automatically.
+LSDB supports **margin caches** — additional overlap regions around HEALPix partitions so that objects near tile boundaries are not missed. When a catalog lacks a margin cache, LSDB emits a `RuntimeWarning: Right catalog does not have a margin cache. Results may be incomplete and/or inaccurate.`
+
+Current margin cache status (as of 2026-03-23):
+
+| Catalog | Margin Cache |
+|---------|-------------|
+| Gaia DR3 | Yes |
+| DES Y6 Gold | Yes |
+| DELVE DR3 Gold | No |
+| SkyMapper DR4 | No |
+
+At a 1 arcsec crossmatch radius, the practical impact of missing margin caches is small — the fraction of sky area within 1 arcsec of a HEALPix tile boundary is tiny. The vast majority of matches are unaffected. This limitation is accepted for now. If the upstream HATS data providers add margin caches in the future, `open_catalog()` will pick them up automatically with no code changes needed.
 
 ### 7.2 Match policy (initial)
 - Store the best match (nearest neighbor) within a configurable radius.
@@ -712,12 +723,12 @@ The system uses a configurable catalog registry (`CROSSMATCH_CATALOGS` in Django
 - **Gaia DR3** — accessed from `s3://stpubdata/gaia/gaia_dr3/public/hats` (source ID: `source_id`, RA/Dec columns: `ra`/`dec`)
 - **DES Y6 Gold** — accessed from `https://data.lsdb.io/hats/des/des_y6_gold` (source ID: `COADD_OBJECT_ID`, RA/Dec columns: `RA`/`DEC`)
 - **DELVE DR3 Gold** — accessed from `https://data.lsdb.io/hats/delve/delve_dr3_gold` (source ID: `COADD_OBJECT_ID`, RA/Dec columns: `RA`/`DEC`)
+- **SkyMapper DR4** — accessed from `https://data.lsdb.io/hats/skymapper_dr4/catalog` (source ID: `object_id`, RA/Dec columns: `raj2000`/`dej2000`)
 
-Each catalog entry specifies: `name`, `hats_url`, `source_id_column`, `ra_column`, `dec_column`. RA/Dec column names vary per catalog (e.g., lowercase for Gaia, uppercase for DES and DELVE).
+Each catalog entry specifies: `name`, `hats_url`, `source_id_column`, `ra_column`, `dec_column`. RA/Dec column names vary per catalog (e.g., lowercase for Gaia, uppercase for DES/DELVE, J2000 suffix for SkyMapper).
 
 Planned future catalogs:
 
-- **SkyMapper**
 - **Pan-STARRS1 (PS1)**
 
 Adding a new catalog requires only a new entry in `CROSSMATCH_CATALOGS` and the corresponding `{CATALOG}_HATS_URL` env var. No changes to the core ingestion, queueing, matching logic, or deployment architecture are needed.

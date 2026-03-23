@@ -92,6 +92,7 @@ crossmatch:
   gaia_hats_url: "s3://stpubdata/gaia/gaia_dr3/public/hats"
   des_hats_url: "https://data.lsdb.io/hats/des/des_y6_gold"
   delve_hats_url: "https://data.lsdb.io/hats/delve/delve_dr3_gold"
+  skymapper_hats_url: "https://data.lsdb.io/hats/skymapper_dr4/catalog"
   radius_arcsec: 1.0
 
 database:
