@@ -711,12 +711,12 @@ The system uses a configurable catalog registry (`CROSSMATCH_CATALOGS` in Django
 
 - **Gaia DR3** — accessed from `s3://stpubdata/gaia/gaia_dr3/public/hats` (source ID: `source_id`, RA/Dec columns: `ra`/`dec`)
 - **DES Y6 Gold** — accessed from `https://data.lsdb.io/hats/des/des_y6_gold` (source ID: `COADD_OBJECT_ID`, RA/Dec columns: `RA`/`DEC`)
+- **DELVE DR3 Gold** — accessed from `https://data.lsdb.io/hats/delve/delve_dr3_gold` (source ID: `COADD_OBJECT_ID`, RA/Dec columns: `RA`/`DEC`)
 
-Each catalog entry specifies: `name`, `hats_url`, `source_id_column`, `ra_column`, `dec_column`. RA/Dec column names vary per catalog (e.g., lowercase for Gaia, uppercase for DES).
+Each catalog entry specifies: `name`, `hats_url`, `source_id_column`, `ra_column`, `dec_column`. RA/Dec column names vary per catalog (e.g., lowercase for Gaia, uppercase for DES and DELVE).
 
 Planned future catalogs:
 
-- **DECam Local Volume Exploration Survey (DELVE)**
 - **SkyMapper**
 - **Pan-STARRS1 (PS1)**
 
