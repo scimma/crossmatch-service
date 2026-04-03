@@ -139,3 +139,6 @@ dmypy.json
 
 # Kubernetes overrides (may contain environment-specific values)
 kubernetes/dev-overrides.yaml
+
+# GCP service account key files
+docker/secrets/

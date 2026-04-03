@@ -187,3 +187,57 @@ spec:
           {{- toYaml . | nindent 10 }}
         {{- end }}
 {{- end }}
+
+{{- if .Values.pittgoogle_consumer.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.pittgoogle_consumer.service.host | quote }}
+  {{- with .Values.common.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.pittgoogle_consumer.replicaCount }}
+  serviceName: {{ .Values.pittgoogle_consumer.service.host | quote }}
+  selector:
+    matchLabels:
+      app: {{ .Values.pittgoogle_consumer.service.host | quote }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.pittgoogle_consumer.service.host | quote }}
+        app.kubernetes.io/component: pittgoogle-consumer
+    spec:
+      containers:
+      - name: pittgoogle-consumer
+        image: {{ .Values.common.image.repo }}:{{ .Values.common.image.tag }}
+        imagePullPolicy: {{ .Values.common.image.imagePullPolicy }}
+        command:
+        - /bin/bash
+        - -c
+        - bash entrypoints/run_pittgoogle_ingest.sh
+        env:
+          {{- include "common.env" . | nindent 10 }}
+          {{- include "django.env" . | nindent 10 }}
+          {{- include "db.env" . | nindent 10 }}
+          {{- include "valkey.env" . | nindent 10 }}
+          {{- include "celery.env" . | nindent 10 }}
+          {{- include "pittgoogle.env" . | nindent 10 }}
+        volumeMounts:
+        - name: gcp-key
+          mountPath: /var/run/secrets/gcp
+          readOnly: true
+        {{- with .Values.pittgoogle_consumer.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      volumes:
+      - name: gcp-key
+        secret:
+          secretName: gcp-pittgoogle
+          items:
+          - key: key.json
+            path: key.json
+{{- end }}

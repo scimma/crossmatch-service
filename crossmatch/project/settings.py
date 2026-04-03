@@ -184,6 +184,16 @@ if not _antares_group_id:
 ANTARES_GROUP_ID = _antares_group_id
 
 ######################################################################
+# Pitt-Google Pub/Sub consumer
+#
+PITTGOOGLE_TOPIC = os.environ.get('PITTGOOGLE_TOPIC', 'lsst-alerts')
+PITTGOOGLE_SUBSCRIPTION = os.environ.get('PITTGOOGLE_SUBSCRIPTION', 'scimma-crossmatch-lsst-alerts')
+PITTGOOGLE_PUBLISHER_PROJECT = os.environ.get('PITTGOOGLE_PUBLISHER_PROJECT', 'pitt-alert-broker')
+# GCP auth is handled by standard env vars:
+#   GOOGLE_CLOUD_PROJECT — the subscriber's GCP project (where the subscription lives)
+#   GOOGLE_APPLICATION_CREDENTIALS — path to service account JSON key file
+
+######################################################################
 # SCiMMA Hopskotch publisher
 #
 HOPSKOTCH_BROKER_URL = os.environ.get('HOPSKOTCH_BROKER_URL', 'kafka://kafka.scimma.org')

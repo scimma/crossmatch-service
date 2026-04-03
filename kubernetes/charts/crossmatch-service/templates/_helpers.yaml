@@ -86,6 +86,22 @@
   value: {{ .Values.antares_consumer.group_id | quote }}
 {{- end }}
 
+{{- define "pittgoogle.env" -}}
+- name: PITTGOOGLE_TOPIC
+  value: {{ .Values.pittgoogle_consumer.topic | quote }}
+- name: PITTGOOGLE_SUBSCRIPTION
+  value: {{ .Values.pittgoogle_consumer.subscription | quote }}
+- name: PITTGOOGLE_PUBLISHER_PROJECT
+  value: {{ .Values.pittgoogle_consumer.publisher_project | quote }}
+- name: GOOGLE_CLOUD_PROJECT
+  valueFrom:
+    secretKeyRef:
+      key: GOOGLE_CLOUD_PROJECT
+      name: gcp-pittgoogle
+- name: GOOGLE_APPLICATION_CREDENTIALS
+  value: "/var/run/secrets/gcp/key.json"
+{{- end }}
+
 {{- define "hopskotch.env" -}}
 - name: HOPSKOTCH_BROKER_URL
   value: {{ .Values.hopskotch.broker_url | quote }}

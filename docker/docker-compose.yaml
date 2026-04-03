@@ -86,6 +86,45 @@ services:
     volumes:
       - ../crossmatch:/opt/crossmatch
 
+  pittgoogle-consumer:
+    image: 585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev
+    platform: linux/x86_64
+    networks:
+      - internal
+    build:
+      context: ../crossmatch
+      dockerfile: ../docker/Dockerfile
+      args:
+        UID: "${USERID:-1000}"
+    command: bash entrypoints/run_pittgoogle_ingest.sh
+    environment:
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      DEV_MODE: "${DEV_MODE:-true}"
+      # Django base configuration
+      DJANGO_SUPERUSER_PASSWORD: "${DJANGO_SUPERUSER_PASSWORD:-password}"
+      DJANGO_SUPERUSER_USERNAME: "${DJANGO_SUPERUSER_USERNAME:-admin}"
+      DJANGO_SUPERUSER_EMAIL: "${DJANGO_SUPERUSER_EMAIL:-test@example.com}"
+      # Django database configuration
+      DATABASE_HOST: "${DATABASE_HOST:-django-db}"
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+      DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
+      DATABASE_USER: "${DATABASE_USER:-crossmatch_service_admin}"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
+      VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
+      VALKEY_PORT: "${VALKEY_PORT:-6379}"
+      APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
+      # Pitt-Google broker configuration
+      PITTGOOGLE_TOPIC: "${PITTGOOGLE_TOPIC:-lsst-alerts}"
+      PITTGOOGLE_SUBSCRIPTION: "${PITTGOOGLE_SUBSCRIPTION:-scimma-crossmatch-lsst-alerts}"
+      PITTGOOGLE_PUBLISHER_PROJECT: "${PITTGOOGLE_PUBLISHER_PROJECT:-pitt-alert-broker}"
+      # GCP auth
+      GOOGLE_CLOUD_PROJECT: "${GOOGLE_CLOUD_PROJECT:-}"
+      GOOGLE_APPLICATION_CREDENTIALS: /var/run/secrets/gcp/key.json
+    volumes:
+      - ../crossmatch:/opt/crossmatch
+      - ${GCP_KEY_FILE:-./secrets/gcp-pittgoogle-key.json}:/var/run/secrets/gcp/key.json:ro
+
   celery-worker:
     image: 585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev
     platform: linux/x86_64

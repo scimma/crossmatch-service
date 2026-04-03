@@ -45,6 +45,22 @@ lasair_consumer:
       cpu: '2'
       memory: 2Gi
 
+pittgoogle_consumer:
+  enabled: true
+  replicaCount: 1
+  service:
+    host: "pittgoogle-consumer"
+  topic: "lsst-alerts"
+  subscription: "scimma-crossmatch-lsst-alerts"
+  publisher_project: "pitt-alert-broker"
+  resources:
+    requests:
+      cpu: '500m'
+      memory: 100Mi
+    limits:
+      cpu: '2'
+      memory: 2Gi
+
 flower:
   enabled: true
   replicaCount: 1
