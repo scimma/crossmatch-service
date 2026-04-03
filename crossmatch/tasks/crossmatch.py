@@ -61,6 +61,12 @@ def crossmatch_batch(batch_ids: list, match_version: int = 1) -> None:
 
             try:
                 result_df = crossmatch_alerts(alerts_catalog, catalog_config)
+            except RuntimeError as exc:
+                if "Catalogs do not overlap" in str(exc):
+                    logger.info('No spatial overlap with catalog',
+                                catalog=catalog_name, total=len(clean_df))
+                    continue
+                raise
             except Exception:
                 logger.exception('Crossmatch failed for catalog',
                                  catalog=catalog_name)
