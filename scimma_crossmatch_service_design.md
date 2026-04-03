@@ -1,6 +1,6 @@
-# LSST Alert Matching Service Architecture (ANTARES + Lasair + Gaia + DES)
+# LSST Alert Matching Service Architecture (ANTARES + Lasair + Pitt-Google + Gaia + DES)
 
-This document defines a Python-based service architecture that receives Rubin/LSST alerts from the **ANTARES** and **Lasair** brokers, matches them against the **Gaia DR3** and **DES Y6 Gold** catalogs using **LSDB**, and records results for eventual **feedback to LSST** (return mechanism TBD).
+This document defines a Python-based service architecture that receives Rubin/LSST alerts from the **ANTARES**, **Lasair**, and **Pitt-Google** brokers, matches them against the **Gaia DR3** and **DES Y6 Gold** catalogs using **LSDB**, and records results for eventual **feedback to LSST** (return mechanism TBD).
 
 It is an iteration of the original design, updated to:
 - Use **Celery** for work orchestration
@@ -13,7 +13,7 @@ It is an iteration of the original design, updated to:
 ## 1. Goals and Non-Goals
 
 ### Goals
-- Reliable ingestion of LSST alerts from **multiple brokers** (ANTARES + Lasair) for stream resilience and richer science filtering.
+- Reliable ingestion of LSST alerts from **multiple brokers** (ANTARES + Lasair + Pitt-Google) for stream resilience and richer science filtering.
 - Idempotent processing (safe to retry alert ingest, match jobs, and notifications).
 - Horizontal scalability: multiple workers consuming queued crossmatch work.
 - Separation of concerns: ingest vs. schedule ingest vs. match vs. notify.
@@ -67,7 +67,7 @@ The exact implementation will follow ANTARES filter syntax and available alert s
 
 **B. Alert Ingest Services (runs in our Kubernetes cluster)**
 
-Two independent ingest services consume from separate broker streams and write to the same shared `alerts` table.
+Three independent ingest services consume from separate broker streams and write to the same shared `alerts` table.
 
 **B1. ANTARES Ingest Service**
 - Subscribes to the ANTARES topic produced by our filter.
@@ -117,8 +117,16 @@ WHERE
 - `lastDiaSourceMjdTai` within 1 day — only recent/active transients are
   delivered; avoids re-delivering old objects on Kafka replay.
 
+**B3. Pitt-Google Ingest Service**
+- Subscribes to the Pitt-Google `lsst-alerts` topic via Google Cloud Pub/Sub.
+- Uses a server-side attribute filter (`attributes:diaObject_diaObjectId`) to drop alerts without a diaObjectId.
+- Validates/normalizes alert payload using the `pittgoogle.Alert` object properties.
+- UPSERTs the alert into `alerts` keyed by `lsst_diaObject_diaObjectId`.
+- Records the delivery in `alert_deliveries` (broker=`'pittgoogle'`).
+- Enqueues a `crossmatch_alert` Celery task **only if the UPSERT created a new row**.
+
 **Comparison with ANTARES filter:**
-The two filters are complementary rather than equivalent. ANTARES uses explicit
+The filters are complementary rather than equivalent. ANTARES uses explicit
 boolean flags plus an SNR threshold and Solar System exclusion; Lasair uses a
 single ML score plus a recency window. Both paths write to the same `alerts`
 table; the deduplication UPSERT ensures each `diaObjectId` is crossmatched
@@ -152,7 +160,7 @@ exactly once regardless of which broker delivers it first.
 
 1. LSST publishes alert packets → ANTARES receives.
 2. Our ANTARES filter selects a subset → ANTARES publishes to our subscription topic.
-3. **Either** ingest service (ANTARES or Lasair) receives the alert:
+3. **Any** ingest service (ANTARES, Lasair, or Pitt-Google) receives the alert:
    - UPSERT into `alerts` keyed by `lsst_diaObject_diaObjectId` (`ON CONFLICT DO NOTHING`)
    - INSERT into `alert_deliveries` recording the broker name and broker-specific envelope (`ON CONFLICT DO NOTHING`)
    - If the UPSERT created a new `alerts` row → submit Celery task `crossmatch_alert(lsst_diaObject_diaObjectId)`
@@ -355,7 +363,81 @@ but this is not needed for the Kafka consumer ingest path.
 | `LASAIR_GROUP_ID` | `scimma-crossmatch-prod` | stable in production |
 | `LASAIR_TOKEN` | `<api-token>` | REST API token (if needed for auth) |
 
-### 4.4 Notifier → LSST (TBD)
+### 4.4 Pitt-Google → Ingest
+
+Pitt-Google delivers alerts via **Google Cloud Pub/Sub** using the `pittgoogle-client` PyPI package.
+
+**Connection**:
+- Transport: Google Cloud Pub/Sub
+- Python package: `pittgoogle-client`
+- Source: https://github.com/mwvgroup/pittgoogle-client
+- Publisher project: `pitt-alert-broker`
+- Topic: `lsst-alerts` (full Avro-serialized LSST alerts, deduplicated)
+
+**Consuming alerts**:
+
+```python
+# brokers/pittgoogle/consumer.py
+import pittgoogle
+
+topic = pittgoogle.Topic(name='lsst-alerts', projectid='pitt-alert-broker')
+subscription = pittgoogle.Subscription(
+    name=settings.PITTGOOGLE_SUBSCRIPTION,
+    topic=topic,
+    schema_name='lsst',
+)
+subscription.touch(attribute_filter='attributes:diaObject_diaObjectId')
+
+def msg_callback(alert):
+    canonical = normalize_pittgoogle(alert)
+    ingest_alert(canonical, broker='pittgoogle')
+    return pittgoogle.pubsub.Response(ack=True, result=None)
+
+consumer = pittgoogle.pubsub.Consumer(
+    subscription=subscription,
+    msg_callback=msg_callback,
+)
+consumer.stream()  # blocks indefinitely
+```
+
+**Data model**: `pittgoogle.Alert` objects expose LSST fields directly via
+`.objectid` (diaObjectId), `.sourceid` (diaSourceId), `.ra`, `.dec`, and `.dict`
+(full alert payload as a Python dict).
+
+**Subscription model**: Subscriptions are created in the *subscriber's* Google Cloud
+project but attached to Pitt-Google's topic. `subscription.touch()` creates the
+subscription if it doesn't exist; it is a no-op if it already exists. The subscription
+name must be unique per GCP project; each environment (dev, prod) should use a distinct
+name to prevent message splitting.
+
+**Filtering**: A Pub/Sub attribute filter `attributes:diaObject_diaObjectId` is applied
+server-side at subscription creation. This drops alerts without a `diaObject_diaObjectId`
+attribute (e.g., solar system objects). The filter is immutable once set.
+
+**Authentication**: Standard Google Cloud credentials via a service account JSON key
+file. Requires two environment variables:
+- `GOOGLE_CLOUD_PROJECT` — the subscriber's GCP project ID
+- `GOOGLE_APPLICATION_CREDENTIALS` — path to the service account key file
+
+The GCP project must have the Pub/Sub API enabled.
+
+**Error handling**: The consumer uses a callback-based `Consumer.stream()` which
+dispatches alerts to a `ThreadPoolExecutor`. Normalization errors ack the message
+(permanent failure — redelivery won't fix malformed data). Ingest errors nack the
+message (transient — Pub/Sub redelivers after the ack deadline). The outer reconnection
+loop uses exponential backoff (1 s initial, 60 s max) matching the ANTARES/Lasair pattern.
+
+**Environment variables**:
+
+| Variable | Example | Notes |
+|---|---|---|
+| `PITTGOOGLE_TOPIC` | `lsst-alerts` | topic in Pitt-Google's project |
+| `PITTGOOGLE_SUBSCRIPTION` | `scimma-crossmatch-lsst-alerts` | subscription in subscriber's project |
+| `PITTGOOGLE_PUBLISHER_PROJECT` | `pitt-alert-broker` | Pitt-Google's GCP project ID |
+| `GOOGLE_CLOUD_PROJECT` | `my-gcp-project-123` | subscriber's GCP project ID |
+| `GOOGLE_APPLICATION_CREDENTIALS` | `/var/run/secrets/gcp/key.json` | path to SA key file |
+
+### 4.5 Notifier → LSST (TBD)
 We define a stable internal interface so multiple outbound mechanisms can be swapped in later.
 
 ```python
@@ -364,11 +446,11 @@ class LsstReturnClient(Protocol):
         ...
 ```
 
-### 4.5 Notifier → SCiMMA Hopskotch
+### 4.6 Notifier → SCiMMA Hopskotch
 
 Crossmatch results are published to the **SCiMMA Hopskotch** Kafka service using
 the `hop-client` PyPI package. This is the first concrete output channel; the LSST
-return channel (§4.4) remains TBD.
+return channel (§4.5) remains TBD.
 
 **Publishing library**: `hop-client` on PyPI (wraps `confluent_kafka`).
 - Source: https://github.com/scimma/hop-client

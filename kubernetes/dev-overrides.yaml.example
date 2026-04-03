@@ -6,10 +6,15 @@
 #   kubectl create secret generic database --from-literal=password='...'
 #   kubectl create secret generic antares --from-literal=ANTARES_API_KEY='...' --from-literal=ANTARES_API_SECRET='...'
 #   kubectl create secret generic hopskotch --from-literal=HOPSKOTCH_USERNAME='...' --from-literal=HOPSKOTCH_PASSWORD='...'
+#   kubectl create secret generic gcp-pittgoogle --from-file=key.json=/path/to/sa-key.json --from-literal=GOOGLE_CLOUD_PROJECT='my-gcp-project-id'
 
 antares_consumer:
   topic: "in_lsst_ddf"
   group_id: ""
+
+pittgoogle_consumer:
+  topic: "lsst-alerts"
+  subscription: "scimma-crossmatch-dev-lsst-alerts"
 
 hopskotch:
   broker_url: "kafka://kafka.scimma.org"

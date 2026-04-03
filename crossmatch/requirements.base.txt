@@ -10,6 +10,7 @@ httpx
 confluent_kafka
 lasair
 lsdb==0.8.1
+pittgoogle-client
 numpy==2.4.2
 pandas==2.3.3
 tornado==6.5.4
