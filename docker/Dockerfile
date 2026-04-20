@@ -1,9 +1,9 @@
-FROM python:3.12 AS deps
+FROM python:3.12.12 AS deps
 
 COPY ./requirements.base.txt /requirements.txt
 RUN pip install -r /requirements.txt --no-cache-dir
 
-FROM python:3.12
+FROM python:3.12.12
 
 ARG UID=1000
 ARG USERNAME=crossmatch
