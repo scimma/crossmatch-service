@@ -134,7 +134,10 @@ services:
       args:
         UID: "${USERID:-1000}"
     command: bash entrypoints/run_celery_worker.sh alerts
-    restart: on-failure
+    # Cap retries so a startup-time failure (e.g., Dask version drift caught
+    # by the worker_init check) stops looping after a handful of attempts
+    # instead of restarting forever and flooding the logs.
+    restart: "on-failure:5"
     depends_on:
       valkey:
         condition: service_healthy
@@ -179,6 +182,9 @@ services:
       CROSSMATCH_RADIUS_ARCSEC: "${CROSSMATCH_RADIUS_ARCSEC:-1.0}"
       # Remote Dask scheduler (empty = local Dask scheduler)
       DASK_SCHEDULER_ADDRESS: "${DASK_SCHEDULER_ADDRESS:-}"
+      # Higher default than settings.py (300s) — cold EXTRA_PIP_PACKAGES installs
+      # on the dask-scheduler/worker containers regularly take several minutes.
+      DASK_VERSION_CHECK_TIMEOUT_SECONDS: "${DASK_VERSION_CHECK_TIMEOUT_SECONDS:-600}"
       # Hopskotch publisher configuration
       HOPSKOTCH_BROKER_URL: "${HOPSKOTCH_BROKER_URL:-kafka://kafka.scimma.org}"
       HOPSKOTCH_TOPIC: "${HOPSKOTCH_TOPIC:-}"

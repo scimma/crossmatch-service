@@ -848,7 +848,9 @@ We investigated whether a pickle-protocol setting or alternative Dask serializer
 - **LSDB exposes no serialization knob.** HATS catalogs, margin caches, and crossmatch algorithm subclasses are ordinary Python objects shipped to workers via Dask's default `dask`+`cloudpickle` path.
 - **Community consensus is unambiguous.** Every Dask forum and docs discussion ends at "client, scheduler, and workers must have a consistent software environment." Recent distributed releases tightened this to include the scheduler.
 
-The only realistic mitigations are operational: (1) ship the client in the same container image as the workers so versions are identical by construction, (2) call `Client.get_versions(check=True)` at startup to fail fast on drift instead of mid-task, and (3) derive the client lockfile from `pip freeze` on the cluster image so client pins update automatically when the cluster image rebuilds.
+The only realistic mitigations are operational: (1) ship the client in the same container image as the workers so versions are identical by construction, (2) call `Client.get_versions()` at startup to fail fast on drift instead of mid-task, and (3) derive the client lockfile from `pip freeze` on the cluster image so client pins update automatically when the cluster image rebuilds.
+
+Mitigation #2 is implemented in `crossmatch/core/dask.py` and runs at Celery master startup (via the `worker_init` signal). It waits for the cluster to be reachable and ≥1 Dask worker to register, then compares Python plus key packages (distributed, dask, msgpack, cloudpickle, toolz, tornado, numpy, pandas) across client/scheduler/workers. Drift or timeout calls `sys.exit(1)` in the master, exiting the worker pod non-zero (CrashLoopBackOff in Kubernetes). A separate `worker_process_init` handler then constructs the per-fork `dask.distributed.Client` that registers as the default scheduler for LSDB. The check must run in the master because `WorkerShutdown` and unhandled exceptions raised from a forked child are swallowed by Celery's billiard wrapper and result in an infinite respawn loop. The total wait is configurable via `DASK_VERSION_CHECK_TIMEOUT_SECONDS` (default 300s; the local `docker-compose.yaml` overrides to 600s to absorb cold `EXTRA_PIP_PACKAGES` installs).
 
 ---
 
@@ -990,6 +992,7 @@ Environment variables (examples):
 - `DES_HATS_URL=https://data.lsdb.io/hats/des/des_y6_gold`
 - `CROSSMATCH_RADIUS_ARCSEC=1.0`
 - `DASK_SCHEDULER_ADDRESS=tcp://<host>:<port>` (optional; when unset, Dask runs locally)
+- `DASK_VERSION_CHECK_TIMEOUT_SECONDS=300` (default 300s; max wait at startup for cluster + ≥1 worker before the version-drift check fails)
 - `LASAIR_KAFKA_SERVER=lasair-lsst-kafka.lsst.ac.uk:9092`
 - `LASAIR_TOPIC=lasair_<uid>_<filter-name>`
 - `LASAIR_GROUP_ID=scimma-crossmatch-prod`
