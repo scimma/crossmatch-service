@@ -45,23 +45,30 @@ def normalize_lasair(raw_alert: dict) -> dict:
 def normalize_pittgoogle(alert) -> dict:
     """Normalize a Pitt-Google alert to the internal canonical format.
 
-    The pittgoogle.Alert object exposes LSST fields directly:
-    .objectid (diaObjectId), .sourceid (diaSourceId), .ra, .dec, .dict (full payload).
+    Subscribes to the lsst-alerts-json topic. alert.dict returns the parsed
+    JSON payload, which preserves the LSST Avro schema's nested structure
+    (diaObject, diaSource). The .objectid/.sourceid/.ra/.dec convenience
+    accessors are not used because they require schema_name='lsst' (Avro
+    Confluent-wire deserialization), which doesn't apply to the JSON topic.
 
     event_time is derived from the LSST alert's MJD-TAI timestamp, converted
     to a datetime using the same _MJD_EPOCH pattern as normalize_lasair().
     """
-    mjd_tai = alert.dict.get('midpointMjdTai') or alert.dict.get('midPointTai')
+    payload = alert.dict
+    dia_object = payload['diaObject']
+    dia_source = payload['diaSource']
+
+    mjd_tai = dia_source.get('midpointMjdTai') or dia_source.get('midPointTai')
     if mjd_tai is not None:
         event_time = _MJD_EPOCH + timedelta(days=mjd_tai)
     else:
         event_time = datetime.now(tz=timezone.utc)
 
     return {
-        'lsst_diaObject_diaObjectId': alert.objectid,
-        'ra_deg': alert.ra,
-        'dec_deg': alert.dec,
-        'lsst_diaSource_diaSourceId': alert.sourceid,
+        'lsst_diaObject_diaObjectId': dia_object['diaObjectId'],
+        'ra_deg': dia_object['ra'],
+        'dec_deg': dia_object['dec'],
+        'lsst_diaSource_diaSourceId': dia_source.get('diaSourceId'),
         'event_time': event_time,
-        'payload': alert.dict,
+        'payload': payload,
     }

@@ -1,9 +1,14 @@
 """Pitt-Google Pub/Sub alert consumer.
 
 Pitt-Google broker: Google Cloud Pub/Sub
-Topic: lsst-alerts (project: pitt-alert-broker)
+Topic: lsst-alerts-json (project: pitt-alert-broker)
 Auth: GCP service account (GOOGLE_CLOUD_PROJECT + GOOGLE_APPLICATION_CREDENTIALS)
 Filter: attribute filter 'attributes:diaObject_diaObjectId' applied server-side
+
+Subscribes to the JSON-formatted topic rather than the Avro lsst-alerts
+topic because pittgoogle's LsstSchema assumes Confluent wire format
+(5-byte schema-ID prefix), which doesn't match the actual lsst-alerts
+payload framing and produces fastavro decode errors.
 """
 import time
 
@@ -68,7 +73,7 @@ def consume_alerts():
     subscription = pittgoogle.Subscription(
         name=settings.PITTGOOGLE_SUBSCRIPTION,
         topic=topic,
-        schema_name='lsst',
+        schema_name='default',
     )
 
     backoff = _BACKOFF_INITIAL
