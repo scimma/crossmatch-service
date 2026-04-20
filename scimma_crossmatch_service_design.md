@@ -839,6 +839,17 @@ When using a remote Dask scheduler (via `DASK_SCHEDULER_ADDRESS`), both the **sc
 
 **Kubernetes production:** The Dask cluster is managed as a separate project, not by the crossmatch-service Helm chart. The Dask cluster is shared infrastructure used by multiple consumers. The crossmatch-service connects to it via the `DASK_SCHEDULER_ADDRESS` env var (set in Helm values to the Kubernetes service DNS name). Responsibility for ensuring the Dask cluster has compatible packages installed lies with the Dask cluster project.
 
+**Why exact version pinning is required (no escape hatch):**
+
+We investigated whether a pickle-protocol setting or alternative Dask serializer could make minor version drift between the client and the cluster tolerable. It cannot. The findings:
+
+- **Root cause is class layout, not pickle protocol.** Failures stem from `__reduce__` output and internal C-extension layout changes in numpy and pandas across versions (e.g., pandas `BlockManager` internals changed between minor releases — distributed issue #8605). Pickle protocol 5 has been the default since Python 3.8 and works identically across all currently-supported Python versions; setting it explicitly does nothing.
+- **Dask's serializer knobs don't help.** `Client(serializers=[...], deserializers=[...])` only changes the order serializers are tried; cloudpickle remains the mandatory fallback for arbitrary task graphs and user functions. `distributed.scheduler.pickle: false` is a security-hardening flag that breaks normal task submission. msgpack handles only small admin messages, not DataFrames or task graphs. There is no Arrow-only mode.
+- **LSDB exposes no serialization knob.** HATS catalogs, margin caches, and crossmatch algorithm subclasses are ordinary Python objects shipped to workers via Dask's default `dask`+`cloudpickle` path.
+- **Community consensus is unambiguous.** Every Dask forum and docs discussion ends at "client, scheduler, and workers must have a consistent software environment." Recent distributed releases tightened this to include the scheduler.
+
+The only realistic mitigations are operational: (1) ship the client in the same container image as the workers so versions are identical by construction, (2) call `Client.get_versions(check=True)` at startup to fail fast on drift instead of mid-task, and (3) derive the client lockfile from `pip freeze` on the cluster image so client pins update automatically when the cluster image rebuilds.
+
 ---
 
 ## 8. Python Implementation
