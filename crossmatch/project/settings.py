@@ -14,6 +14,11 @@ APP_VERSION = '0.0.0'
 # HOPDEVEL_DASK_SCHEDULER_SERVICE_PORT_TCP_COMM.
 DASK_SCHEDULER_ADDRESS = os.getenv('DASK_SCHEDULER_ADDRESS', '')
 
+# Maximum seconds to wait for the Dask cluster to be reachable AND for at
+# least one worker to register before failing the version-drift check at
+# Celery worker startup. See crossmatch/core/dask.py.
+DASK_VERSION_CHECK_TIMEOUT_SECONDS = int(os.getenv('DASK_VERSION_CHECK_TIMEOUT_SECONDS', '300'))
+
 # LSDB crossmatch settings
 GAIA_HATS_URL = os.getenv('GAIA_HATS_URL', 's3://stpubdata/gaia/gaia_dr3/public/hats')
 DES_HATS_URL = os.getenv('DES_HATS_URL', 'https://data.lsdb.io/hats/des/des_y6_gold')

@@ -35,6 +35,8 @@
   value: {{ .Values.celery.task_soft_time_limit | quote }}
 - name: DASK_SCHEDULER_ADDRESS
   value: {{ .Values.celery.dask_scheduler_address | default "" | quote }}
+- name: DASK_VERSION_CHECK_TIMEOUT_SECONDS
+  value: {{ .Values.celery.dask_version_check_timeout_seconds | default 300 | quote }}
 {{- end }}
 
 {{- define "db.env" -}}

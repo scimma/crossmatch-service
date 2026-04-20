@@ -11,7 +11,12 @@ bash entrypoints/wait-for-it.sh ${VALKEY_SERVICE:-redis}:${VALKEY_PORT:-6379} --
 
 # Start worker
 if [[ $DEV_MODE == "true" ]]; then
-    watchmedo auto-restart --directory=./ --pattern=*.py --recursive -- \
+    # --no-restart-on-command-exit: watchmedo only restarts celery on file
+    # changes, not when celery exits on its own. Without this flag, a fail-fast
+    # exit (e.g., the Dask version-drift check in core/dask.py) gets silently
+    # respawned inside the same container, masking the failure.
+    watchmedo auto-restart --directory=./ --pattern=*.py --recursive \
+        --no-restart-on-command-exit -- \
     celery -A project worker \
         --queues $QUEUES \
         --loglevel ${CELERY_LOG_LEVEL:-DEBUG} \

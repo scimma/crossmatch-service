@@ -78,6 +78,10 @@ celery:
   # Remote Dask scheduler address (e.g., tcp://10.0.0.5:8786)
   # Set from K8s service discovery: tcp://${HOPDEVEL_DASK_SCHEDULER_SERVICE_HOST}:${HOPDEVEL_DASK_SCHEDULER_SERVICE_PORT_TCP_COMM}
   dask_scheduler_address: ""
+  # Max seconds to wait for the Dask cluster to be reachable AND ≥1 worker
+  # registered before the version-drift check fails. Production cluster images
+  # bake versions in (no install-at-startup), so the default 300s is generous.
+  dask_version_check_timeout_seconds: 300
   beat:
     replicaCount: 1
   workers:
