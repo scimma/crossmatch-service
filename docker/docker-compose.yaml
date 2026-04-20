@@ -115,8 +115,8 @@ services:
       VALKEY_PORT: "${VALKEY_PORT:-6379}"
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
       # Pitt-Google broker configuration
-      PITTGOOGLE_TOPIC: "${PITTGOOGLE_TOPIC:-lsst-alerts}"
-      PITTGOOGLE_SUBSCRIPTION: "${PITTGOOGLE_SUBSCRIPTION:-scimma-crossmatch-lsst-alerts}"
+      PITTGOOGLE_TOPIC: "${PITTGOOGLE_TOPIC:-lsst-alerts-json}"
+      PITTGOOGLE_SUBSCRIPTION: "${PITTGOOGLE_SUBSCRIPTION:-scimma-crossmatch-lsst-alerts-json}"
       PITTGOOGLE_PUBLISHER_PROJECT: "${PITTGOOGLE_PUBLISHER_PROJECT:-pitt-alert-broker}"
       # GCP auth
       GOOGLE_CLOUD_PROJECT: "${GOOGLE_CLOUD_PROJECT:-}"

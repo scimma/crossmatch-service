@@ -50,8 +50,8 @@ pittgoogle_consumer:
   replicaCount: 1
   service:
     host: "pittgoogle-consumer"
-  topic: "lsst-alerts"
-  subscription: "scimma-crossmatch-lsst-alerts"
+  topic: "lsst-alerts-json"
+  subscription: "scimma-crossmatch-lsst-alerts-json"
   publisher_project: "pitt-alert-broker"
   resources:
     requests:

@@ -13,8 +13,8 @@ antares_consumer:
   group_id: ""
 
 pittgoogle_consumer:
-  topic: "lsst-alerts"
-  subscription: "scimma-crossmatch-dev-lsst-alerts"
+  topic: "lsst-alerts-json"
+  subscription: "scimma-crossmatch-dev-lsst-alerts-json"
 
 hopskotch:
   broker_url: "kafka://kafka.scimma.org"

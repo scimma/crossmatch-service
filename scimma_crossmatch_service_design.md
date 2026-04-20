@@ -118,7 +118,7 @@ WHERE
   delivered; avoids re-delivering old objects on Kafka replay.
 
 **B3. Pitt-Google Ingest Service**
-- Subscribes to the Pitt-Google `lsst-alerts` topic via Google Cloud Pub/Sub.
+- Subscribes to the Pitt-Google `lsst-alerts-json` topic via Google Cloud Pub/Sub.
 - Uses a server-side attribute filter (`attributes:diaObject_diaObjectId`) to drop alerts without a diaObjectId.
 - Validates/normalizes alert payload using the `pittgoogle.Alert` object properties.
 - UPSERTs the alert into `alerts` keyed by `lsst_diaObject_diaObjectId`.
@@ -372,7 +372,7 @@ Pitt-Google delivers alerts via **Google Cloud Pub/Sub** using the `pittgoogle-c
 - Python package: `pittgoogle-client`
 - Source: https://github.com/mwvgroup/pittgoogle-client
 - Publisher project: `pitt-alert-broker`
-- Topic: `lsst-alerts` (full Avro-serialized LSST alerts, deduplicated)
+- Topic: `lsst-alerts-json` (LSST alerts re-serialized as JSON, deduplicated)
 
 **Consuming alerts**:
 
@@ -380,11 +380,11 @@ Pitt-Google delivers alerts via **Google Cloud Pub/Sub** using the `pittgoogle-c
 # brokers/pittgoogle/consumer.py
 import pittgoogle
 
-topic = pittgoogle.Topic(name='lsst-alerts', projectid='pitt-alert-broker')
+topic = pittgoogle.Topic(name='lsst-alerts-json', projectid='pitt-alert-broker')
 subscription = pittgoogle.Subscription(
     name=settings.PITTGOOGLE_SUBSCRIPTION,
     topic=topic,
-    schema_name='lsst',
+    schema_name='default',
 )
 subscription.touch(attribute_filter='attributes:diaObject_diaObjectId')
 
@@ -400,9 +400,19 @@ consumer = pittgoogle.pubsub.Consumer(
 consumer.stream()  # blocks indefinitely
 ```
 
-**Data model**: `pittgoogle.Alert` objects expose LSST fields directly via
-`.objectid` (diaObjectId), `.sourceid` (diaSourceId), `.ra`, `.dec`, and `.dict`
-(full alert payload as a Python dict).
+**Topic choice (JSON vs Avro)**: We subscribe to the JSON-formatted
+`lsst-alerts-json` topic instead of the Avro-formatted `lsst-alerts`.
+Pittgoogle's `LsstSchema` class assumes Confluent wire format (5-byte
+schema-ID prefix + Avro payload), which doesn't match the actual `lsst-alerts`
+framing and produces fastavro decode errors. The JSON topic carries the
+same alerts, deserialized via `json.loads()` with no version-specific
+schema handling required.
+
+**Data model**: With `schema_name='default'`, `alert.dict` returns the parsed
+JSON payload, preserving the LSST Avro schema's nested structure. Fields are
+accessed via `alert.dict['diaObject']['diaObjectId']`, `alert.dict['diaSource']['ra']`,
+etc. The `.objectid`, `.sourceid`, `.ra`, `.dec` convenience accessors on
+`pittgoogle.Alert` are not used because they require `schema_name='lsst'`.
 
 **Subscription model**: Subscriptions are created in the *subscriber's* Google Cloud
 project but attached to Pitt-Google's topic. `subscription.touch()` creates the
@@ -431,8 +441,8 @@ loop uses exponential backoff (1 s initial, 60 s max) matching the ANTARES/Lasai
 
 | Variable | Example | Notes |
 |---|---|---|
-| `PITTGOOGLE_TOPIC` | `lsst-alerts` | topic in Pitt-Google's project |
-| `PITTGOOGLE_SUBSCRIPTION` | `scimma-crossmatch-lsst-alerts` | subscription in subscriber's project |
+| `PITTGOOGLE_TOPIC` | `lsst-alerts-json` | topic in Pitt-Google's project |
+| `PITTGOOGLE_SUBSCRIPTION` | `scimma-crossmatch-lsst-alerts-json` | subscription in subscriber's project |
 | `PITTGOOGLE_PUBLISHER_PROJECT` | `pitt-alert-broker` | Pitt-Google's GCP project ID |
 | `GOOGLE_CLOUD_PROJECT` | `my-gcp-project-123` | subscriber's GCP project ID |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `/var/run/secrets/gcp/key.json` | path to SA key file |

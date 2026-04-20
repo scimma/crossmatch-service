@@ -186,8 +186,8 @@ ANTARES_GROUP_ID = _antares_group_id
 ######################################################################
 # Pitt-Google Pub/Sub consumer
 #
-PITTGOOGLE_TOPIC = os.environ.get('PITTGOOGLE_TOPIC', 'lsst-alerts')
-PITTGOOGLE_SUBSCRIPTION = os.environ.get('PITTGOOGLE_SUBSCRIPTION', 'scimma-crossmatch-lsst-alerts')
+PITTGOOGLE_TOPIC = os.environ.get('PITTGOOGLE_TOPIC', 'lsst-alerts-json')
+PITTGOOGLE_SUBSCRIPTION = os.environ.get('PITTGOOGLE_SUBSCRIPTION', 'scimma-crossmatch-lsst-alerts-json')
 PITTGOOGLE_PUBLISHER_PROJECT = os.environ.get('PITTGOOGLE_PUBLISHER_PROJECT', 'pitt-alert-broker')
 # GCP auth is handled by standard env vars:
 #   GOOGLE_CLOUD_PROJECT — the subscriber's GCP project (where the subscription lives)
