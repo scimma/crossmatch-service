@@ -31,62 +31,26 @@ It is an iteration of the original design, updated to:
 
 ### 2.1 Components
 
-**A. ANTARES Filter (runs in ANTARES infrastructure)**
+**A. Broker-side Filters**
+
+All three brokers run their filter upstream of our ingest services, so
+alerts that fail the rule are never delivered. ANTARES and Lasair filters
+live in the broker's own infrastructure; Pitt-Google's filter is a
+JavaScript Single Message Transform (SMT) User-Defined Function (UDF)
+that we attach to the Pub/Sub subscription in our own GCP project — also
+upstream of our subscriber, but configured by us rather than the broker.
+All filters apply the broker filter standard defined in §2.2.
+
+**A1. ANTARES Filter (runs in ANTARES infrastructure)**
 - We supply a filter to ANTARES.
-- Filter selects alerts of interest.
 - Filter outputs alerts to our client subscription topic (populated via Locus tagging).
+- Filter expression: the LSST alert in the Locus must satisfy `lsst_diaSource_reliability >= 0.6`, evaluated against the latest diaSource associated with the diaObject. The exact expression follows ANTARES filter syntax and available alert schema fields.
+- **Status — target state.** The currently deployed ANTARES filter uses an SNR + boolean-flag rule (no reliability check); it must be re-issued to ANTARES with the expression above. Operational follow-up.
 
-#### ANTARES Filter Selection Criteria (Initial)
-The filter will restrict alerts to likely high-quality transient candidates using the following criteria:
+**A2. Lasair Filter (runs on the Lasair web UI)**
 
-- SNR greater than 10.
-- Not saturated.
-- Not near image edge.
-- Not classified as dipole.
-- Exclude known Solar System objects.
-
-Specifically the LSST alert in the Locus must satisfy:
-
-- `lsst_diaSource_snr > 10 AND`
-- `lsst_diaSource_ssObjectId in (0, None) AND`
-- `lsst_diaSource_psfFlux_flag == False AND`
-- `lsst_diaSource_centroid_flag == False AND`
-- `lsst_diaSource_shape_flag == False AND`
-- `lsst_diaSource_isDipole == False AND`
-- `lsst_diaSource_pixelFlags_saturated == False AND`
-- `lsst_diaSource_pixelFlags_edge == False AND`
-- `lsst_diaSource_pixelFlags_cr == False AND`
-- `lsst_diaSource_pixelFlags_streak == False`
-
-These criteria are intended to:
-- Reduce broker-to-client traffic.
-- Focus matching resources on astrophysically interesting candidates.
-- Avoid artifacts and known moving objects.
-
-The exact implementation will follow ANTARES filter syntax and available alert schema fields.
-
-**B. Alert Ingest Services (runs in our Kubernetes cluster)**
-
-Three independent ingest services consume from separate broker streams and write to the same shared `alerts` table.
-
-**B1. ANTARES Ingest Service**
-- Subscribes to the ANTARES topic produced by our filter.
-- Validates/normalizes alert payload.
-- UPSERTs the alert into `alerts` keyed by `lsst_diaObject_diaObjectId`.
-- Records the delivery in `alert_deliveries` (broker=`'antares'`).
-- Enqueues a `crossmatch_alert` Celery task **only if the UPSERT created a new row** (i.e., Lasair has not already delivered the same alert).
-
-**B2. Lasair Ingest Service**
-- Subscribes to a Lasair Kafka topic produced by our Lasair user-defined streaming filter.
-- Validates/normalizes alert payload against the shared LSST field schema.
-- UPSERTs the alert into `alerts` keyed by `lsst_diaObject_diaObjectId`.
-- Records the delivery in `alert_deliveries` (broker=`'lasair'`).
-- Enqueues a `crossmatch_alert` Celery task **only if the UPSERT created a new row** (i.e., ANTARES has not already delivered the same alert).
-
-#### Lasair Filter Selection Criteria
-
-The Lasair filter `reliability_moderate` has been created on the Lasair web UI and
-produces the Kafka topic `lasair_366SCiMMA_reliability_moderate`.
+The Lasair user-defined streaming filter `reliability_moderate` produces
+the Kafka topic `lasair_366SCiMMA_reliability_moderate`.
 
 **Filter SQL:**
 
@@ -96,7 +60,7 @@ SELECT
 FROM objects
 WHERE
     objects.nDiaSources >= 1
-    AND objects.latestR > 0.6
+    AND objects.latestR >= 0.6
     AND mjdnow() - objects.lastDiaSourceMjdTai < 1
 ```
 
@@ -111,26 +75,43 @@ WHERE
 **Filter criteria semantics:**
 - `nDiaSources >= 1` — any object with at least one detection. Minimal gate;
   the `latestR` threshold handles quality filtering.
-- `latestR > 0.6` — LSST ML Real/Bogus score above 0.6. Lowered from 0.7 to
-  admit more candidates while still rejecting the majority of artifacts. The
-  filter name `reliability_moderate` reflects this threshold range.
+- `latestR >= 0.6` — the broker filter standard (§2.2). `latestR` is the
+  Lasair-side alias for the LSST `reliability` column on the latest
+  diaSource. The filter name `reliability_moderate` reflects this threshold
+  range.
 - `lastDiaSourceMjdTai` within 1 day — only recent/active transients are
   delivered; avoids re-delivering old objects on Kafka replay.
+
+**Status — target state.** The currently deployed UI filter uses
+`latestR > 0.6`; it must be re-created with the `>=` operator to match
+the standard. Operational follow-up.
+
+**B. Alert Ingest Services (run in our Kubernetes cluster)**
+
+Three independent ingest services consume from separate broker streams and write to the same shared `alerts` table.
+
+**B1. ANTARES Ingest Service**
+- Subscribes to the ANTARES topic produced by our filter (see A1).
+- Validates/normalizes alert payload.
+- UPSERTs the alert into `alerts` keyed by `lsst_diaObject_diaObjectId`.
+- Records the delivery in `alert_deliveries` (broker=`'antares'`).
+- Enqueues a `crossmatch_alert` Celery task **only if the UPSERT created a new row** (i.e., another broker has not already delivered the same alert).
+
+**B2. Lasair Ingest Service**
+- Subscribes to the Lasair Kafka topic produced by our streaming filter (see A2).
+- Validates/normalizes alert payload against the shared LSST field schema.
+- UPSERTs the alert into `alerts` keyed by `lsst_diaObject_diaObjectId`.
+- Records the delivery in `alert_deliveries` (broker=`'lasair'`).
+- Enqueues a `crossmatch_alert` Celery task **only if the UPSERT created a new row** (i.e., another broker has not already delivered the same alert).
 
 **B3. Pitt-Google Ingest Service**
 - Subscribes to the Pitt-Google `lsst-alerts-json` topic via Google Cloud Pub/Sub.
 - Uses a server-side attribute filter (`attributes:diaObject_diaObjectId`) to drop alerts without a diaObjectId.
+- **Applies the broker filter standard (§2.2) server-side via a Pub/Sub Single Message Transform (SMT) JavaScript UDF**, attached to the subscription via `pittgoogle.pubsub.Subscription.touch(smt_javascript_udf=...)`. The UDF reads `data.diaSource.reliability` from the JSON payload; messages with `reliability < MIN_DIASOURCE_RELIABILITY` or with missing/null reliability are dropped before delivery to our subscriber. The threshold is interpolated from `MIN_DIASOURCE_RELIABILITY` into the UDF source at subscription-touch time.
 - Validates/normalizes alert payload using the `pittgoogle.Alert` object properties.
 - UPSERTs the alert into `alerts` keyed by `lsst_diaObject_diaObjectId`.
 - Records the delivery in `alert_deliveries` (broker=`'pittgoogle'`).
-- Enqueues a `crossmatch_alert` Celery task **only if the UPSERT created a new row**.
-
-**Comparison with ANTARES filter:**
-The filters are complementary rather than equivalent. ANTARES uses explicit
-boolean flags plus an SNR threshold and Solar System exclusion; Lasair uses a
-single ML score plus a recency window. Both paths write to the same `alerts`
-table; the deduplication UPSERT ensures each `diaObjectId` is crossmatched
-exactly once regardless of which broker delivers it first.
+- Enqueues a `crossmatch_alert` Celery task **only if the UPSERT created a new row** (i.e., another broker has not already delivered the same alert).
 
 **C. Crossmatch Workers (Celery workers; runs in our Kubernetes cluster; horizontally scaled)**
 - Consume batch crossmatch jobs from Celery.
@@ -144,15 +125,83 @@ exactly once regardless of which broker delivers it first.
 - A later enhancement may introduce **locally cached copies** of relevant HATS partitions to reduce latency and egress costs.
 - Record match outputs into PostgreSQL.
 
-**E. Match Notifier Service (runs in our Kubernetes cluster)**
+**D. Match Notifier Service (runs in our Kubernetes cluster)**
 - Watches PostgreSQL for newly created matches.
 - Sends an update/annotation back to LSST (mechanism TBD).
 - Records notification attempts and outcomes for retries.
 
-**F. Supporting Infrastructure**
+**E. Supporting Infrastructure**
 - **PostgreSQL**: system of record (alerts, schedules, match results, notifications, job audit).
 - **Valkey**: Celery broker/result backend.
 - (Optional) Object storage/cache for LSDB/HATS data, depending on catalog deployment.
+
+### 2.2 Broker Filter Standard
+
+All three brokers (ANTARES, Lasair, Pitt-Google) apply the same filter
+rule upstream of our ingest services, so alerts that fail are never
+delivered. ANTARES and Lasair filters run in the broker's own
+infrastructure; Pitt-Google's filter is a JavaScript Single Message
+Transform (SMT) User-Defined Function (UDF) that we attach to the
+Pub/Sub subscription in our own GCP project. The rule is:
+
+> **The latest diaSource associated with the diaObject must have
+> `reliability >= 0.6`.**
+
+#### Reliability field
+
+`reliability` is the LSST DM real/bogus classification score on the
+DiaSource record. It was added to the baseline LSST Alert Production
+pipeline in February 2024 by `lsst.meas.transiNet.RBTransiNetTask`, which
+runs the **RBTransiNet** ML model ("RB" = Real/Bogus) and writes the score
+to the transformed DiaSource catalog and the APDB DiaSource table as the
+`reliability` column. The field was previously called `spuriousness`; it
+was renamed to `reliability` under ticket DM-39378.
+
+Each broker exposes the field under its own alias:
+
+| Broker        | Field referenced in the filter expression                |
+| ------------- | -------------------------------------------------------- |
+| ANTARES       | `lsst_diaSource_reliability` on the latest diaSource     |
+| Lasair        | `objects.latestR` (alias for the latest-diaSource value) |
+| Pitt-Google   | `data.diaSource.reliability` in the SMT UDF JS, where `data` is the JSON-parsed message payload (the alert's primary `diaSource` is by construction the latest detection in the LSST alert envelope) |
+
+Alerts whose latest diaSource has missing or null `reliability` fail the
+predicate and are dropped, consistent with the standard.
+
+#### Threshold value: `0.6`
+
+The initial threshold of `0.6` admits transient candidates while rejecting
+the bulk of artifacts (cosmic rays, edge effects, dipoles, optical
+ghosts). The value can be revised over time as we observe filter
+behaviour against real survey data.
+
+#### Configuration: `MIN_DIASOURCE_RELIABILITY`
+
+Broker clients implemented in **this codebase** (currently Pitt-Google in
+`crossmatch/brokers/pittgoogle/consumer.py`; future broker clients
+should live under `crossmatch/brokers/<broker>/`) read the threshold
+from a single environment variable:
+
+| Variable                     | Default | Notes                                      |
+| ---------------------------- | ------- | ------------------------------------------ |
+| `MIN_DIASOURCE_RELIABILITY`  | `0.6`   | Broker-agnostic; consumed by every broker client added to this repo. |
+
+For Pitt-Google, the threshold is interpolated from
+`MIN_DIASOURCE_RELIABILITY` into the SMT JavaScript UDF source at
+subscription-touch time. The UDF then runs server-side at Google with the
+interpolated value baked in; changing the threshold requires re-deploying
+and re-touching the subscription.
+
+Filters that run **outside** this codebase (the ANTARES filter and the
+Lasair web-UI filter; see §2.1 A1 and A2) embed the threshold directly
+in their expressions. Changing the threshold for those brokers is an
+operational task on the broker's own filter management UI, not a code
+change in this repo.
+
+#### Comparison operator
+
+The standard uses `>=` (inclusive). Existing broker filters that use `>`
+must be re-issued / re-created to use `>=` for consistency.
 
 ---
 
@@ -386,7 +435,15 @@ subscription = pittgoogle.Subscription(
     topic=topic,
     schema_name='default',
 )
-subscription.touch(attribute_filter='attributes:diaObject_diaObjectId')
+# Broker filter standard (§2.2): drop alerts whose latest diaSource has
+# missing, null, or below-threshold reliability, server-side at Pub/Sub.
+# The threshold is interpolated into the UDF source at touch time.
+udf_source = build_reliability_udf(threshold=settings.MIN_DIASOURCE_RELIABILITY)
+
+subscription.touch(
+    attribute_filter='attributes:diaObject_diaObjectId',
+    smt_javascript_udf=udf_source,
+)
 
 def msg_callback(alert):
     canonical = normalize_pittgoogle(alert)
@@ -420,9 +477,27 @@ subscription if it doesn't exist; it is a no-op if it already exists. The subscr
 name must be unique per GCP project; each environment (dev, prod) should use a distinct
 name to prevent message splitting.
 
-**Filtering**: A Pub/Sub attribute filter `attributes:diaObject_diaObjectId` is applied
-server-side at subscription creation. This drops alerts without a `diaObject_diaObjectId`
-attribute (e.g., solar system objects). The filter is immutable once set.
+**Filtering**: Two server-side filters are attached to the subscription:
+
+1. **Attribute filter** (immutable, set at subscription creation):
+   `attributes:diaObject_diaObjectId`. Drops alerts without a
+   `diaObject_diaObjectId` attribute (e.g., solar system objects).
+2. **SMT JavaScript UDF filter** (broker filter standard, §2.2): a
+   Pub/Sub Single Message Transform that reads `data.diaSource.reliability`
+   from the JSON payload and drops messages whose latest diaSource has
+   `reliability < MIN_DIASOURCE_RELIABILITY` or missing/null reliability.
+   The threshold is interpolated from `MIN_DIASOURCE_RELIABILITY` into
+   the UDF source at subscription-touch time. SMT UDFs can inspect message
+   body content; the older Pub/Sub `attribute_filter` mechanism cannot,
+   which is why the attribute filter handles only the diaObjectId presence
+   check while the SMT UDF handles the body-level reliability check.
+
+**Operational note on threshold changes**: `subscription.touch()` is
+documented as creating the subscription if missing. Whether it updates
+the SMT UDF on an existing subscription has not been verified against
+the pittgoogle-client docs, which lack a concrete example. If `touch()`
+does not update the UDF in place, threshold changes will require
+subscription re-creation as a deploy step.
 
 **Authentication**: Standard Google Cloud credentials via a service account JSON key
 file. Requires two environment variables:
@@ -446,6 +521,7 @@ loop uses exponential backoff (1 s initial, 60 s max) matching the ANTARES/Lasai
 | `PITTGOOGLE_PUBLISHER_PROJECT` | `pitt-alert-broker` | Pitt-Google's GCP project ID |
 | `GOOGLE_CLOUD_PROJECT` | `my-gcp-project-123` | subscriber's GCP project ID |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `/var/run/secrets/gcp/key.json` | path to SA key file |
+| `MIN_DIASOURCE_RELIABILITY` | `0.6` | broker filter standard threshold (§2.2); broker-agnostic |
 
 ### 4.5 Notifier → LSST (TBD)
 We define a stable internal interface so multiple outbound mechanisms can be swapped in later.
@@ -1039,7 +1115,7 @@ Notes:
 4. ~~**Planned footprint gating**~~ — **Resolved**: removed. LSDB native crossmatching uses alert RA/Dec directly; no pointing constraints needed.
 5. ~~**HEROIC API details**~~ — **Resolved**: HEROIC integration removed. See `healpix_vs_visit_crossmatch.md` for rationale.
 6. ~~**Lasair Kafka auth**~~ — **Resolved**: `lasair_consumer` connects to `lasair-lsst-kafka.lsst.ac.uk:9092` without credentials. No SASL config or token required for the ingest path.
-7. ~~**Lasair filter/topic**~~ — **Resolved**: filter `reliability_moderate` created on Lasair web UI; topic `lasair_366SCiMMA_reliability_moderate`. Criteria: `latestR > 0.7` AND `nDiaSources >= 1` AND last detection within 1 day. See §2.1 B2 for full SQL.
+7. ~~**Lasair filter/topic**~~ — **Resolved**: filter `reliability_moderate` created on Lasair web UI; topic `lasair_366SCiMMA_reliability_moderate`. Criteria: `latestR >= 0.6` AND `nDiaSources >= 1` AND last detection within 1 day, per the broker filter standard (§2.2). The Lasair UI filter must be re-created to apply the `>=` operator. See §2.1 B2 for full SQL.
 8. **Lasair alert schema**: what is the full JSON schema of a Lasair alert? Lasair uses `objectId` as the top-level key — confirm this is always identical to `lsst_diaObject_diaObjectId`. Confirm which field maps to LSST positional fields (RA/Dec).
 9. **Lasair annotations to store**: which Lasair-side fields (Sherlock cross-matches, classification scores, etc.) should be preserved in `alert_deliveries.raw_payload`?
 
