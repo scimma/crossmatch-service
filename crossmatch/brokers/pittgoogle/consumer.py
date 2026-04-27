@@ -116,8 +116,42 @@ def _msg_callback(alert):
     return pittgoogle.pubsub.Response(ack=True, result=None)
 
 
+def _ensure_smt_udf(subscription: 'pittgoogle.Subscription', udf_source: str) -> None:
+    """Ensure the subscription's SMT UDF matches `udf_source`.
+
+    pittgoogle.Subscription.touch() is create-only-if-missing and silently
+    ignores `smt_javascript_udf` on existing subscriptions. To keep the UDF
+    in sync after threshold changes, call the underlying SubscriberClient's
+    update_subscription RPC with the desired message_transforms and
+    update_mask=['message_transforms']. This is observed-idempotent
+    server-side; verify on first deploy (see plan Open Questions § Deferred).
+    """
+    subscription.client.update_subscription(
+        subscription=SubscriptionProto(
+            name=subscription.path,
+            message_transforms=[
+                MessageTransform(
+                    javascript_udf=JavaScriptUDF(
+                        code=udf_source,
+                        function_name=_UDF_FUNCTION_NAME,
+                    ),
+                ),
+            ],
+        ),
+        update_mask=FieldMask(paths=['message_transforms']),
+    )
+
+
 def consume_alerts():
     """Subscribe to the Pitt-Google lsst-alerts topic and ingest alerts.
+
+    Attaches two server-side filters to the subscription on every startup
+    (see scimma_crossmatch_service_design.md §2.2):
+      1. Pub/Sub attribute filter `attributes:diaObject_diaObjectId`
+         (immutable, set on first-create only).
+      2. SMT JavaScript UDF reliabilityFilter, kept in sync via
+         _ensure_smt_udf so threshold changes flow through redeploys
+         without subscription re-creation.
 
     Uses pittgoogle.pubsub.Consumer.stream() which blocks indefinitely,
     dispatching alerts to _msg_callback in a thread pool. On stream failure
@@ -137,13 +171,21 @@ def consume_alerts():
     backoff = _BACKOFF_INITIAL
     while True:
         try:
+            udf_source = _build_reliability_udf(settings.MIN_DIASOURCE_RELIABILITY)
             logger.info(
                 'Creating/verifying Pitt-Google Pub/Sub subscription...',
                 subscription=settings.PITTGOOGLE_SUBSCRIPTION,
                 topic=settings.PITTGOOGLE_TOPIC,
                 publisher_project=settings.PITTGOOGLE_PUBLISHER_PROJECT,
+                min_diasource_reliability=settings.MIN_DIASOURCE_RELIABILITY,
             )
-            subscription.touch(attribute_filter='attributes:diaObject_diaObjectId')
+            subscription.touch(
+                attribute_filter='attributes:diaObject_diaObjectId',
+                smt_javascript_udf=udf_source,
+            )
+            # touch() does not update the SMT UDF on existing subscriptions;
+            # always call update_subscription so threshold changes take effect.
+            _ensure_smt_udf(subscription, udf_source)
 
             consumer = pittgoogle.pubsub.Consumer(
                 subscription=subscription,
