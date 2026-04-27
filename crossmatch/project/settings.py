@@ -1,6 +1,8 @@
 import logging.config
 import os
 
+from django.core.exceptions import ImproperlyConfigured
+
 
 ######################################################################
 # Application config
@@ -175,6 +177,27 @@ if not _lasair_group_id:
 LASAIR_KAFKA_SERVER = os.environ.get('LASAIR_KAFKA_SERVER', 'lasair-lsst-kafka.lsst.ac.uk:9092')
 LASAIR_TOPIC = os.environ.get('LASAIR_TOPIC', 'lasair_366SCiMMA_reliability_moderate')
 LASAIR_GROUP_ID = _lasair_group_id
+
+######################################################################
+# Broker filter standard — see scimma_crossmatch_service_design.md §2.2
+#
+# Single rule applied across every broker (ANTARES, Lasair, Pitt-Google):
+# the latest diaSource for a diaObject must have reliability >= this
+# threshold. Reliability is the LSST DM real/bogus score (RBTransiNetTask,
+# DM-39378). Broker-agnostic so future broker clients added under
+# crossmatch/brokers/<broker>/ consume the same variable.
+#
+# Bounds-checked at import: a non-numeric value raises ValueError;
+# anything outside [0.0, 1.0] (including nan, inf, negative, > 1) raises
+# ImproperlyConfigured. The chained inequality below also rejects nan
+# because nan comparisons return False.
+_min_reliability = float(os.environ.get('MIN_DIASOURCE_RELIABILITY', '0.6'))
+if not (0.0 <= _min_reliability <= 1.0):
+    raise ImproperlyConfigured(
+        f'MIN_DIASOURCE_RELIABILITY must be a finite float in [0.0, 1.0]; '
+        f'got {_min_reliability!r}'
+    )
+MIN_DIASOURCE_RELIABILITY = _min_reliability
 
 ######################################################################
 # ANTARES streaming consumer
