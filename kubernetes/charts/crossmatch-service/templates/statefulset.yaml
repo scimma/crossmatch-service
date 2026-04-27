@@ -224,6 +224,7 @@ spec:
           {{- include "db.env" . | nindent 10 }}
           {{- include "valkey.env" . | nindent 10 }}
           {{- include "celery.env" . | nindent 10 }}
+          {{- include "broker_filter.env" . | nindent 10 }}
           {{- include "pittgoogle.env" . | nindent 10 }}
         volumeMounts:
         - name: gcp-key

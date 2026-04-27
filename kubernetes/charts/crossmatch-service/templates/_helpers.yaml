@@ -88,6 +88,11 @@
   value: {{ .Values.antares_consumer.group_id | quote }}
 {{- end }}
 
+{{- define "broker_filter.env" -}}
+- name: MIN_DIASOURCE_RELIABILITY
+  value: {{ .Values.broker_filter.min_diasource_reliability | quote }}
+{{- end }}
+
 {{- define "pittgoogle.env" -}}
 - name: PITTGOOGLE_TOPIC
   value: {{ .Values.pittgoogle_consumer.topic | quote }}

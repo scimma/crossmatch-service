@@ -118,6 +118,8 @@ services:
       PITTGOOGLE_TOPIC: "${PITTGOOGLE_TOPIC:-lsst-alerts-json}"
       PITTGOOGLE_SUBSCRIPTION: "${PITTGOOGLE_SUBSCRIPTION:-scimma-crossmatch-lsst-alerts-json}"
       PITTGOOGLE_PUBLISHER_PROJECT: "${PITTGOOGLE_PUBLISHER_PROJECT:-pitt-alert-broker}"
+      # Broker filter standard (see scimma_crossmatch_service_design.md §2.2)
+      MIN_DIASOURCE_RELIABILITY: "${MIN_DIASOURCE_RELIABILITY:-0.6}"
       # GCP auth
       GOOGLE_CLOUD_PROJECT: "${GOOGLE_CLOUD_PROJECT:-}"
       GOOGLE_APPLICATION_CREDENTIALS: /var/run/secrets/gcp/key.json
