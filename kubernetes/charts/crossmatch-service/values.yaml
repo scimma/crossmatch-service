@@ -45,8 +45,20 @@ lasair_consumer:
       cpu: '2'
       memory: 2Gi
 
+broker_filter:
+  # Broker-agnostic; see scimma_crossmatch_service_design.md §2.2.
+  # Minimum reliability score (latest diaSource) admitted to ingest.
+  # Quoted to preserve exact string; parsed as float in settings.py
+  # with a [0.0, 1.0] bounds check.
+  min_diasource_reliability: "0.6"
+
 pittgoogle_consumer:
   enabled: true
+  # Must be 1: the consumer attaches the SMT JS UDF to the Pub/Sub
+  # subscription on every startup via update_subscription. Multi-replica
+  # would race on subscription provisioning. See plan
+  # docs/plans/2026-04-27-001-feat-pittgoogle-reliability-smt-udf-plan.md
+  # § Risks (multi-replica race) for the rolling-deploy crossover note.
   replicaCount: 1
   service:
     host: "pittgoogle-consumer"
