@@ -1,7 +1,9 @@
 # Brainstorm: Catalog Payload Columns by PI Keyword
 
 **Date:** 2026-04-27
+
 **Status:** Draft for PI review (column names verified against live HATS schemas)
+
 **Branch:** feature/catalog-specific-payload
 
 ## Purpose
