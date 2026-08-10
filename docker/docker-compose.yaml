@@ -278,6 +278,9 @@ services:
       DJANGO_DEBUG: "false"
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
       WEB_PORT: "8000"
+      # Footer deploy version: reflects the local image tag (plain text, since
+      # "dev" is not a release). Overridable to test the release-link path.
+      APP_VERSION: "${APP_VERSION:-dev}"
       # run_web.sh runs collectstatic, so serve the collected/compressed
       # STATIC_ROOT via WhiteNoise's index rather than walking finders per request.
       WHITENOISE_USE_FINDERS: "false"
