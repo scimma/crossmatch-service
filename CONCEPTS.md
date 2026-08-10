@@ -25,6 +25,16 @@ state is the unit of recovery: a batch whose worker is killed mid-run leaves its
 stranded *queued* — a recovery timer later reverts them to *ingested* for re-dispatch
 rather than losing them, and an overrunning batch reverts itself the same way.
 
+### Batch
+The unit of crossmatch work: a set of *ingested* Alerts accumulated and dispatched
+together so a single crossmatch runs against the catalogs for the whole set rather than
+one crossmatch per Alert.
+
+A Batch fills until it either reaches a maximum size or a maximum wait timer elapses,
+whichever comes first — under low alert volume the timer is what closes it. On dispatch
+its Alerts become *queued*, then *matched* once the Batch's crossmatch completes; the
+*queued* state carries the recovery semantics described under Alert.
+
 ### Reliability
 The LSST real/bogus score for a detection: a 0-to-1 estimate of the probability that a
 diaSource is a genuine astrophysical transient rather than an imaging artifact. Brokers
