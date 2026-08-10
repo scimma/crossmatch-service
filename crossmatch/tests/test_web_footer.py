@@ -65,11 +65,16 @@ def test_footer_links_release_for_semver_version(client):
     assert '>0.10.0</a>' in body
 
 
-@override_settings(APP_VERSION='dev')
+@override_settings(APP_VERSION='sha-abcdef0')
 def test_footer_plain_text_for_non_release_version(client):
-    """Covers AE2 / R3: a dev build shows the version as plain text, no release link."""
+    """Covers AE2 / R3: a CI (sha) build shows the version as plain text, no link.
+
+    Uses a distinctive value ('sha-abcdef0') so the positive assertion actually
+    proves the plain-text branch rendered it -- a value like 'dev' would false-
+    positive on 'device-width' in the base template's viewport meta tag.
+    """
     body = client.get(reverse('web:home')).content.decode()
-    assert 'dev' in body
+    assert 'sha-abcdef0' in body
     assert f'{RELEASE_BASE}' not in body
 
 
@@ -77,6 +82,7 @@ def test_footer_plain_text_for_non_release_version(client):
 def test_footer_plain_text_for_zero_sentinel(client):
     """The unset 0.0.0 default renders plain text, not a releases/tag/v0.0.0 link."""
     body = client.get(reverse('web:home')).content.decode()
+    assert '0.0.0' in body
     assert f'{RELEASE_BASE}' not in body
 
 
