@@ -157,6 +157,11 @@
   value: {{ .Values.web.allowed_hosts | quote }}
 - name: DJANGO_DEBUG
   value: {{ .Values.web.django_debug | default "false" | quote }}
+# Footer deploy version: the tag this pod runs, so the footer reports (and links,
+# for a semver release) the deployed version instead of the 0.0.0 placeholder.
+# Kept in sync with the deployed gitops chart's web env.
+- name: APP_VERSION
+  value: {{ .Values.common.image.tag | quote }}
 # run_web.sh runs collectstatic, so WhiteNoise serves the collected/compressed
 # STATIC_ROOT via its index instead of walking finders on every request.
 - name: WHITENOISE_USE_FINDERS

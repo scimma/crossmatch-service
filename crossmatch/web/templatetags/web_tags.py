@@ -7,6 +7,7 @@ live-config seam and passed in per-view context (KTD2), keeping every
 ``astrodash_tags.py``.
 """
 
+import re
 from typing import Any
 
 from django import template
@@ -15,6 +16,12 @@ from django.conf import settings
 from web import config
 
 register = template.Library()
+
+# A GitHub release for a shipped version lives at releases/tag/vX.Y.Z. The
+# deployed image tags omit the leading `v` (0.10.0), while the git release tags
+# carry it (v0.10.0), so the `v` is added when building the link.
+_SEMVER_RE = re.compile(r'^\d+\.\d+\.\d+$')
+_RELEASE_TAG_BASE = 'https://github.com/scimma/crossmatch-service/releases/tag/'
 
 
 @register.simple_tag(name='support_email')
@@ -46,3 +53,26 @@ def is_configured(value: Any) -> bool:
     return value is not config.NOT_CONFIGURED and not isinstance(
         value, config.SectionUnavailable
     )
+
+
+@register.filter(name='release_url')
+def release_url(value: Any) -> str:
+    """GitHub release URL for a semver deploy version, else an empty string.
+
+    A real release tag gets a link; anything else -- a local/``dev`` build, a CI
+    ``sha-<sha>`` build, the ``0.0.0`` unset sentinel, or a non-full-semver like
+    ``0.10`` -- returns an empty string so the footer renders the version as
+    plain text with no broken link (R2/R3, KTD2/KTD3). The leading ``v`` that the
+    git release tags carry (but the image tags omit) is prepended here.
+
+    Args:
+        value: The deploy version string (or any seam value; coerced defensively).
+
+    Returns:
+        ``https://github.com/scimma/crossmatch-service/releases/tag/v<version>``
+        for a semver that is not the ``0.0.0`` sentinel, else ``''``.
+    """
+    text = str(value)
+    if text == '0.0.0' or not _SEMVER_RE.match(text):
+        return ''
+    return f'{_RELEASE_TAG_BASE}v{text}'
