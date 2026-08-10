@@ -80,10 +80,24 @@ def lsdb_version() -> Any:
 
     This is the client-side pin installed on *this* deployment; the crossmatch
     itself runs on the remote Dask cluster (see R7 / KTD deployment notes).
+
+    Any metadata read failure -- not just the missing-package case -- degrades to
+    NOT_CONFIGURED rather than propagating. ``service_config()`` (which calls
+    this) is unguarded and runs on every page, so an uncaught error here would
+    500 the whole site; AE5 requires the version display to degrade gracefully
+    instead.
+
+    Returns:
+        The installed ``lsdb`` version string, or ``NOT_CONFIGURED`` if the
+        package is absent or its metadata cannot be read.
     """
     try:
         return importlib.metadata.version('lsdb')
     except importlib.metadata.PackageNotFoundError:
+        # Expected when lsdb is not installed on this deployment: quiet.
+        return NOT_CONFIGURED
+    except Exception as exc:  # noqa: BLE001 -- degrade the version, never 500
+        logger.warning('web_config_lsdb_version_unavailable', error=repr(exc))
         return NOT_CONFIGURED
 
 

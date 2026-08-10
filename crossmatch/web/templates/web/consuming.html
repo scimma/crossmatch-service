@@ -1,5 +1,6 @@
 {% extends 'web/base.html' %}
-{% block title %}Consuming matches - Rubin Crossmatch Service{% endblock %}
+{% load web_tags %}
+{% block title %}Consuming matches - SCiMMA Crossmatch Service{% endblock %}
 {% block body %}
 <h1>Consuming matches</h1>
 <p class="lead">
@@ -12,16 +13,16 @@
 <ul class="list-unstyled">
   <li class="mb-2">
     <strong>Broker:</strong>
-    {% if service.hopskotch_broker_url %}<code>{{ service.hopskotch_broker_url }}</code>{% else %}<span class="config-unset">not configured</span>{% endif %}
+    {% if service.hopskotch_broker_url|is_configured %}<code>{{ service.hopskotch_broker_url }}</code>{% else %}<span class="config-unset">not configured</span>{% endif %}
   </li>
   <li>
     <strong>Topic:</strong>
-    {% if service.hopskotch_topic %}<code>{{ service.hopskotch_topic }}</code>{% else %}<span class="config-unset">publishing topic not configured</span>{% endif %}
+    {% if service.hopskotch_topic|is_configured %}<code>{{ service.hopskotch_topic }}</code>{% else %}<span class="config-unset">publishing topic not configured</span>{% endif %}
   </li>
 </ul>
 
 <h2 class="h4 mt-4">Subscribe with the hop client</h2>
-{% if service.hopskotch_broker_url and service.hopskotch_topic %}
+{% if service.hopskotch_broker_url|is_configured and service.hopskotch_topic|is_configured %}
 <p>Install the client (<code>pip install hop-client</code>), authenticate, then subscribe:</p>
 <pre class="bg-light p-3 border rounded"><code>hop subscribe {{ service.hopskotch_broker_url }}/{{ service.hopskotch_topic }}</code></pre>
 <p>Or from Python:</p>

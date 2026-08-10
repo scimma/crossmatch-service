@@ -34,6 +34,7 @@ spec:
           {{- include "db.env" . | nindent 10 }}
           {{- include "valkey.env" . | nindent 10 }}
           {{- include "crossmatch.env" . | nindent 10 }}
+          {{- include "broker_filter.env" . | nindent 10 }}
           {{- include "web.env" . | nindent 10 }}
           # SECRET_KEY only (not the superuser secret in django.env): the web
           # pod signs nothing beyond Django's own machinery and creates no users.

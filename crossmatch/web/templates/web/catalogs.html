@@ -1,5 +1,6 @@
 {% extends 'web/base.html' %}
-{% block title %}Catalogs - Rubin Crossmatch Service{% endblock %}
+{% load web_tags %}
+{% block title %}Catalogs - SCiMMA Crossmatch Service{% endblock %}
 {% block body %}
 <h1>Catalogs</h1>
 <p class="lead">
@@ -11,11 +12,11 @@
 <ul class="list-inline">
   <li class="list-inline-item mr-4">
     <strong>Crossmatch radius:</strong>
-    {% if service.crossmatch_radius_arcsec %}{{ service.crossmatch_radius_arcsec }} arcsec{% else %}<span class="config-unset">not configured</span>{% endif %}
+    {% if service.crossmatch_radius_arcsec|is_configured %}{{ service.crossmatch_radius_arcsec }} arcsec{% else %}<span class="config-unset">not configured</span>{% endif %}
   </li>
   <li class="list-inline-item">
     <strong>LSDB version (client pin):</strong>
-    {% if service.lsdb_version %}{{ service.lsdb_version }}{% else %}<span class="config-unset">not available</span>{% endif %}
+    {% if service.lsdb_version|is_configured %}{{ service.lsdb_version }}{% else %}<span class="config-unset">not available</span>{% endif %}
   </li>
 </ul>
 <p class="text-muted" style="font-size: 0.85rem;">

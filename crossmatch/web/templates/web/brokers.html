@@ -1,5 +1,6 @@
 {% extends 'web/base.html' %}
-{% block title %}Brokers &amp; filtering - Rubin Crossmatch Service{% endblock %}
+{% load web_tags %}
+{% block title %}Brokers &amp; filtering - SCiMMA Crossmatch Service{% endblock %}
 {% block body %}
 <h1>Brokers &amp; filtering</h1>
 <p class="lead">
@@ -16,7 +17,7 @@
 </p>
 <p>
   <strong>Minimum diaSource reliability:</strong>
-  {% if service.min_diasource_reliability %}{{ service.min_diasource_reliability }}{% else %}<span class="config-unset">not configured</span>{% endif %}
+  {% if service.min_diasource_reliability|is_configured %}{{ service.min_diasource_reliability }}{% else %}<span class="config-unset">not configured</span>{% endif %}
 </p>
 
 <h2 class="h4 mt-4">Upstream brokers</h2>
@@ -37,7 +38,7 @@
       <tr>
         <th scope="row">{{ broker.name }}</th>
         <td>
-          {% if broker.topic %}<code>{{ broker.topic }}</code>{% else %}<span class="config-unset">not configured</span>{% endif %}
+          {% if broker.topic|is_configured %}<code>{{ broker.topic }}</code>{% else %}<span class="config-unset">not configured</span>{% endif %}
         </td>
       </tr>
       {% endfor %}

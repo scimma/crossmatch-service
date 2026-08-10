@@ -150,8 +150,9 @@
 # DJANGO_DEBUG=false so a public error page can never dump settings. Deliberately
 # omits the broker API and Hopskotch publish credentials (antares.env /
 # hopskotch.env) -- the web pod neither consumes nor publishes. HATS URLs and the
-# crossmatch radius come from crossmatch.env; SECRET_KEY and DB come from the
-# workload's own env blocks.
+# crossmatch radius come from crossmatch.env; the reliability cut from
+# broker_filter.env (composed in web.yaml, not retyped here); SECRET_KEY and DB
+# come from the workload's own env blocks.
 - name: DJANGO_ALLOWED_HOSTS
   value: {{ .Values.web.allowed_hosts | quote }}
 - name: DJANGO_DEBUG
@@ -166,8 +167,6 @@
   value: {{ .Values.lasair_consumer.topic | quote }}
 - name: PITTGOOGLE_TOPIC
   value: {{ .Values.pittgoogle_consumer.topic | quote }}
-- name: MIN_DIASOURCE_RELIABILITY
-  value: {{ .Values.broker_filter.min_diasource_reliability | quote }}
 - name: HOPSKOTCH_BROKER_URL
   value: {{ .Values.hopskotch.broker_url | quote }}
 - name: HOPSKOTCH_TOPIC

@@ -6,6 +6,8 @@ Brokers pages (lowercasing, accessible markup, unset states), the Consuming
 page's subscribe recipe, and the hand-written API reference.
 """
 
+from unittest import mock
+
 from django.test import override_settings
 from django.urls import reverse
 
@@ -121,12 +123,14 @@ def test_catalogs_page_shows_radius_and_version(client):
     """The page shows the crossmatch radius and the installed LSDB version."""
     body = client.get(reverse('web:catalogs')).content.decode()
     assert '2.5' in body
-    # LSDB is installed in the test image; the seam reports its version.
-    import web.config as config
+    # LSDB is installed in the test image; assert the seam's version reaches the
+    # page unconditionally (no `if version:` guard -- that would silently no-op
+    # the AE3 assertion if the version were ever falsy).
+    from web import config
 
     version = config.lsdb_version()
-    if version:
-        assert str(version) in body
+    assert version
+    assert str(version) in body
 
 
 @override_settings(CROSSMATCH_CATALOGS=[])
@@ -134,6 +138,47 @@ def test_empty_catalogs_shows_explicit_state(client):
     """With no catalogs configured the page shows an explicit state, not a blank area."""
     body = client.get(reverse('web:catalogs')).content.decode().lower()
     assert 'no catalogs' in body
+
+
+@override_settings(MIN_DIASOURCE_RELIABILITY=0.0)
+def test_zero_reliability_renders_value_not_unset(client):
+    """A validly-configured 0.0 threshold renders the value, not 'not configured' (R12).
+
+    0.0 ("admit everything") is falsy, so a plain ``{% if %}`` guard would
+    mis-render it as unset; the seam value is present and must display.
+    """
+    body = client.get(reverse('web:brokers')).content.decode()
+    # If 0.0 fell through to the unset state, the value would be absent entirely.
+    assert '0.0' in body
+
+
+def test_lsdb_version_read_failure_degrades_page(client):
+    """A non-PackageNotFound metadata error degrades the version, page still renders (AE5).
+
+    ``service_config()`` runs on every page and is unguarded, so an uncaught
+    error from the version read would 500 the whole site; it must degrade.
+    """
+    import importlib.metadata
+
+    with mock.patch.object(
+        importlib.metadata, 'version', side_effect=RuntimeError('boom')
+    ):
+        resp = client.get(reverse('web:catalogs'))
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert 'not available' in body  # the version section degraded
+    assert 'National Science Foundation' in body  # rest of the page still rendered
+
+
+def test_section_unavailable_renders_at_the_page(client):
+    """A section read failure shows 'temporarily unavailable' at the page (AE5, consumer level)."""
+    from web import config
+
+    unavailable = config.SectionUnavailable(reason='forced')
+    with mock.patch.object(config, 'catalogs', return_value=unavailable):
+        body = client.get(reverse('web:catalogs')).content.decode()
+    assert 'temporarily unavailable' in body.lower()
+    assert 'National Science Foundation' in body  # rest of the page still rendered
 
 
 # --- U6: brokers & consuming pages ------------------------------------------
