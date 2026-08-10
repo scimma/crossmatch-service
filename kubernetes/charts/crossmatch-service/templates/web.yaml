@@ -1,0 +1,79 @@
+{{- if .Values.web.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.web.service.host | quote }}
+  {{- with .Values.common.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  # Stateless: a Deployment, not a StatefulSet -- the web frontend holds no
+  # per-replica state (it serves server-rendered pages read from config).
+  replicas: {{ .Values.web.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.web.service.host | quote }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.web.service.host | quote }}
+        app.kubernetes.io/component: web
+    spec:
+      containers:
+      - name: web
+        image: {{ .Values.common.image.repo }}:{{ .Values.common.image.tag }}
+        imagePullPolicy: {{ .Values.common.image.imagePullPolicy }}
+        command:
+        - /bin/bash
+        - -c
+        - bash entrypoints/run_web.sh
+        env:
+          {{- include "common.env" . | nindent 10 }}
+          {{- include "db.env" . | nindent 10 }}
+          {{- include "valkey.env" . | nindent 10 }}
+          {{- include "crossmatch.env" . | nindent 10 }}
+          {{- include "broker_filter.env" . | nindent 10 }}
+          {{- include "web.env" . | nindent 10 }}
+          # SECRET_KEY only (not the superuser secret in django.env): the web
+          # pod signs nothing beyond Django's own machinery and creates no users.
+          - name: SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                key: SECRET_KEY
+                name: django
+        ports:
+        - name: http
+          containerPort: {{ .Values.web.service.port }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        {{- with .Values.web.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.web.service.host | quote }}
+  labels:
+    app: {{ .Values.web.service.host | quote }}
+spec:
+  selector:
+    app: {{ .Values.web.service.host | quote }}
+  ports:
+  - name: http
+    port: {{ .Values.web.service.port }}
+    targetPort: http
+{{- end }}

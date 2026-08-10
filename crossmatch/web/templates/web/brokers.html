@@ -1,0 +1,49 @@
+{% extends 'web/base.html' %}
+{% load web_tags %}
+{% block title %}Brokers &amp; filtering - SCiMMA Crossmatch Service{% endblock %}
+{% block body %}
+<h1>Brokers &amp; filtering</h1>
+<p class="lead">
+  Rubin alerts reach this service through several community alert brokers. Each
+  broker forwards a quality-filtered topic; the service then applies a single
+  reliability cut before an alert is crossmatched.
+</p>
+
+<h2 class="h4 mt-4">Reliability filter</h2>
+<p>
+  Across every broker, an alert is admitted only when the latest diaSource for
+  its diaObject has a real/bogus reliability score at or above the configured
+  threshold:
+</p>
+<p>
+  <strong>Minimum diaSource reliability:</strong>
+  {% if service.min_diasource_reliability|is_configured %}{{ service.min_diasource_reliability }}{% else %}<span class="config-unset">not configured</span>{% endif %}
+</p>
+
+<h2 class="h4 mt-4">Upstream brokers</h2>
+{% if brokers.reason %}
+  <div class="section-unavailable">Broker configuration is temporarily unavailable.</div>
+{% else %}
+<div class="table-responsive">
+  <table class="table table-sm table-bordered">
+    <caption class="text-dark" style="caption-side: top; font-weight: 600;">Upstream brokers and their subscribed quality topics</caption>
+    <thead class="thead-light">
+      <tr>
+        <th scope="col">Broker</th>
+        <th scope="col">Subscribed topic</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for broker in brokers %}
+      <tr>
+        <th scope="row">{{ broker.name }}</th>
+        <td>
+          {% if broker.topic|is_configured %}<code>{{ broker.topic }}</code>{% else %}<span class="config-unset">not configured</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -113,6 +113,29 @@ hopskotch:
   username: ""
   password: ""
 
+web:
+  # Informational, publicly-viewable web frontend (server-rendered pages).
+  # Stateless Deployment + Service; ingress routing to the Service lives in the
+  # gitops repo. Least-privilege env (see the "web.env" helper): no broker or
+  # Hopskotch credentials.
+  enabled: true
+  replicaCount: 1
+  service:
+    host: "web"
+    port: 8000
+  # Public hostname Django will accept (DJANGO_ALLOWED_HOSTS). Defaults to the
+  # PROD host; the DEV overlay overrides this to crossmatch-dev.scimma.org. The
+  # ingress host in gitops MUST match, or Django answers 400 (DisallowedHost).
+  allowed_hosts: "crossmatch.scimma.org"
+  django_debug: "false"
+  resources:
+    requests:
+      cpu: '100m'
+      memory: 128Mi
+    limits:
+      cpu: '1'
+      memory: 512Mi
+
 local_kafka:
   enabled: false
   image: scimma/server:latest

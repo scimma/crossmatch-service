@@ -1,0 +1,137 @@
+{% extends 'web/base.html' %}
+{% block title %}API reference - SCiMMA Crossmatch Service{% endblock %}
+{% block body %}
+<h1>API reference</h1>
+<p class="lead">
+  The read-model REST API returns recent crossmatches for objects that had an
+  alert in a time window, grouped by object, at a caller-selected detail level.
+  Responses are JSON.
+</p>
+
+<h2 class="h4 mt-4">Endpoint</h2>
+<pre class="bg-light p-3 border rounded"><code>GET /api/recent-crossmatches</code></pre>
+<p>
+  Results are keyset (cursor) paged, newest first. Follow the top-level
+  <code>next_cursor</code> to page through the whole window; it is
+  <code>null</code> when the window is exhausted.
+</p>
+
+<h2 class="h4 mt-4">Query parameters</h2>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered">
+    <caption class="text-dark" style="caption-side: top; font-weight: 600;">All parameters are optional</caption>
+    <thead class="thead-light">
+      <tr>
+        <th scope="col">Parameter</th>
+        <th scope="col">Values</th>
+        <th scope="col">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th scope="row"><code>start</code></th>
+        <td>ISO-8601 timestamp (UTC)</td>
+        <td>Window start. Defaults to <code>end</code> minus 12 hours.</td>
+      </tr>
+      <tr>
+        <th scope="row"><code>end</code></th>
+        <td>ISO-8601 timestamp (UTC)</td>
+        <td>Window end. Defaults to now.</td>
+      </tr>
+      <tr>
+        <th scope="row"><code>time_field</code></th>
+        <td><code>ingest_time</code> (default), <code>event_time</code></td>
+        <td>Which alert timestamp the window filters on: arrival time or observation time.</td>
+      </tr>
+      <tr>
+        <th scope="row"><code>detail</code></th>
+        <td><code>ids</code>, <code>position</code>, <code>matches</code> (default), <code>full</code></td>
+        <td>Cumulative detail level per object (see below).</td>
+      </tr>
+      <tr>
+        <th scope="row"><code>page_size</code></th>
+        <td>positive integer</td>
+        <td>Objects per page, clamped down to the server maximum.</td>
+      </tr>
+      <tr>
+        <th scope="row"><code>cursor</code></th>
+        <td>opaque token</td>
+        <td>A <code>next_cursor</code> from a prior page. It pins <code>start</code>, <code>end</code>, <code>time_field</code>, and <code>detail</code>; supplying any of those with a conflicting value is a 400.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2 class="h4 mt-4">Detail levels</h2>
+<p>Detail levels are cumulative, each adding to the one before it:</p>
+<ul>
+  <li><code>ids</code> &mdash; the <code>diaObjectId</code> only.</li>
+  <li><code>position</code> &mdash; adds the object's <code>ra</code> / <code>dec</code>.</li>
+  <li><code>matches</code> &mdash; adds a summary per match (catalog, source id, separation).</li>
+  <li><code>full</code> &mdash; adds the complete published payload for each match.</li>
+</ul>
+
+<h2 class="h4 mt-4">Response envelope</h2>
+<p>Every successful response wraps the objects with the resolved query metadata:</p>
+{% verbatim %}
+<pre class="bg-light p-3 border rounded"><code>{
+  "window": {"start": "...", "end": "..."},
+  "time_field": "ingest_time",
+  "detail": "matches",
+  "page_size": 1000,
+  "count": 2,
+  "next_cursor": null,
+  "objects": [ ... ]
+}</code></pre>
+{% endverbatim %}
+<p>
+  <code>count</code> is the number of objects on this page (not a whole-set
+  total). <code>objects</code> contains one entry per matched
+  <code>diaObjectId</code> (objects with no match are omitted).
+</p>
+
+<h2 class="h4 mt-4">Example request</h2>
+<pre class="bg-light p-3 border rounded"><code>curl "https://example.org/api/recent-crossmatches?detail=matches&amp;page_size=2"</code></pre>
+
+<h3 class="h5 mt-3">Success (200)</h3>
+{% verbatim %}
+<pre class="bg-light p-3 border rounded"><code>{
+  "window": {"start": "2026-08-10T00:00:00+00:00", "end": "2026-08-10T12:00:00+00:00"},
+  "time_field": "ingest_time",
+  "detail": "matches",
+  "page_size": 2,
+  "count": 1,
+  "next_cursor": "eyJ0MCI6IC4uLn0=",
+  "objects": [
+    {
+      "diaObjectId": 1234567890123456789,
+      "ra": 150.113,
+      "dec": 2.205,
+      "matches": [
+        {
+          "catalog_name": "gaia_dr3",
+          "catalog_source_id": "987654321098765432",
+          "separation_arcsec": 0.42
+        }
+      ]
+    }
+  ]
+}</code></pre>
+{% endverbatim %}
+
+<h3 class="h5 mt-3">Error &mdash; invalid parameter (400)</h3>
+<p>An unparseable timestamp, unknown <code>detail</code>/<code>time_field</code>, non-positive <code>page_size</code>, malformed or conflicting <code>cursor</code>, or an out-of-range window returns a 400 with a JSON error body:</p>
+{% verbatim %}
+<pre class="bg-light p-3 border rounded"><code>{
+  "error": "detail must be one of ('ids', 'position', 'matches', 'full'), got 'everything'"
+}</code></pre>
+{% endverbatim %}
+
+<h3 class="h5 mt-3">Error &mdash; wrong method (405)</h3>
+<p>Only <code>GET</code> is supported. Any other method returns a 405:</p>
+{% verbatim %}
+<pre class="bg-light p-3 border rounded"><code>{
+  "error": "method not allowed"
+}</code></pre>
+{% endverbatim %}
+{% endblock %}

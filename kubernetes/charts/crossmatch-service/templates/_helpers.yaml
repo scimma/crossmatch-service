@@ -143,6 +143,36 @@
   value: {{ .Values.crossmatch.batch_max_size | quote }}
 {{- end }}
 
+{{- define "web.env" -}}
+# Least-privilege display config for the public, unauthenticated web frontend.
+# Carries only the non-secret facts the pages render (broker topics, the
+# reliability cut, the Hopskotch broker/topic, the public hostname) and pins
+# DJANGO_DEBUG=false so a public error page can never dump settings. Deliberately
+# omits the broker API and Hopskotch publish credentials (antares.env /
+# hopskotch.env) -- the web pod neither consumes nor publishes. HATS URLs and the
+# crossmatch radius come from crossmatch.env; the reliability cut from
+# broker_filter.env (composed in web.yaml, not retyped here); SECRET_KEY and DB
+# come from the workload's own env blocks.
+- name: DJANGO_ALLOWED_HOSTS
+  value: {{ .Values.web.allowed_hosts | quote }}
+- name: DJANGO_DEBUG
+  value: {{ .Values.web.django_debug | default "false" | quote }}
+# run_web.sh runs collectstatic, so WhiteNoise serves the collected/compressed
+# STATIC_ROOT via its index instead of walking finders on every request.
+- name: WHITENOISE_USE_FINDERS
+  value: "false"
+- name: ANTARES_TOPIC
+  value: {{ .Values.antares_consumer.topic | quote }}
+- name: LASAIR_TOPIC
+  value: {{ .Values.lasair_consumer.topic | quote }}
+- name: PITTGOOGLE_TOPIC
+  value: {{ .Values.pittgoogle_consumer.topic | quote }}
+- name: HOPSKOTCH_BROKER_URL
+  value: {{ .Values.hopskotch.broker_url | quote }}
+- name: HOPSKOTCH_TOPIC
+  value: {{ .Values.hopskotch.topic | quote }}
+{{- end }}
+
 {{- define "flower.env" -}}
 - name: FLOWER_URL_PREFIX
   value: {{ .Values.flower.ingress.basePath | quote }}

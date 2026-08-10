@@ -22,4 +22,7 @@ def healthz(request):
 urlpatterns = [
     path('healthz', healthz, name='healthz'),
     path('api/', include('api.urls')),
+    # Informational web frontend (server-rendered pages) at root paths. Kept
+    # last so its catch-all page routes never shadow healthz or the api/ prefix.
+    path('', include('web.urls')),
 ]

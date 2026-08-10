@@ -1,0 +1,41 @@
+{% extends 'web/base.html' %}
+{% load web_tags %}
+{% block title %}Consuming matches - SCiMMA Crossmatch Service{% endblock %}
+{% block body %}
+<h1>Consuming matches</h1>
+<p class="lead">
+  Published crossmatches are streamed over SCiMMA Hopskotch. You can subscribe to
+  the live stream with the <a href="https://hop-client.readthedocs.io/">hop
+  client</a>, or query recent matches through the <a href="{% url 'web:api' %}">REST API</a>.
+</p>
+
+<h2 class="h4 mt-4">Where matches are published</h2>
+<ul class="list-unstyled">
+  <li class="mb-2">
+    <strong>Broker:</strong>
+    {% if service.hopskotch_broker_url|is_configured %}<code>{{ service.hopskotch_broker_url }}</code>{% else %}<span class="config-unset">not configured</span>{% endif %}
+  </li>
+  <li>
+    <strong>Topic:</strong>
+    {% if service.hopskotch_topic|is_configured %}<code>{{ service.hopskotch_topic }}</code>{% else %}<span class="config-unset">publishing topic not configured</span>{% endif %}
+  </li>
+</ul>
+
+<h2 class="h4 mt-4">Subscribe with the hop client</h2>
+{% if service.hopskotch_broker_url|is_configured and service.hopskotch_topic|is_configured %}
+<p>Install the client (<code>pip install hop-client</code>), authenticate, then subscribe:</p>
+<pre class="bg-light p-3 border rounded"><code>hop subscribe {{ service.hopskotch_broker_url }}/{{ service.hopskotch_topic }}</code></pre>
+<p>Or from Python:</p>
+<pre class="bg-light p-3 border rounded"><code>from hop import stream
+
+url = "{{ service.hopskotch_broker_url }}/{{ service.hopskotch_topic }}"
+with stream.open(url, "r") as s:
+    for message in s:
+        print(message)</code></pre>
+{% else %}
+<div class="alert alert-secondary">
+  The publishing topic is not configured on this deployment, so a subscribe
+  example cannot be shown. Once a topic is configured it appears above.
+</div>
+{% endif %}
+{% endblock %}
