@@ -472,9 +472,7 @@ STATIC_ROOT = os.path.join(APP_ROOT_DIR, 'static')
 # compressed (non-manifest) backend so `{% static %}` resolves without a
 # staticfiles.json manifest -- the informational site does not need hashed asset
 # URLs, and this keeps template rendering working in tests/dev before
-# collectstatic has run. USE_FINDERS lets WhiteNoise serve app static dirs
-# directly (so /static/web/... resolves under pytest and the dev server, which
-# never run collectstatic), at a negligible cost for this low-traffic site.
+# collectstatic has run.
 STORAGES = {
     'default': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
@@ -483,7 +481,15 @@ STORAGES = {
         'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
     },
 }
-WHITENOISE_USE_FINDERS = True
+# USE_FINDERS lets WhiteNoise serve app static dirs directly, so /static/web/...
+# resolves under pytest and the bare dev server, which never run collectstatic.
+# It defaults on for that convenience; deployments that DO run collectstatic
+# (entrypoints/run_web.sh) set WHITENOISE_USE_FINDERS=false so WhiteNoise serves
+# the collected, precompressed STATIC_ROOT via a prebuilt index instead of
+# walking the finder tree on every request.
+WHITENOISE_USE_FINDERS = (
+    os.environ.get('WHITENOISE_USE_FINDERS', 'true').lower() == 'true'
+)
 
 # Footer "Contact us" mailto target (U2 support_email tag; footer content, not a
 # live-config seam field). Overridable per deployment.

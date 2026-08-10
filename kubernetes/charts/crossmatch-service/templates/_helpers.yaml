@@ -156,6 +156,10 @@
   value: {{ .Values.web.allowed_hosts | quote }}
 - name: DJANGO_DEBUG
   value: {{ .Values.web.django_debug | default "false" | quote }}
+# run_web.sh runs collectstatic, so WhiteNoise serves the collected/compressed
+# STATIC_ROOT via its index instead of walking finders on every request.
+- name: WHITENOISE_USE_FINDERS
+  value: "false"
 - name: ANTARES_TOPIC
   value: {{ .Values.antares_consumer.topic | quote }}
 - name: LASAIR_TOPIC

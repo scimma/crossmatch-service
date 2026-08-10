@@ -20,7 +20,7 @@ def test_home_returns_200_with_navbar_and_footer(client):
     resp = client.get(reverse('web:home'))
     assert resp.status_code == 200
     body = resp.content.decode()
-    assert 'Rubin Crossmatch' in body  # navbar wordmark
+    assert 'SCiMMA Crossmatch' in body  # navbar wordmark
     assert 'National Science Foundation' in body  # footer NSF line (include)
 
 
@@ -53,7 +53,7 @@ def test_unknown_url_renders_branded_404(client):
     assert resp.status_code == 404
     body = resp.content.decode()
     assert '404' in body
-    assert 'Rubin Crossmatch' in body  # rendered inside the base shell
+    assert 'SCiMMA Crossmatch' in body  # rendered inside the base shell
 
 
 # --- U4: navigation ---------------------------------------------------------

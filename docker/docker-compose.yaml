@@ -278,6 +278,9 @@ services:
       DJANGO_DEBUG: "false"
       APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
       WEB_PORT: "8000"
+      # run_web.sh runs collectstatic, so serve the collected/compressed
+      # STATIC_ROOT via WhiteNoise's index rather than walking finders per request.
+      WHITENOISE_USE_FINDERS: "false"
       # Django database configuration
       DATABASE_HOST: "${DATABASE_HOST:-django-db}"
       DATABASE_PORT: "${DATABASE_PORT:-5432}"
