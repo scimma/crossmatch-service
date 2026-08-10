@@ -259,6 +259,54 @@ services:
       DATABASE_USER: "${DATABASE_USER:-crossmatch_service_admin}"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
 
+  web:
+    image: 585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev
+    platform: linux/x86_64
+    build:
+      context: ../crossmatch
+      dockerfile: ../docker/Dockerfile
+      args:
+        UID: "${USERID:-1000}"
+    command: bash entrypoints/run_web.sh
+    networks:
+      - internal
+    ports:
+      - 127.0.0.1:${WEB_PORT:-8000}:8000
+    environment:
+      # Public frontend runs like prod (no debug settings dump). ALLOWED_HOSTS
+      # default already includes localhost/127.0.0.1 for local access.
+      DJANGO_DEBUG: "false"
+      APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
+      WEB_PORT: "8000"
+      # Django database configuration
+      DATABASE_HOST: "${DATABASE_HOST:-django-db}"
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+      DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
+      DATABASE_USER: "${DATABASE_USER:-crossmatch_service_admin}"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
+      # Cache/session backend (parity with the pipeline env; pages do not use it)
+      VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
+      VALKEY_PORT: "${VALKEY_PORT:-6379}"
+      # Display config the pages render live (broker topics, reliability cut,
+      # radius, HATS URLs, Hopskotch broker/topic). No broker/Hopskotch
+      # credentials -- the web pod neither consumes nor publishes.
+      ANTARES_TOPIC: "${ANTARES_TOPIC:-lsst_scimma_quality_transient}"
+      LASAIR_TOPIC: "${LASAIR_TOPIC:-lasair_366SCiMMA_reliability_moderate}"
+      PITTGOOGLE_TOPIC: "${PITTGOOGLE_TOPIC:-lsst-alerts-json}"
+      MIN_DIASOURCE_RELIABILITY: "${MIN_DIASOURCE_RELIABILITY:-0.6}"
+      CROSSMATCH_RADIUS_ARCSEC: "${CROSSMATCH_RADIUS_ARCSEC:-1.0}"
+      GAIA_HATS_URL: "${GAIA_HATS_URL:-s3://stpubdata/gaia/gaia_dr3/public/hats}"
+      DES_HATS_URL: "${DES_HATS_URL:-s3://stpubdata/mast/public/des/hats/des_y6_gold}"
+      DELVE_HATS_URL: "${DELVE_HATS_URL:-s3://stpubdata/mast/public/delve/hats/delve_dr3_gold}"
+      SKYMAPPER_HATS_URL: "${SKYMAPPER_HATS_URL:-https://data.lsdb.io/hats/skymapper_dr4/catalog}"
+      HOPSKOTCH_BROKER_URL: "${HOPSKOTCH_BROKER_URL:-kafka://kafka.scimma.org}"
+      HOPSKOTCH_TOPIC: "${HOPSKOTCH_TOPIC:-}"
+    volumes:
+      # No shared django-static volume: run_web.sh runs collectstatic into the
+      # container-local, uid-1000-owned STATIC_ROOT (a root-owned named volume
+      # would make collectstatic fail with EACCES). WhiteNoise then serves it.
+      - ../crossmatch:/opt/crossmatch
+
   django-db:
     image: postgres:18.3
     platform: linux/x86_64
