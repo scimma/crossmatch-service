@@ -11,7 +11,9 @@
       <a href="https://www.scimma.org/"><img src="{% static 'web/logo/scimma-logo.svg' %}" alt="" aria-hidden="true" style="height: 16px; vertical-align: text-bottom; margin-right: 3px;">SCiMMA</a>
       {% if service.app_version %}
       <span class="footer-sep">//</span>
-      <a href="https://github.com/scimma/crossmatch-service/releases/tag/{{ service.app_version }}">{{ service.app_version }}</a>
+      {% with rel_url=service.app_version|release_url %}
+      {% if rel_url %}<a href="{{ rel_url }}">{{ service.app_version }}</a>{% else %}{{ service.app_version }}{% endif %}
+      {% endwith %}
       {% endif %}
     </span>
     <div class="text-muted" style="font-size: 0.75rem; margin-top: 6px;">

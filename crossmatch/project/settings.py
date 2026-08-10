@@ -7,7 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 ######################################################################
 # Application config
 #
-APP_VERSION = '0.0.0'
+APP_VERSION = os.getenv('APP_VERSION', '0.0.0')
 
 # Dask distributed scheduler (optional)
 # When set, Celery workers connect to a remote Dask scheduler.
