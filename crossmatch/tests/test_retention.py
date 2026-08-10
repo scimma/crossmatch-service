@@ -144,3 +144,28 @@ def test_backfill_covers_matched_with_all_notifications_sent():
     mod.backfill_notified_at(django_apps, None)
     alert.refresh_from_db()
     assert alert.notified_at is not None
+
+
+@pytest.mark.django_db
+def test_backfill_pk_cursor_covers_all_batches(monkeypatch):
+    # With more terminal rows than one batch, the monotonic pk-cursor must visit
+    # every window, anchor all terminal rows, leave in-flight rows NULL, and
+    # terminate (no infinite loop, no missed rows).
+    mod = importlib.import_module("core.migrations.0008_backfill_notified_at")
+    monkeypatch.setattr(mod, "BATCH_SIZE", 3)
+    terminal = [
+        AlertFactory(status=Alert.Status.NOTIFIED, notified_at=None) for _ in range(7)
+    ]
+    queued = AlertFactory(status=Alert.Status.QUEUED, notified_at=None)
+    matched_pending = AlertFactory(status=Alert.Status.MATCHED, notified_at=None)
+    NotificationFactory(alert=matched_pending, state=Notification.State.PENDING)
+
+    mod.backfill_notified_at(django_apps, None)
+
+    for a in terminal:
+        a.refresh_from_db()
+        assert a.notified_at is not None
+    queued.refresh_from_db()
+    matched_pending.refresh_from_db()
+    assert queued.notified_at is None
+    assert matched_pending.notified_at is None

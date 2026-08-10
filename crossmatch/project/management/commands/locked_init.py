@@ -49,10 +49,33 @@ class Command(BaseCommand):
                 )
                 time.sleep(delay)
 
-    def _acquire_lock(self, conn):
-        """Acquire a session-level advisory lock, blocking until available."""
+    def _acquire_lock(self, conn, poll_interval=2):
+        """Acquire a session-level advisory lock without pinning a snapshot while waiting.
+
+        Polls the non-blocking pg_try_advisory_lock instead of the blocking
+        pg_advisory_lock. A blocking pg_advisory_lock() runs as a single
+        statement for the whole time it waits, which holds a transaction
+        snapshot (backend_xmin) open on the waiting backend. CREATE INDEX
+        CONCURRENTLY (migrations 0007/0009) waits for every such snapshot to
+        clear before it can finish, so a replica parked on a blocking lock while
+        the lock holder runs a concurrent-index migration deadlocks that
+        migration -- and PostgreSQL does not surface it, because a CIC
+        virtualxid wait is outside the deadlock detector. Polling lets a waiting
+        container sit idle between attempts, holding no snapshot, so the
+        migration proceeds. Still blocks until the lock is acquired.
+        """
         self.stdout.write("Acquiring database initialization lock...")
-        conn.execute("SELECT pg_advisory_lock(%s)", [LOCK_ID])
+        while True:
+            granted = conn.execute(
+                "SELECT pg_try_advisory_lock(%s)", [LOCK_ID]
+            ).fetchone()[0]
+            if granted:
+                break
+            self.stdout.write(
+                f"Initialization lock held by another container; "
+                f"retrying in {poll_interval}s..."
+            )
+            time.sleep(poll_interval)
         self.stdout.write("Lock acquired, proceeding with initialization.")
 
     def _run_init(self):
