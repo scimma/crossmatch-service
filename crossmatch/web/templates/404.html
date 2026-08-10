@@ -1,0 +1,9 @@
+{% extends 'web/base.html' %}
+{% block title %}Page not found - SCiMMA Crossmatch Service{% endblock %}
+{% block body %}
+<div class="py-5 text-center">
+  <h1 class="display-4">404</h1>
+  <p class="lead">That page does not exist.</p>
+  <p><a href="{% url 'web:home' %}">Return to the home page</a></p>
+</div>
+{% endblock %}

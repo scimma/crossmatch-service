@@ -1,0 +1,25 @@
+{% load web_tags %}
+<footer>
+  <div class="container">
+    <span class="text-muted">
+      <a href="mailto:{% support_email %}?subject=Rubin%20Crossmatch%20support%20request"><i class="bi-life-preserver" role="img" aria-label="Help"></i> Contact us</a>
+      <span style="font-size: 1.2rem; color: #c9c9c9">//</span>
+      <a href="https://github.com/scimma/crossmatch-service/issues"><i class="bi-github" role="img" aria-label="GitHub"></i> Report bugs/issues</a>
+      <span style="font-size: 1.2rem; color: #c9c9c9">//</span>
+      <a href="https://caps.ncsa.illinois.edu/">NCSA:CAPS</a> /
+      <a href="https://www.scimma.org/">SCiMMA</a>
+      {% if service.app_version %}
+      <span style="font-size: 1.2rem; color: #c9c9c9">//</span>
+      <a href="https://github.com/scimma/crossmatch-service/releases/tag/{{ service.app_version }}">{{ service.app_version }}</a>
+      {% endif %}
+    </span>
+    <div class="text-muted" style="font-size: 0.75rem; margin-top: 6px;">
+      This project is supported by National Science Foundation grants
+      <a href="https://www.nsf.gov/awardsearch/showAward?AWD_ID=1841625">OAC-1841625</a>,
+      <a href="https://www.nsf.gov/awardsearch/showAward?AWD_ID=1934752">OAC-1934752</a>,
+      <a href="https://www.nsf.gov/awardsearch/showAward?AWD_ID=2311355">OAC-2311355</a>,
+      <a href="https://www.nsf.gov/awardsearch/showAward?AWD_ID=2432428">AST-2432428</a>.
+      Any opinions, findings, conclusions or recommendations expressed in this material are those of the developers and do not necessarily reflect the views of the National Science Foundation.
+    </div>
+  </div>
+</footer>

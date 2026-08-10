@@ -1,0 +1,65 @@
+{% extends 'web/base.html' %}
+{% block title %}Catalogs - Rubin Crossmatch Service{% endblock %}
+{% block body %}
+<h1>Catalogs</h1>
+<p class="lead">
+  Each Rubin alert is crossmatched against the reference catalogs below. A match
+  is recorded when a catalog source lies within the crossmatch radius of the
+  alert position.
+</p>
+
+<ul class="list-inline">
+  <li class="list-inline-item mr-4">
+    <strong>Crossmatch radius:</strong>
+    {% if service.crossmatch_radius_arcsec %}{{ service.crossmatch_radius_arcsec }} arcsec{% else %}<span class="config-unset">not configured</span>{% endif %}
+  </li>
+  <li class="list-inline-item">
+    <strong>LSDB version (client pin):</strong>
+    {% if service.lsdb_version %}{{ service.lsdb_version }}{% else %}<span class="config-unset">not available</span>{% endif %}
+  </li>
+</ul>
+<p class="text-muted" style="font-size: 0.85rem;">
+  The crossmatch itself runs on a remote Dask cluster; the version above is the
+  LSDB client installed on this deployment.
+</p>
+
+{% if catalogs.reason %}
+  <div class="section-unavailable">Catalog configuration is temporarily unavailable.</div>
+{% elif catalogs %}
+  <p>
+    Published column names are shown as the lowercased keys carried in the match
+    payload published over Hopskotch.
+  </p>
+  {% for cat in catalogs %}
+  <div class="table-responsive mb-4">
+    <table class="table table-sm table-bordered">
+      <caption class="text-dark" style="caption-side: top; font-weight: 600;">{{ cat.name }}</caption>
+      <thead class="thead-light">
+        <tr>
+          <th scope="col">Property</th>
+          <th scope="col">Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Source ID column</th>
+          <td><code>{{ cat.source_id_column }}</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Coordinate columns</th>
+          <td><code>{{ cat.ra_column }}</code>, <code>{{ cat.dec_column }}</code></td>
+        </tr>
+        <tr>
+          <th scope="row">Published columns</th>
+          <td>
+            {% for col in cat.published_columns %}<code>{{ col }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="alert alert-secondary">No catalogs are currently configured on this deployment.</div>
+{% endif %}
+{% endblock %}

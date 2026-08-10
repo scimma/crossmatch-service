@@ -1,0 +1,62 @@
+{% extends 'web/base.html' %}
+{% block title %}SCiMMA Crossmatch Service{% endblock %}
+{% block body %}
+<div class="jumbotron bg-white">
+  <h1 class="display-5">SCiMMA Crossmatch Service</h1>
+  <p class="lead">
+    The SCiMMA Rubin Crossmatch Service takes the stream of transient alerts from
+    the Vera C. Rubin Observatory, crossmatches each alert's sky position against
+    reference astronomical catalogs, and publishes the matches to the public
+    astronomy community.
+  </p>
+  <p>
+    Each incoming alert is filtered for reliability, batched, and matched against
+    survey catalogs on a remote Dask cluster using
+    <a href="https://docs.lsdb.io/">LSDB</a>. The resulting per-match records are
+    published over SCiMMA Hopskotch and are also queryable through a REST API.
+  </p>
+</div>
+
+<div class="row">
+  <div class="col-md-6 col-lg-3 mb-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-stars"></i> Catalogs</h5>
+        <p class="card-text">Which reference catalogs are matched, the per-match
+          columns published, and the crossmatch radius.</p>
+        <a href="{% url 'web:catalogs' %}" class="btn btn-primary btn-sm">View catalogs</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-3 mb-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-funnel"></i> Brokers &amp; filtering</h5>
+        <p class="card-text">The upstream alert brokers and how alerts are
+          filtered before crossmatching.</p>
+        <a href="{% url 'web:brokers' %}" class="btn btn-primary btn-sm">View brokers</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-3 mb-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-broadcast"></i> Consuming matches</h5>
+        <p class="card-text">Where matches are published and how to subscribe with
+          the hop client.</p>
+        <a href="{% url 'web:consuming' %}" class="btn btn-primary btn-sm">Consume matches</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-3 mb-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-code-slash"></i> API</h5>
+        <p class="card-text">Query recent crossmatches programmatically over the
+          REST API.</p>
+        <a href="{% url 'web:api' %}" class="btn btn-primary btn-sm">API reference</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

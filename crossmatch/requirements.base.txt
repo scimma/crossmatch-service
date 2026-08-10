@@ -10,6 +10,11 @@ flower
 # alignment is required (unlike numpy/pandas/dask). Pinned per the
 # dependency-pin convention (docs/solutions/conventions/).
 gunicorn==23.0.0
+# Serves the web frontend's collected static assets (logo, css) directly from
+# the gunicorn pod, no nginx. Server-only: not in the Dask (de)serialization
+# path, so no cluster-version alignment is required. Pinned per the
+# dependency-pin convention; requirements.lock is regenerated in the same commit.
+whitenoise==6.12.0
 hop-client
 httpx
 confluent_kafka

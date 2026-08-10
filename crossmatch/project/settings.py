@@ -230,10 +230,16 @@ INSTALLED_APPS = [
     'core',
     'tasks',
     'api',
+    'web',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Serve the web frontend's collected static (logo, css) straight from the
+    # gunicorn pod (no nginx). Must sit directly after SecurityMiddleware so it
+    # sees requests before CommonMiddleware. See STORAGES / WHITENOISE_USE_FINDERS
+    # below and entrypoints/run_web.sh (collectstatic).
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -461,6 +467,29 @@ AUTH_PASSWORD_VALIDATORS = [
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(APP_ROOT_DIR, 'static')
+
+# WhiteNoise serves collected static from the gunicorn pod (no nginx). Use the
+# compressed (non-manifest) backend so `{% static %}` resolves without a
+# staticfiles.json manifest -- the informational site does not need hashed asset
+# URLs, and this keeps template rendering working in tests/dev before
+# collectstatic has run. USE_FINDERS lets WhiteNoise serve app static dirs
+# directly (so /static/web/... resolves under pytest and the dev server, which
+# never run collectstatic), at a negligible cost for this low-traffic site.
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
+WHITENOISE_USE_FINDERS = True
+
+# Footer "Contact us" mailto target (U2 support_email tag; footer content, not a
+# live-config seam field). Overridable per deployment.
+SUPPORT_EMAIL = os.environ.get(
+    'SUPPORT_EMAIL', 'scimma-crossmatch@lists.scimma.org'
+)
 
 ######################################################################
 # Logging config
