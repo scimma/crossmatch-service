@@ -61,6 +61,28 @@ def test_worker_missing_import_flags_drift():
     assert drift[0]['worker_versions'] == {'tcp://w1': None}
 
 
+def test_no_workers_answered_flags_drift():
+    # client.run returns {} (workers dropped in the wait->run window). Comparing
+    # the client against zero workers must NOT read as aligned -> fail closed.
+    client = _fake_client({})
+    with mock.patch.object(dask_mod, '_package_versions_local',
+                           return_value={'lsdb': '0.10.4', 'hats': '0.10.4'}):
+        drift = dask_mod._check_off_boundary_versions(client)
+    assert {d['package'] for d in drift} == {'lsdb', 'hats'}
+    assert all(d['worker_versions'] == {} for d in drift)
+
+
+def test_client_cannot_import_engine_flags_drift():
+    # The app image itself cannot import lsdb (client_ver None). A broken app
+    # build must fail fast, not read as aligned just because a worker also lacks it.
+    client = _fake_client({'tcp://w1': {'lsdb': None, 'hats': '0.10.4'}})
+    with mock.patch.object(dask_mod, '_package_versions_local',
+                           return_value={'lsdb': None, 'hats': '0.10.4'}):
+        drift = dask_mod._check_off_boundary_versions(client)
+    assert [d['package'] for d in drift] == ['lsdb']
+    assert drift[0]['client_version'] is None
+
+
 def test_package_versions_local_reports_installed_lsdb_and_hats():
     versions = dask_mod._package_versions_local()
     assert set(versions) == {'lsdb', 'hats'}

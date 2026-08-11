@@ -26,12 +26,22 @@ import signal
 import sys
 import time
 
+import cloudpickle
 from celery.signals import worker_init, worker_process_init
 from django.conf import settings
 
 from core.log import get_logger
 
 logger = get_logger(__name__)
+
+# Ship this module's functions to Dask workers BY VALUE (their code), not by a
+# `core.dask` import reference. The off-boundary probe below runs on the workers
+# via client.run, and the workers do not necessarily have the crossmatch app
+# package importable — the local dev Dask image carries only lsdb/hats/numpy/
+# pandas via EXTRA_PIP_PACKAGES, no `core`. Without this, client.run would raise
+# ModuleNotFoundError('core') on such a worker and crash the startup guard even
+# when versions are perfectly aligned.
+cloudpickle.register_pickle_by_value(sys.modules[__name__])
 
 # Packages compared across client / scheduler / workers. Names are dict keys
 # under versions[<role>]['packages'] as produced by distributed.versions —
@@ -260,7 +270,16 @@ def _check_off_boundary_versions(client):
         worker_versions = {
             addr: result.get(pkg) for addr, result in worker_results.items()
         }
-        if any(v != client_ver for v in worker_versions.values()):
+        # Fail closed. The guard reports drift (so _fail_fast fires) unless all of:
+        # the app can import the engine (client_ver set — a None means a broken
+        # app build, never "aligned"); at least one worker answered (an empty
+        # result means we compared against nothing — workers dropped in the
+        # _wait_for_worker->run window — and must not read as aligned); and every
+        # answering worker matches the client.
+        client_missing = client_ver is None
+        no_workers = not worker_versions
+        worker_skew = any(v != client_ver for v in worker_versions.values())
+        if client_missing or no_workers or worker_skew:
             drifted.append({
                 'package': pkg,
                 'client_version': client_ver,
