@@ -26,12 +26,22 @@ import signal
 import sys
 import time
 
+import cloudpickle
 from celery.signals import worker_init, worker_process_init
 from django.conf import settings
 
 from core.log import get_logger
 
 logger = get_logger(__name__)
+
+# Ship this module's functions to Dask workers BY VALUE (their code), not by a
+# `core.dask` import reference. The off-boundary probe below runs on the workers
+# via client.run, and the workers do not necessarily have the crossmatch app
+# package importable — the local dev Dask image carries only lsdb/hats/numpy/
+# pandas via EXTRA_PIP_PACKAGES, no `core`. Without this, client.run would raise
+# ModuleNotFoundError('core') on such a worker and crash the startup guard even
+# when versions are perfectly aligned.
+cloudpickle.register_pickle_by_value(sys.modules[__name__])
 
 # Packages compared across client / scheduler / workers. Names are dict keys
 # under versions[<role>]['packages'] as produced by distributed.versions —
@@ -48,6 +58,15 @@ _VERSION_CHECK_PACKAGES = (
     'numpy',
     'pandas',
 )
+
+# Packages that sit ABOVE the Dask serialization boundary and are therefore NOT
+# reported by distributed.versions / client.get_versions() — so _check_versions
+# is blind to them. lsdb (and its hats dependency) drive the crossmatch
+# (de)serialization executed on the workers; an app/cluster skew here corrupts
+# results silently rather than at the pickle layer, so the workers are queried
+# directly with client.run. Adding these to _VERSION_CHECK_PACKAGES would be a
+# no-op (get_versions reports no version for them, so the comparison is skipped).
+_OFF_BOUNDARY_PACKAGES = ('lsdb', 'hats')
 
 _BACKOFF_INITIAL = 1.0   # seconds
 _BACKOFF_MAX = 10.0      # seconds
@@ -105,7 +124,7 @@ def verify_dask_versions(**kwargs):
         if not _wait_for_worker(client, deadline, address, timeout, started):
             _fail_fast()
 
-        drifted = _check_versions(client)
+        drifted = _check_versions(client) + _check_off_boundary_versions(client)
         if drifted:
             logger.error('Dask version drift detected',
                          scheduler_address=address,
@@ -213,6 +232,58 @@ def _check_versions(client):
                 'package': pkg,
                 'client_version': client_ver,
                 'scheduler_version': scheduler_ver,
+                'worker_versions': worker_versions,
+            })
+    return drifted
+
+
+def _package_versions_local():
+    """Return {package: version-or-None} for the off-boundary packages, in-process.
+
+    Runs on a worker via client.run, so an import failure (package absent) maps to
+    None instead of raising — one worker that cannot import lsdb must not fail the
+    whole client.run call; it should surface as that worker's drift instead.
+    """
+    versions = {}
+    for pkg in _OFF_BOUNDARY_PACKAGES:
+        try:
+            versions[pkg] = __import__(pkg).__version__
+        except Exception:
+            versions[pkg] = None
+    return versions
+
+
+def _check_off_boundary_versions(client):
+    """Return drift records for lsdb/hats, comparing the client to every worker.
+
+    distributed does not report these packages in get_versions(), so _check_versions
+    cannot see them; query each worker directly with client.run. The record shape
+    matches _check_versions so the two lists combine into one drift report. The
+    scheduler runs no user code, so only workers are compared.
+    """
+    client_versions = _package_versions_local()
+    worker_results = client.run(_package_versions_local)
+
+    drifted = []
+    for pkg in _OFF_BOUNDARY_PACKAGES:
+        client_ver = client_versions.get(pkg)
+        worker_versions = {
+            addr: result.get(pkg) for addr, result in worker_results.items()
+        }
+        # Fail closed. The guard reports drift (so _fail_fast fires) unless all of:
+        # the app can import the engine (client_ver set — a None means a broken
+        # app build, never "aligned"); at least one worker answered (an empty
+        # result means we compared against nothing — workers dropped in the
+        # _wait_for_worker->run window — and must not read as aligned); and every
+        # answering worker matches the client.
+        client_missing = client_ver is None
+        no_workers = not worker_versions
+        worker_skew = any(v != client_ver for v in worker_versions.values())
+        if client_missing or no_workers or worker_skew:
+            drifted.append({
+                'package': pkg,
+                'client_version': client_ver,
+                'scheduler_version': None,
                 'worker_versions': worker_versions,
             })
     return drifted

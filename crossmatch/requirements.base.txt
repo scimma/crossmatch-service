@@ -19,13 +19,14 @@ hop-client
 httpx
 confluent_kafka
 lasair
-lsdb==0.9.0
-# Pin hats: lsdb 0.9.0 calls HealpixDataset(..., original_schema=...), but hats
-# 0.9.1 removed that constructor arg. lsdb's loose `hats<0.10,>=0.9.0` lets pip
-# pull 0.9.1/0.9.2, which makes every lsdb.open_catalog() raise TypeError
-# (unexpected kwarg 'original_schema') -> all crossmatches silently fail. 0.9.0
-# is the only <0.10 hats compatible with lsdb 0.9.0.
-hats==0.9.0
+lsdb==0.10.4
+# hats and nested-pandas move with lsdb and are pinned explicitly: lsdb 0.10.4
+# requires hats>=0.10.4,<0.11 and nested-pandas>=0.6.10,<0.7.0. Both sit above
+# the Dask serialization boundary (not in core/dask.py's _VERSION_CHECK_PACKAGES),
+# so an app/cluster skew is caught by the lsdb/hats runtime guard in
+# core/dask.py; the end-to-end DEV smoke is the load-bearing verification.
+hats==0.10.4
+nested-pandas==0.6.10
 pittgoogle-client
 numpy==2.4.2
 pandas==2.3.3
