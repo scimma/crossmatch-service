@@ -10,7 +10,7 @@ applies_when:
   - Upgrading any Python package pinned in requirements.base.txt / requirements.lock and docker-compose.yaml EXTRA_PIP_PACKAGES
   - Realigning local docker-compose Dask pins with the remote EKS Dask cluster
   - Performing a drop-in maintenance bump where no source-code API changes are expected
-  - Upgrading a package outside the fail-fast Dask version check coverage (e.g., lsdb)
+  - Upgrading a version-critical package that must match the Dask cluster (e.g., lsdb/hats), now guarded by the off-boundary startup check
 related_components: [tooling, testing_framework]
 tags: [dependency-management, dask-cluster, docker-compose, lsdb, version-pinning]
 ---
@@ -19,7 +19,7 @@ tags: [dependency-management, dask-cluster, docker-compose, lsdb, version-pinnin
 
 ## Context
 
-The crossmatch service pins dependency versions in four places: the application requirements file (`requirements.base.txt`), the compiled lockfile (`crossmatch/requirements.lock`, which the runtime image is actually built from), and the `EXTRA_PIP_PACKAGES` environment variable on each of the two local docker-compose Dask services (scheduler and worker). This spread of pin sites exists because the runtime image and the local docker-compose scheduler/worker containers must all carry the same package set as the application layer, AND the service connects to a remote EKS Dask cluster operated independently by a colleague whose package environment changes out-of-band.
+The crossmatch service pins dependency versions in four places: the application requirements file (`requirements.base.txt`), the compiled lockfile (`crossmatch/requirements.lock`, which the runtime image is actually built from), and the `EXTRA_PIP_PACKAGES` environment variable on each of the two local docker-compose Dask services (scheduler and worker). This spread of pin sites exists because the runtime image and the local docker-compose scheduler/worker containers must all carry the same package set as the application layer, AND the same package set must match the remote Dask cluster the service offloads to. (That cluster was historically a colleague-operated EKS cluster whose environment changed out-of-band; it is now our own gitops-managed `apps/dask` deployment running the same crossmatch image, so its version is controlled by the image tag we ship — its rollout alignment is a separate convention, see Related.)
 
 A fail-fast Dask version check at celery worker startup (`crossmatch/core/dask.py`, `_VERSION_CHECK_PACKAGES`) compares a curated list of serialization-critical packages between the local client and the connected scheduler/workers — but it does not cover every dependency. Notably, it does not cover `lsdb`. This combination — scattered pin sites, a remote cluster whose state changes out-of-band, and a version check with deliberate scope limits — creates a specific failure mode: a developer who doesn't know all four pin sites exist, or who updates them in separate commits, will either leave the local stack in a transiently broken state, ship an image built from a lockfile that drifted from the declared pins, or leave drift undetected until a runtime smoke run exercises it.
 
@@ -33,7 +33,7 @@ A fail-fast Dask version check at celery worker startup (`crossmatch/core/dask.p
 
    Splitting these across commits is unsafe: the local docker-compose stack's fail-fast version check fires at celery worker startup against whichever pins are currently in tree, so a commit that updates the application pin but not the container pins (or vice versa) will trip the check and fail until the remaining sites are updated.
 
-2. **Understand what the fail-fast check covers and what it deliberately omits.** `_VERSION_CHECK_PACKAGES` in `crossmatch/core/dask.py` currently compares: `python`, `distributed`, `dask`, `msgpack`, `cloudpickle`, `toolz`, `tornado`, `numpy`, `pandas`. It does not include packages like `lsdb` that sit above the Dask serialization boundary. Version drift in unchecked packages will not surface at worker startup — only a runtime smoke run will reveal it. Before upgrading any package, determine whether it falls inside or outside the fail-fast scope; that decision drives how much weight the smoke run carries.
+2. **Understand the two startup checks and what each covers.** `_VERSION_CHECK_PACKAGES` in `crossmatch/core/dask.py` compares `python`, `distributed`, `dask`, `msgpack`, `cloudpickle`, `toolz`, `tornado`, `numpy`, `pandas` via `client.get_versions()`. That call does not report `lsdb`/`hats` (they sit above the Dask serialization boundary), so a *separate* off-boundary check — `_check_off_boundary_versions`, added in the 0.10.4 upgrade — queries each worker's `lsdb`/`hats` version via `client.run` and fails fast on skew. Between the two, both the serialization-critical set AND `lsdb`/`hats` now surface at worker startup; only a package in neither set would go undetected until the smoke run. Before upgrading, determine which check (if any) covers the package.
 
 3. **Follow the verification path in order, and treat the smoke run as load-bearing.**
    1. Confirm pip can resolve the new pin without conflict. Run inside Python 3.12 — a venv or a container. Host Python 3.10 fails pip resolution because `django>=6.0,<6.1` in `crossmatch/requirements.base.txt` requires Python 3.12+.
@@ -52,12 +52,12 @@ If pins are updated in the wrong subset of the four sites, the application layer
 
 If `requirements.base.txt` moves but `crossmatch/requirements.lock` is not regenerated, two things go wrong: the lock-drift CI check fails the branch, and — because `docker/Dockerfile` installs from the lock — the built runtime image silently lags the declared pins until the lock is recompiled. Regenerate the lock in the same commit.
 
-For packages outside the fail-fast check scope (anything not in `_VERSION_CHECK_PACKAGES`), version drift between the local environment and the remote EKS cluster does not surface at startup — it appears as pickle deserialization errors, unexpected `AttributeError`s, or silent result corruption during actual crossmatch tasks. The smoke run is the only gate that catches this category of problem, which means skipping it leaves the service in an unknown state until production traffic exercises it.
+`lsdb`/`hats` skew between the app and the Dask cluster used to surface only during actual crossmatch tasks — as pickle deserialization errors, unexpected `AttributeError`s, or silent result corruption — which is why the smoke run was the load-bearing gate. As of the 0.10.4 upgrade, the off-boundary startup check (`_check_off_boundary_versions`) catches `lsdb`/`hats` skew at celery-worker startup (fail-fast -> CrashLoopBackOff), so it no longer ships silently. The smoke run still matters — it is the only surface that exercises the full compute round-trip — but it is no longer the *only* thing standing between an lsdb skew and production.
 
 ## When to Apply
 
 - When bumping any package that appears in `EXTRA_PIP_PACKAGES` in `docker/docker-compose.yaml`, regardless of whether it is in the fail-fast check scope.
-- When upgrading a package whose version must align with the remotely-operated EKS Dask cluster — confirm with the cluster operator that the cluster side has already moved or will move atomically with the local change.
+- When upgrading a package whose version must align with the remote Dask cluster (now our own gitops `apps/dask`, running the same image) — advance the cluster's image tag in lockstep with the app's, and roll the cluster before the app (see the lockstep-rollout convention in Related).
 - On drop-in maintenance bumps (no expected API changes) and on bumps that carry breaking API changes alike — the distinction affects whether source-code edits accompany the pin bump, not whether the three-site atomic pattern applies.
 - When the remote cluster has already been upgraded and the local pins are lagging (the "catch up" case) — same atomicity requirement.
 
@@ -91,4 +91,5 @@ Verification outcomes:
 - `docs/plans/2026-04-20-001-feat-fail-fast-dask-version-check-plan.md` — specifies `_VERSION_CHECK_PACKAGES`, the install-at-startup race that motivates the ≥1-worker wait, and why `lsdb` is intentionally absent from the checked set.
 - `docs/brainstorms/2026-03-19-local-dask-scheduler-docker-compose-brainstorm.md` — formalizes `EXTRA_PIP_PACKAGES` as the local Dask worker pin site and explains the rationale (workers need packages for pickle deserialization; the scheduler does not strictly require all of them but carries the same set for symmetry).
 - `docs/brainstorms/2026-03-16-pin-python-312-and-deps-for-dask-cluster-brainstorm.md` — introduced `lsdb` as a pinned dependency and established the two-pin-site pattern.
-- `crossmatch/core/dask.py` (`_VERSION_CHECK_PACKAGES`) — live code for the fail-fast check; references the intentional absence of `lsdb` here.
+- `crossmatch/core/dask.py` (`_VERSION_CHECK_PACKAGES` and `_check_off_boundary_versions` / `_OFF_BOUNDARY_PACKAGES`) — live code for the two startup checks: the serialization-critical set via `get_versions`, and the off-boundary `lsdb`/`hats` check via `client.run` added in the 0.10.4 upgrade.
+- `docs/solutions/conventions/lockstep-dask-cluster-aligned-upgrade-rollout.md` — the deploy/rollout complement to this pin-site doc: bump the app and gitops `apps/dask` image tags in lockstep and roll the Dask cluster before the app so the off-boundary guard passes on the first try.
