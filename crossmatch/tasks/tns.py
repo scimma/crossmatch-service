@@ -6,6 +6,11 @@ empty or stale, and merges the current hour's delta otherwise, upserting by
 and the epoch write share a transaction so a mid-refresh failure never leaves a
 partially-loaded snapshot marked current.
 
+The seed is an upsert (merge), not a replace: an object retracted upstream is
+not removed from the local snapshot. That is acceptable for TNS (retractions
+are rare and a lingering name is harmless), but noted so the "seed" wording is
+not read as a full-table replace.
+
 Fail-soft by construction: any download/auth/parse failure logs and returns,
 leaving the prior snapshot intact — it never raises into Celery Beat and never
 touches the crossmatch batch. Invoked by the ``refresh_tns_snapshot`` task in
@@ -138,7 +143,17 @@ def refresh_snapshot(now: datetime | None = None) -> dict:
         logger.error("tns_refresh_failed", seed=seed, filename=filename, error=str(exc))
         return {"status": "failed", "reason": str(exc)}
 
-    upserted = _upsert_records(records, now)
+    # An empty *full* file is suspect (a garbled export), so do not mark the
+    # snapshot current off it; an empty *delta* is normal and still advances the
+    # epoch (handled in _upsert_records).
+    if seed and not records:
+        logger.warning("tns_refresh_empty_seed", filename=filename)
+        return {"status": "failed", "reason": "empty_seed"}
+
+    # The data is current as of the successful fetch, not the task start (the
+    # download can take up to the client timeout).
+    epoch = timezone.now()
+    upserted = _upsert_records(records, epoch)
     logger.info(
         "tns_refresh_complete", seed=seed, filename=filename, upserted=upserted
     )

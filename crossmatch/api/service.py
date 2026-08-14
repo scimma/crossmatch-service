@@ -19,7 +19,6 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
-from django.conf import settings
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 

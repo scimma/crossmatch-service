@@ -48,6 +48,8 @@ def _build_tns_associations(clean_df, now=None):
             and (now - meta.last_refresh_epoch).total_seconds()
             <= settings.TNS_SNAPSHOT_MAX_AGE_SECONDS
         )
+    except SoftTimeLimitExceeded:
+        raise
     except Exception:
         logger.exception('TNS snapshot currency check failed; skipping TNS enrichment')
         return {}
@@ -56,8 +58,12 @@ def _build_tns_associations(clean_df, now=None):
     enrichment = {}
     assoc_rows = []
     for tns_row in clean_df.itertuples(index=False):
-        dia_id = int(tns_row.lsst_diaObject_diaObjectId)
+        # The entire per-alert body is guarded so one bad row (a non-coercible
+        # id, a misconfigured url template) yields no tns block for that alert
+        # rather than raising into the batch, which would revert it permanently
+        # (R8). SoftTimeLimitExceeded is still re-raised for the batch self-revert.
         try:
+            dia_id = int(tns_row.lsst_diaObject_diaObjectId)
             match = (
                 find_tns_match(
                     tns_row.ra_deg, tns_row.dec_deg, settings.TNS_MATCH_RADIUS_ARCSEC
@@ -65,42 +71,38 @@ def _build_tns_associations(clean_df, now=None):
                 if current
                 else None
             )
+            if not current:
+                assoc_rows.append(TnsAssociation(alert_id=dia_id, checked=False))
+                enrichment[dia_id] = {'tns': None, 'tns_checked': False,
+                                      'tns_snapshot_epoch': None}
+            elif match is None:
+                assoc_rows.append(
+                    TnsAssociation(alert_id=dia_id, checked=True, snapshot_epoch=epoch)
+                )
+                enrichment[dia_id] = {'tns': None, 'tns_checked': True,
+                                      'tns_snapshot_epoch': epoch}
+            else:
+                assoc_rows.append(TnsAssociation(
+                    alert_id=dia_id, checked=True, snapshot_epoch=epoch,
+                    objid=match.objid, name=match.name, name_prefix=match.name_prefix,
+                    type=match.type, redshift=match.redshift,
+                    separation_arcsec=match.separation_arcsec,
+                ))
+                enrichment[dia_id] = {
+                    'tns': tns_payload(
+                        objid=match.objid, name=match.name, type=match.type,
+                        redshift=match.redshift,
+                        separation_arcsec=match.separation_arcsec,
+                        url_template=settings.TNS_OBJECT_URL_TEMPLATE,
+                    ),
+                    'tns_checked': True,
+                    'tns_snapshot_epoch': epoch,
+                }
         except SoftTimeLimitExceeded:
             raise
         except Exception:
-            logger.exception('TNS lookup failed for alert; no tns block',
-                             dia_object_id=dia_id)
-            enrichment[dia_id] = {'tns': None, 'tns_checked': False,
-                                  'tns_snapshot_epoch': None}
+            logger.exception('TNS association failed for alert; no tns block')
             continue
-
-        if not current:
-            assoc_rows.append(TnsAssociation(alert_id=dia_id, checked=False))
-            enrichment[dia_id] = {'tns': None, 'tns_checked': False,
-                                  'tns_snapshot_epoch': None}
-        elif match is None:
-            assoc_rows.append(
-                TnsAssociation(alert_id=dia_id, checked=True, snapshot_epoch=epoch)
-            )
-            enrichment[dia_id] = {'tns': None, 'tns_checked': True,
-                                  'tns_snapshot_epoch': epoch}
-        else:
-            assoc_rows.append(TnsAssociation(
-                alert_id=dia_id, checked=True, snapshot_epoch=epoch,
-                objid=match.objid, name=match.name, name_prefix=match.name_prefix,
-                type=match.type, redshift=match.redshift,
-                separation_arcsec=match.separation_arcsec,
-            ))
-            enrichment[dia_id] = {
-                'tns': tns_payload(
-                    objid=match.objid, name=match.name, type=match.type,
-                    redshift=match.redshift,
-                    separation_arcsec=match.separation_arcsec,
-                    url_template=settings.TNS_OBJECT_URL_TEMPLATE,
-                ),
-                'tns_checked': True,
-                'tns_snapshot_epoch': epoch,
-            }
 
     try:
         if assoc_rows:
