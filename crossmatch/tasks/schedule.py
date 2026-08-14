@@ -167,8 +167,30 @@ def retention_sweep() -> None:
     )
 
 
+class RefreshTnsSnapshot:
+    task_name = 'Refresh TNS Snapshot'
+    task_handle = 'refresh_tns_snapshot'
+    task_frequency_seconds = settings.TNS_SNAPSHOT_REFRESH_INTERVAL_SECONDS
+    # Only run once the TNS bot credentials are provisioned; locked_init flips
+    # this to enabled on the next startup after the sealed secret lands.
+    task_initially_enabled = bool(settings.TNS_BOT_API_KEY)
+
+
+@shared_task
+def refresh_tns_snapshot() -> None:
+    """Refresh the local TNS snapshot from TNS's bulk exports.
+
+    Runs every TNS_SNAPSHOT_REFRESH_INTERVAL_SECONDS. Fail-soft: a download or
+    parse failure leaves the prior snapshot intact and never raises into Beat.
+    """
+    from tasks.tns import refresh_snapshot
+
+    refresh_snapshot()
+
+
 periodic_tasks = [
     DispatchCrossmatchBatch(),
     DispatchNotifications(),
     RetentionSweep(),
+    RefreshTnsSnapshot(),
 ]
