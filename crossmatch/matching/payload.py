@@ -68,6 +68,41 @@ def build_catalog_payload(values, payload_columns):
     }
 
 
+def _epoch_to_iso(epoch):
+    """Render a snapshot epoch as a JSON-safe ISO-8601 string (or ``None``).
+
+    ``_to_json_scalar`` has no datetime branch and ``json.dumps`` cannot encode a
+    raw ``datetime``, so the enrichment indicator's epoch is serialized here.
+    """
+    if epoch is None:
+        return None
+    isoformat = getattr(epoch, "isoformat", None)
+    return isoformat() if callable(isoformat) else str(epoch)
+
+
+def _tns_block(tns):
+    """Build the published ``tns`` sub-object from a match mapping.
+
+    Args:
+        tns: Mapping with ``objid``, ``name``, ``url``, ``separation_arcsec`` and
+            optional ``classification`` / ``redshift`` for the associated TNS
+            object.
+
+    Returns:
+        A JSON-native dict: ``objid`` (int), ``name`` (str), ``classification``
+        (str or None), ``redshift`` (float or None), ``separation_arcsec``
+        (float), ``url`` (str).
+    """
+    return {
+        'objid': int(tns['objid']),
+        'name': tns['name'],
+        'classification': _to_json_scalar(tns.get('classification')),
+        'redshift': _to_json_scalar(tns.get('redshift')),
+        'separation_arcsec': float(tns['separation_arcsec']),
+        'url': tns['url'],
+    }
+
+
 def build_published_payload(
     dia_object_id,
     source_ra_deg,
@@ -77,6 +112,9 @@ def build_published_payload(
     separation_arcsec,
     catalog_payload,
     catalogs_skipped=None,
+    tns=None,
+    tns_checked=False,
+    tns_snapshot_epoch=None,
 ):
     """Build the per-match payload published over Hopskotch.
 
@@ -101,15 +139,27 @@ def build_published_payload(
             The read-model API serves a stored match with no batch context, so it
             passes ``None`` here (the published Hopskotch payload carries the real
             per-batch value).
+        tns: The associated TNS object as a mapping (see :func:`_tns_block`), or
+            ``None`` when the alert had no TNS counterpart (or was not checked).
+            Emitted under a nested ``tns`` key only when present.
+        tns_checked: Whether the alert was checked against a current TNS snapshot.
+            Always emitted as ``tns_checked`` so a consumer can distinguish a
+            genuine non-match (checked, no ``tns`` block) from an unchecked/stale
+            enrichment (not checked).
+        tns_snapshot_epoch: The snapshot's timestamp used for the check, emitted
+            as an ISO-8601 string under ``tns_snapshot_epoch`` (``None`` when not
+            checked).
 
     Returns:
         A JSON-native dict with stable keys ``diaObjectId``, ``ra``, ``dec``,
         ``catalog_name``, ``catalog_source_id``, ``separation_arcsec``,
-        ``catalog_payload``, ``catalogs_skipped`` (sorted list), and ``partial``
-        (true iff any catalog was skipped).
+        ``catalog_payload``, ``catalogs_skipped`` (sorted list), ``partial``
+        (true iff any catalog was skipped), ``tns_checked`` and
+        ``tns_snapshot_epoch`` (the enrichment indicator), plus a nested ``tns``
+        object when the alert associated with a TNS object.
     """
     skipped = sorted(catalogs_skipped) if catalogs_skipped else []
-    return {
+    payload = {
         'diaObjectId': int(dia_object_id),
         'ra': float(source_ra_deg),
         'dec': float(source_dec_deg),
@@ -119,4 +169,9 @@ def build_published_payload(
         'catalog_payload': catalog_payload,
         'catalogs_skipped': skipped,
         'partial': bool(skipped),
+        'tns_checked': bool(tns_checked),
+        'tns_snapshot_epoch': _epoch_to_iso(tns_snapshot_epoch),
     }
+    if tns is not None:
+        payload['tns'] = _tns_block(tns)
+    return payload

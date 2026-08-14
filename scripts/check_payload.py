@@ -25,6 +25,7 @@ _spec = importlib.util.spec_from_file_location("payload_under_test", _MODULE_PAT
 _payload = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_payload)
 build_catalog_payload = _payload.build_catalog_payload
+build_published_payload = _payload.build_published_payload
 
 
 def check(label, cond):
@@ -99,6 +100,45 @@ def main() -> int:
     encoded = json.dumps(out)  # raises TypeError if a numpy scalar leaked
     check("json: serializable", isinstance(encoded, str))
     check("json: NaN rendered as null", json.loads(encoded)["dnf_z"] is None)
+
+    # 11. TNS block: numpy objid/redshift/separation coerce; datetime epoch -> ISO;
+    #     NaN redshift -> null; whole published payload is JSON-serializable.
+    from datetime import datetime, timezone
+
+    epoch = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
+    published = build_published_payload(
+        9_000_000_001,
+        180.0,
+        -30.0,
+        "gaia_dr3",
+        "src-1",
+        0.5,
+        {"phot_g_mean_mag": np.float64(18.2)},
+        tns={
+            "objid": np.int64(4242),
+            "name": "2024xyz",
+            "url": "https://www.wis-tns.org/object/2024xyz",
+            "classification": "SN Ia",
+            "redshift": np.float64(np.nan),
+            "separation_arcsec": np.float64(0.3),
+        },
+        tns_checked=True,
+        tns_snapshot_epoch=epoch,
+    )
+    encoded = json.dumps(published)  # raises if a numpy/datetime leaked
+    reloaded = json.loads(encoded)
+    check("tns: published payload JSON-serializable", isinstance(encoded, str))
+    check("tns: objid coerced to int", type(published["tns"]["objid"]) is int)
+    check("tns: NaN redshift -> null", reloaded["tns"]["redshift"] is None)
+    check("tns: epoch rendered as ISO string", reloaded["tns_snapshot_epoch"] == epoch.isoformat())
+    check("tns: indicator present", reloaded["tns_checked"] is True)
+
+    # 12. No association: no tns block, but the indicator is still present.
+    no_match = build_published_payload(
+        9_000_000_002, 10.0, 10.0, "gaia_dr3", "src-2", 0.5, {}, tns_checked=True
+    )
+    check("tns: absent block when no association", "tns" not in no_match)
+    check("tns: indicator present without block", no_match["tns_checked"] is True)
 
     print("ALL PASS")
     return 0
