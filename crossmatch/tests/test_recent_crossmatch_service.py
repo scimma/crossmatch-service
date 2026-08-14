@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from api.pagination import Cursor, encode_cursor
 from api.service import InvalidQuery, recent_crossmatches
+from core.models import TnsAssociation
 from tests.factories import AlertFactory, CatalogMatchFactory, set_ingest_time
 
 
@@ -151,6 +152,10 @@ def test_detail_full_reconstructs_published_payload():
         # False); the real per-batch skip set rides the published Hopskotch payload.
         'catalogs_skipped': [],
         'partial': False,
+        # No TNS association persisted for this alert -> indicator present,
+        # no tns block (plan U8).
+        'tns_checked': False,
+        'tns_snapshot_epoch': None,
     }
 
 
@@ -540,3 +545,55 @@ def test_open_event_time_window_walk_is_read_committed():
     assert set(first_batch).issubset(set(seen))
     # The late arrival being included is the read-committed behavior (not asserted
     # as required); it must never cause a duplicate, which the check above covers.
+
+
+# --- TNS enrichment on the full level (plan U8, AE1 API side) ----------------
+
+@pytest.mark.django_db
+def test_detail_full_includes_tns_block_from_association():
+    """AE1 (API side): a persisted TNS association surfaces as a tns block on full."""
+    now = timezone.now()
+    alert = AlertFactory(event_time=now, ra_deg=1.0, dec_deg=2.0)
+    CatalogMatchFactory(
+        alert=alert, catalog_name='gaia_dr3', catalog_source_id='42',
+        match_distance_arcsec=0.75, source_ra_deg=1.11, source_dec_deg=2.22,
+        catalog_payload={'phot_g_mean_mag': 18.3},
+    )
+    TnsAssociation.objects.create(
+        alert=alert, checked=True, snapshot_epoch=now,
+        objid=4242, name='2024xyz', name_prefix='SN', type='SN Ia',
+        redshift=0.05, separation_arcsec=0.3,
+    )
+
+    result = recent_crossmatches(time_field='event_time', detail='full')
+    match = result['objects'][0]['matches'][0]
+
+    assert match['tns_checked'] is True
+    assert match['tns_snapshot_epoch'] == now.isoformat()
+    assert match['tns'] == {
+        'objid': 4242,
+        'name': '2024xyz',
+        'classification': 'SN Ia',
+        'redshift': 0.05,
+        'separation_arcsec': 0.3,
+        'url': 'https://www.wis-tns.org/object/2024xyz',
+    }
+
+
+@pytest.mark.django_db
+def test_detail_full_checked_no_match_has_indicator_no_block():
+    """A checked-but-unmatched alert reports checked=True with no tns block."""
+    now = timezone.now()
+    alert = AlertFactory(event_time=now, ra_deg=1.0, dec_deg=2.0)
+    CatalogMatchFactory(
+        alert=alert, catalog_name='gaia_dr3', catalog_source_id='42',
+        match_distance_arcsec=0.75, source_ra_deg=1.11, source_dec_deg=2.22,
+        catalog_payload={},
+    )
+    TnsAssociation.objects.create(alert=alert, checked=True, snapshot_epoch=now)
+
+    result = recent_crossmatches(time_field='event_time', detail='full')
+    match = result['objects'][0]['matches'][0]
+
+    assert match['tns_checked'] is True
+    assert 'tns' not in match

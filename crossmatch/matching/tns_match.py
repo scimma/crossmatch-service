@@ -17,11 +17,49 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
+from urllib.parse import quote
 
 from django.db.models import Q
 
 from core.healpix import angular_separation_arcsec, cone_ipix_ranges
 from core.models import TnsObject
+
+
+def tns_payload(
+    *,
+    objid,
+    name: str,
+    type,
+    redshift,
+    separation_arcsec,
+    url_template: str,
+) -> dict:
+    """Build the ``tns`` mapping passed to ``build_published_payload``.
+
+    Shared by the crossmatch write path (U7) and the read-model reconstruction
+    (U8) so the published block is constructed one way. The object-page URL is
+    built by URL-encoding the bare (validated) ``name`` into the fixed template
+    — no raw interpolation. Numeric coercion happens in the payload builder.
+
+    Args:
+        objid: TNS internal object id.
+        name: Bare designation (the URL key).
+        type: TNS classification string, or ``None``.
+        redshift: Redshift, or ``None``.
+        separation_arcsec: Alert-to-object separation in arcsec.
+        url_template: ``settings.TNS_OBJECT_URL_TEMPLATE`` (with a ``{name}`` slot).
+
+    Returns:
+        A mapping suitable as the ``tns=`` argument to ``build_published_payload``.
+    """
+    return {
+        "objid": objid,
+        "name": name,
+        "classification": type,
+        "redshift": redshift,
+        "separation_arcsec": separation_arcsec,
+        "url": url_template.format(name=quote(name, safe="")),
+    }
 
 
 @dataclass(frozen=True)
