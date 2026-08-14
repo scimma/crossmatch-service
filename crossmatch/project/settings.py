@@ -390,6 +390,46 @@ HOPSKOTCH_USERNAME = os.environ.get('HOPSKOTCH_USERNAME', '')
 HOPSKOTCH_PASSWORD = os.environ.get('HOPSKOTCH_PASSWORD', '')
 
 ######################################################################
+# TNS (Transient Name Service) cross-link
+#
+# A local snapshot of TNS's public object list is refreshed by the
+# refresh_tns_snapshot Beat task and positionally associated against each alert
+# at TNS_MATCH_RADIUS_ARCSEC — its own knob, independent of the catalog radius,
+# since it is tuned for transient identity, not catalog sources.
+TNS_MATCH_RADIUS_ARCSEC = float(os.getenv('TNS_MATCH_RADIUS_ARCSEC', '1.0'))
+if not (TNS_MATCH_RADIUS_ARCSEC > 0):
+    raise ImproperlyConfigured(
+        'TNS_MATCH_RADIUS_ARCSEC must be a positive number of arcseconds '
+        f'(got {TNS_MATCH_RADIUS_ARCSEC}).'
+    )
+# How often the snapshot-refresh Beat task runs.
+TNS_SNAPSHOT_REFRESH_INTERVAL_SECONDS = int(
+    os.getenv('TNS_SNAPSHOT_REFRESH_INTERVAL_SECONDS', '3600')
+)
+# A snapshot whose epoch is older than this is treated as stale/not-current: the
+# association marks alerts checked=False and emits no tns block. Default ~2x the
+# refresh interval so a single missed refresh does not immediately go stale.
+TNS_SNAPSHOT_MAX_AGE_SECONDS = int(
+    os.getenv('TNS_SNAPSHOT_MAX_AGE_SECONDS', '7200')
+)
+# TNS bot credentials for the authenticated bulk download (a tns_marker
+# User-Agent + api_key form field, one call per refresh). Empty by default; a
+# real refresh needs them provisioned as a per-cluster sealed secret on the
+# celery-worker / celery-beat workloads only (never the web pod).
+TNS_BOT_ID = os.environ.get('TNS_BOT_ID', '')
+TNS_BOT_NAME = os.environ.get('TNS_BOT_NAME', '')
+TNS_BOT_API_KEY = os.environ.get('TNS_BOT_API_KEY', '')
+# Base URL for the TNS public-objects bulk exports (full file + hourly deltas).
+TNS_OBJECTS_BASE_URL = os.getenv(
+    'TNS_OBJECTS_BASE_URL',
+    'https://www.wis-tns.org/system/files/tns_public_objects/',
+)
+# Template for a TNS object page; {name} is the bare designation (no AT/SN prefix).
+TNS_OBJECT_URL_TEMPLATE = os.getenv(
+    'TNS_OBJECT_URL_TEMPLATE', 'https://www.wis-tns.org/object/{name}'
+)
+
+######################################################################
 # Database
 #
 # Persist DB connections across work units and validate a reused connection

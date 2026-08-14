@@ -81,6 +81,7 @@ spec:
           {{- include "celery.env" . | nindent 10 }}
           {{- include "hopskotch.env" . | nindent 10 }}
           {{- include "crossmatch.env" . | nindent 10 }}
+          {{- include "tns.env" . | nindent 10 }}
         {{- with  .Values.celery.workers.resources }}
         resources:
           {{- toYaml . | nindent 10 }}
@@ -138,6 +139,7 @@ spec:
           {{- include "db.env" . | nindent 10 }}
           {{- include "valkey.env" . | nindent 10 }}
           {{- include "crossmatch.env" . | nindent 10 }}
+          {{- include "tns.env" . | nindent 10 }}
 {{- end }}
 
 {{- if .Values.lasair_consumer.enabled }}
