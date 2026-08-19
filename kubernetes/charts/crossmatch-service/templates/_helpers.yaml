@@ -126,6 +126,24 @@
       name: hopskotch
 {{- end }}
 
+{{- define "tns.env" -}}
+- name: TNS_BOT_ID
+  valueFrom:
+    secretKeyRef:
+      key: TNS_BOT_ID
+      name: tns
+- name: TNS_BOT_NAME
+  valueFrom:
+    secretKeyRef:
+      key: TNS_BOT_NAME
+      name: tns
+- name: TNS_BOT_API_KEY
+  valueFrom:
+    secretKeyRef:
+      key: TNS_BOT_API_KEY
+      name: tns
+{{- end }}
+
 {{- define "crossmatch.env" -}}
 - name: GAIA_HATS_URL
   value: {{ .Values.crossmatch.gaia_hats_url | quote }}

@@ -23,8 +23,9 @@ from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from core.log import get_logger
-from core.models import Alert, CatalogMatch
+from core.models import Alert, CatalogMatch, TnsAssociation
 from matching.payload import build_published_payload
+from matching.tns_match import tns_payload
 
 # InvalidQuery is defined in api.errors so the cursor codec (api.pagination) can
 # raise it without a circular import; re-exported here for existing importers.
@@ -238,11 +239,38 @@ def _load_matches(object_ids, detail):
             'alert_id', 'catalog_name', 'catalog_source_id', 'match_distance_arcsec'
         )
 
+    # At the full level, the persisted TNS association (write path: tasks/crossmatch.py)
+    # is what carries the tns block into the API — the live snapshot is not consulted
+    # here — so both surfaces publish the same enrichment (plan U8/KTD2). One row per
+    # alert; loaded once and replicated across that alert's match entries.
+    associations: dict[int, TnsAssociation] = {}
+    if detail == 'full':
+        associations = {
+            int(a.alert_id): a
+            for a in TnsAssociation.objects.filter(alert_id__in=object_ids)
+        }
+
     result: dict[int, list[dict[str, Any]]] = {}
     for cm in rows:
         try:
             oid = int(cm.alert_id)
             if detail == 'full':
+                assoc = associations.get(oid)
+                tns = None
+                tns_checked = False
+                tns_snapshot_epoch = None
+                if assoc is not None:
+                    tns_checked = assoc.checked
+                    tns_snapshot_epoch = assoc.snapshot_epoch
+                    if assoc.objid is not None:
+                        tns = tns_payload(
+                            objid=assoc.objid,
+                            name=assoc.name,
+                            type=assoc.type,
+                            redshift=assoc.redshift,
+                            separation_arcsec=assoc.separation_arcsec,
+                            url_template=settings.TNS_OBJECT_URL_TEMPLATE,
+                        )
                 entry = build_published_payload(
                     cm.alert_id,
                     cm.source_ra_deg,
@@ -251,6 +279,9 @@ def _load_matches(object_ids, detail):
                     cm.catalog_source_id,
                     cm.match_distance_arcsec,
                     cm.catalog_payload,
+                    tns=tns,
+                    tns_checked=tns_checked,
+                    tns_snapshot_epoch=tns_snapshot_epoch,
                 )
             else:  # 'matches'
                 entry = {

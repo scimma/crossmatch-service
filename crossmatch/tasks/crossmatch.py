@@ -5,12 +5,124 @@ from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from core.models import Alert, CatalogMatch, Notification
+from core.models import Alert, CatalogMatch, Notification, TnsAssociation, TnsSnapshotMeta
 from matching.catalog import crossmatch_alerts, is_transient_read_error
 from matching.payload import build_catalog_payload, build_published_payload
+from matching.tns_match import find_tns_match, tns_payload
 from core.log import get_logger
 from core.metrics import CATALOG_SKIPS, CROSSMATCH_BATCHES, CROSSMATCH_MATCHES
 logger = get_logger(__name__)
+
+
+def _build_tns_associations(clean_df, now=None):
+    """Compute and persist per-alert TNS associations for a batch (plan U7).
+
+    For each alert (keyed by ``diaObjectId``) find the nearest TNS object within
+    ``TNS_MATCH_RADIUS_ARCSEC`` when a *current* snapshot exists, persist a
+    ``TnsAssociation`` row (so the API ``full`` level can reconstruct the block),
+    and return the per-alert enrichment for the payload builder.
+
+    Fail-soft (R8): a missing/stale snapshot or any error yields no ``tns`` block
+    for the affected alert(s) and never aborts the batch — the batch transitions
+    to MATCHED unconditionally, so a raised error would permanently lose it.
+    ``SoftTimeLimitExceeded`` is always re-raised so the batch self-reverts.
+
+    Note: this queries the snapshot once per alert via the healpix cone index;
+    loading the snapshot once and matching in-memory is the plan's deferred tuning.
+
+    Args:
+        clean_df: The batch alert DataFrame (``lsst_diaObject_diaObjectId``,
+            ``ra_deg``, ``dec_deg``, valid coordinates only).
+        now: Override for the current time (tests).
+
+    Returns:
+        ``{diaObjectId: {'tns': dict|None, 'tns_checked': bool,
+        'tns_snapshot_epoch': datetime|None}}`` for the payload build loop.
+    """
+    now = now or timezone.now()
+    try:
+        meta = TnsSnapshotMeta.objects.first()
+        current = (
+            meta is not None
+            and meta.last_refresh_epoch is not None
+            and (now - meta.last_refresh_epoch).total_seconds()
+            <= settings.TNS_SNAPSHOT_MAX_AGE_SECONDS
+        )
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception:
+        logger.exception('TNS snapshot currency check failed; skipping TNS enrichment')
+        return {}
+    epoch = meta.last_refresh_epoch if current else None
+
+    enrichment = {}
+    assoc_rows = []
+    for tns_row in clean_df.itertuples(index=False):
+        # The entire per-alert body is guarded so one bad row (a non-coercible
+        # id, a misconfigured url template) yields no tns block for that alert
+        # rather than raising into the batch, which would revert it permanently
+        # (R8). SoftTimeLimitExceeded is still re-raised for the batch self-revert.
+        try:
+            dia_id = int(tns_row.lsst_diaObject_diaObjectId)
+            match = (
+                find_tns_match(
+                    tns_row.ra_deg, tns_row.dec_deg, settings.TNS_MATCH_RADIUS_ARCSEC
+                )
+                if current
+                else None
+            )
+            if not current:
+                assoc_rows.append(TnsAssociation(alert_id=dia_id, checked=False))
+                enrichment[dia_id] = {'tns': None, 'tns_checked': False,
+                                      'tns_snapshot_epoch': None}
+            elif match is None:
+                assoc_rows.append(
+                    TnsAssociation(alert_id=dia_id, checked=True, snapshot_epoch=epoch)
+                )
+                enrichment[dia_id] = {'tns': None, 'tns_checked': True,
+                                      'tns_snapshot_epoch': epoch}
+            else:
+                assoc_rows.append(TnsAssociation(
+                    alert_id=dia_id, checked=True, snapshot_epoch=epoch,
+                    objid=match.objid, name=match.name, name_prefix=match.name_prefix,
+                    type=match.type, redshift=match.redshift,
+                    separation_arcsec=match.separation_arcsec,
+                ))
+                enrichment[dia_id] = {
+                    'tns': tns_payload(
+                        objid=match.objid, name=match.name, type=match.type,
+                        redshift=match.redshift,
+                        separation_arcsec=match.separation_arcsec,
+                        url_template=settings.TNS_OBJECT_URL_TEMPLATE,
+                    ),
+                    'tns_checked': True,
+                    'tns_snapshot_epoch': epoch,
+                }
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception:
+            logger.exception('TNS association failed for alert; no tns block')
+            continue
+
+    try:
+        if assoc_rows:
+            TnsAssociation.objects.bulk_create(
+                assoc_rows,
+                update_conflicts=True,
+                unique_fields=['alert'],
+                update_fields=['checked', 'snapshot_epoch', 'objid', 'name',
+                               'name_prefix', 'type', 'redshift',
+                               'separation_arcsec', 'updated_at'],
+                batch_size=5000,
+            )
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception:
+        # Non-fatal: the Hopskotch payload still carries the computed block; only
+        # the API full-level reconstruction lacks the persisted rows this batch.
+        logger.exception('Persisting TNS associations failed; publishing without persist')
+
+    return enrichment
 
 
 # soft_time_limit reverts an overrunning batch via the on-raise path (self-heal,
@@ -67,6 +179,12 @@ def crossmatch_batch(batch_ids: list, match_version: int = 1) -> None:
         alerts_catalog = lsdb.from_dataframe(
             clean_df, ra_column='ra_deg', dec_column='dec_deg'
         )
+
+        # Per-alert TNS association, computed once before the catalog loop and
+        # replicated across every catalog match for the alert. Best-effort: a
+        # missing/stale snapshot or any error yields no tns block (R8), never
+        # aborting the batch.
+        tns_enrichment = _build_tns_associations(clean_df)
 
         # 2. Crossmatch against each configured catalog sequentially.
         # Accumulate notifications across all catalogs and create them together
@@ -178,11 +296,15 @@ def crossmatch_batch(batch_ids: list, match_version: int = 1) -> None:
                         catalog_payload=catalog_payload,
                         match_version=match_version,
                     )
+                    tns_info = tns_enrichment.get(int(dia_id), {})
                     notification = Notification(
                         alert_id=dia_id,
                         destination='hopskotch',
                         payload=build_published_payload(
-                            dia_id, ra, dec, catalog_name, src_id, dist, catalog_payload
+                            dia_id, ra, dec, catalog_name, src_id, dist, catalog_payload,
+                            tns=tns_info.get('tns'),
+                            tns_checked=tns_info.get('tns_checked', False),
+                            tns_snapshot_epoch=tns_info.get('tns_snapshot_epoch'),
                         ),
                     )
                 except SoftTimeLimitExceeded:

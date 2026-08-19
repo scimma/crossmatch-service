@@ -224,3 +224,91 @@ class Notification(models.Model):
                 condition=models.Q(payload__isnull=False),
             ),
         ]
+
+
+class TnsObject(models.Model):
+    """One row per TNS (Transient Name Service) public-catalog object.
+
+    The locally-held snapshot the crossmatch task associates alerts against
+    (plan U1/KTD3). Refreshed by the ``refresh_tns_snapshot`` Beat task, which
+    seeds from TNS's daily full export and merges its hourly deltas, upserting
+    by ``objid``. ``healpix_ipix`` mirrors ``Alert.healpix_ipix`` (NESTED order
+    16) so a cone pre-filter can use the same ``BETWEEN`` predicate.
+    """
+    # BIGINT UNIQUE NOT NULL    stable internal TNS object id; the upsert key
+    objid = models.BigIntegerField(unique=True, null=False)
+    # TEXT NOT NULL    bare designation, e.g. '2024xyz' (the object-page URL key)
+    name = models.TextField(null=False)
+    # TEXT NULL    'AT' | 'SN' | ...    prefix split out of the designation
+    name_prefix = models.TextField(null=True)
+    # DOUBLE PRECISION NOT NULL
+    ra_deg = models.FloatField(null=False)
+    # DOUBLE PRECISION NOT NULL
+    dec_deg = models.FloatField(null=False)
+    # TEXT NULL    human classification string, e.g. 'SN Ia' (absent when unclassified)
+    type = models.TextField(null=True)
+    # DOUBLE PRECISION NULL    redshift when TNS has one
+    redshift = models.FloatField(null=True)
+    # BIGINT NULL    HEALPix NESTED pixel (order 16) from ra_deg/dec_deg
+    healpix_ipix = models.BigIntegerField(null=True)
+    updated_at = models.DateTimeField(null=False, auto_now=True)
+
+    class Meta:
+        db_table = 'tns_objects'
+        indexes = [
+            models.Index(fields=['healpix_ipix'], name='core_tns_healpix_ipix_idx'),
+        ]
+
+
+class TnsSnapshotMeta(models.Model):
+    """Single-row bookkeeping for the TNS snapshot's freshness.
+
+    Authoritative "snapshot as of" timestamp read by the crossmatch task to
+    decide snapshot currency (plan U1 step 3 / U7). Deliberately not derived
+    from ``max(TnsObject.updated_at)``, which reflects only the last delta's
+    subset of objects, not a whole-snapshot timestamp. Maintained as a single
+    row (``pk=1``).
+    """
+    # TIMESTAMPTZ NULL    end of the last successful refresh; NULL means no snapshot yet
+    last_refresh_epoch = models.DateTimeField(null=True)
+    updated_at = models.DateTimeField(null=False, auto_now=True)
+
+    class Meta:
+        db_table = 'tns_snapshot_meta'
+
+
+class TnsAssociation(models.Model):
+    """Per-alert TNS association result, persisted at crossmatch-build time.
+
+    Lives outside the retention-nulled ``Alert.payload`` / ``Notification.payload``
+    so the read-model API ``full`` level can reconstruct the ``tns`` block
+    (plan U7/U8/KTD2). ``checked`` plus ``snapshot_epoch`` power R7's enrichment
+    indicator (distinguish "no counterpart" from "not checked / stale"). The
+    match fields are null when the alert was checked against a current snapshot
+    but had no TNS object within the radius. The ``on_delete=CASCADE`` FK bounds
+    growth: a row is reclaimed when its alert is deleted.
+    """
+    # OneToOne on the alert's stable diaObjectId (not the uuid pk) — one
+    # association per alert, matching how CatalogMatch/Notification relate.
+    alert = models.OneToOneField(
+        Alert,
+        to_field='lsst_diaObject_diaObjectId',
+        on_delete=models.CASCADE,
+        db_column='lsst_diaobject_diaobjectid',
+    )
+    # BOOLEAN NOT NULL    True iff a current snapshot was available at build time
+    checked = models.BooleanField(null=False, default=False)
+    # TIMESTAMPTZ NULL    the snapshot epoch used for this association
+    snapshot_epoch = models.DateTimeField(null=True)
+    # Match fields — all NULL when checked but no TNS object within the radius.
+    objid = models.BigIntegerField(null=True)
+    name = models.TextField(null=True)
+    name_prefix = models.TextField(null=True)
+    type = models.TextField(null=True)
+    redshift = models.FloatField(null=True)
+    separation_arcsec = models.FloatField(null=True)
+    created_at = models.DateTimeField(null=False, auto_now_add=True)
+    updated_at = models.DateTimeField(null=False, auto_now=True)
+
+    class Meta:
+        db_table = 'tns_associations'
