@@ -29,6 +29,10 @@ matches are published over Hopskotch (Kafka, via hop-client). Active development
 - Logging via **structlog** (`from core.log import get_logger; logger = get_logger(__name__)`), not `print` and not the stdlib `logging` module directly.
 - Type hints and docstrings are used on new functions/tasks (see `tasks/crossmatch.py`, `matching/`) — follow the surrounding style; they are not lint-enforced.
 - No linter is configured in-repo. If you run one ad hoc, scope it to files you changed.
+- `CHANGELOG.md` (Keep a Changelog format) must be updated whenever a new version is tagged:
+  before the tag, rename the accumulated `[Unreleased]` section to the new version and date
+  (`## [X.Y.Z] - YYYY-MM-DD`) and start a fresh empty `[Unreleased]` above it. Land ongoing
+  changes under `[Unreleased]` as you go so the release step is just a rename.
 
 ## Domain notes
 - Alert coordinates are RA/Dec in **degrees** (`ra_deg`, `dec_deg`); crossmatch radius and
