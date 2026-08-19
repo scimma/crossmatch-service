@@ -14,6 +14,12 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-08-19
+
+### Added
+
+- TNS (Transient Name Service) cross-link on published matches: when an alert's position coincides with a known TNS object (within `TNS_MATCH_RADIUS_ARCSEC`), the payload gains a `tns` block (name, object-page link, classification, redshift, separation, objid) plus a `tns_checked` / `tns_snapshot_epoch` enrichment indicator. Backed by a periodically refreshed local snapshot of TNS's public objects (new tables via migration `0010`); best-effort, so a missing or stale snapshot never blocks a crossmatch batch. Deploy note: the refresh task stays disabled until the TNS bot credentials (`TNS_BOT_ID` / `TNS_BOT_NAME` / `TNS_BOT_API_KEY`) are provisioned as a per-cluster secret.
+
 ## [0.11.0] - 2026-08-12
 
 ### Changed
@@ -174,7 +180,8 @@ Initial release of the crossmatch service.
 - Postgres init race condition on startup.
 - diaSourceId reliability filtering.
 
-[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/scimma/crossmatch-service/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/scimma/crossmatch-service/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/scimma/crossmatch-service/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/scimma/crossmatch-service/compare/v0.9.1...v0.10.0
