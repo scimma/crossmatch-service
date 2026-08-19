@@ -97,6 +97,19 @@ matches are published over Hopskotch (Kafka, via hop-client). Active development
 - **Still off-limits for Claude:** pushing to `upstream`, pushing to (or force-pushing) `main`
   on any remote, the PR against `upstream`, and every merge — those stay with the maintainer.
 
+## Deployment (gitops)
+- **Live cluster state is driven by a separate gitops repo, checked out at
+  `../crossmatch-service-k8s-gitops/`** (a sibling of this repo). It is a GitLab repo with the
+  same fork model: `origin` is the maintainer's fork
+  (`gitlab.com/skoranda/crossmatch-service-k8s-gitops`), `upstream` is canonical
+  (`gitlab.com/ncsa-caps-rse/crossmatch-service-k8s-gitops`). ArgoCD syncs it to the DEV and
+  PROD clusters; per-workload overlays live under `apps/` (`crossmatch-service`, `dask`,
+  `monitoring`, `oauth2-proxy`).
+- **Release/deploy flow:** tagging this app repo (`v*.*.*`) builds and publishes the image to
+  the GitLab registry; deploying then means bumping the pinned image tag (and `APP_VERSION`) in
+  the gitops overlay for the target cluster and letting ArgoCD sync. The gitops repo carries the
+  same maintainer-only push/merge restrictions as this one.
+
 ## Don't
 - Add or upgrade a dependency without re-pinning every pin site and aligning the Dask cluster's
   Python/library versions — version skew silently breaks distributed (de)serialization. See
