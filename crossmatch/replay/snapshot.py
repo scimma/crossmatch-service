@@ -21,13 +21,12 @@ from core.healpix import angular_separation_arcsec
 from core.log import get_logger
 from core.models import TnsSnapshotMeta
 from matching.tns_match import cone_candidates
+from replay.formats import SNAPSHOT_FORMAT_VERSION, SNAPSHOT_KIND
 from replay.sample import LoadedSample
 from tasks.crossmatch import compute_crossmatch
 
 logger = get_logger(__name__)
 
-SNAPSHOT_KIND = "crossmatch-replay-snapshot"
-SNAPSHOT_FORMAT_VERSION = 1
 
 # hats catalog properties that identify a published catalog build, when present.
 _CATALOG_IDENTITY_KEYS = ("hats_creation_date", "hats_version", "hats_release_date")
