@@ -182,6 +182,8 @@ services:
       DELVE_HATS_URL: "${DELVE_HATS_URL:-s3://stpubdata/mast/public/delve/hats/delve_dr3_gold}"
       SKYMAPPER_HATS_URL: "${SKYMAPPER_HATS_URL:-https://data.lsdb.io/hats/skymapper_dr4/catalog}"
       CROSSMATCH_RADIUS_ARCSEC: "${CROSSMATCH_RADIUS_ARCSEC:-1.0}"
+      # Crossmatch replay (docs/runbooks/crossmatch-replay.md); DEV-only tool
+      CROSSMATCH_REPLAY_ENABLED: "${CROSSMATCH_REPLAY_ENABLED:-true}"
       # Remote Dask scheduler (empty = local Dask scheduler)
       DASK_SCHEDULER_ADDRESS: "${DASK_SCHEDULER_ADDRESS:-}"
       # Higher default than settings.py (300s) — cold EXTRA_PIP_PACKAGES installs

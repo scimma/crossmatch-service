@@ -72,6 +72,15 @@ through a float.
 The SCiMMA Kafka-based distribution service over which the service publishes Payloads to
 the public astronomy community.
 
+### Replay
+Re-running a fixed sample of historical Alerts through the same crossmatch computation
+production uses, without persisting or publishing anything, to validate a change to the
+crossmatch stack (typically a dependency upgrade) when no live alerts are available. A
+replay produces a *snapshot* (the Matches and Payloads it computed, plus the versions and
+configuration it ran under); two snapshots are compared, and every difference must be
+explained before the change is trusted in PROD. Samples come from PROD history; replays
+run on DEV.
+
 ## Auth gate (operator surfaces)
 
 ### Operator surface

@@ -68,6 +68,11 @@ _VERSION_CHECK_PACKAGES = (
 # no-op (get_versions reports no version for them, so the comparison is skipped).
 _OFF_BOUNDARY_PACKAGES = ('lsdb', 'hats')
 
+# Recorded (not compared) in a replay snapshot's run context: the off-boundary
+# packages plus nested-pandas, which moves with lsdb. Kept separate so recording
+# nested-pandas does not widen the production startup guard.
+_CONTEXT_PACKAGES = ('lsdb', 'hats', 'nested_pandas')
+
 _BACKOFF_INITIAL = 1.0   # seconds
 _BACKOFF_MAX = 10.0      # seconds
 
@@ -89,6 +94,69 @@ def _fail_fast():
     sys.exit(1)
 
 
+class DaskAlignmentError(Exception):
+    """The alignment check could not reach a comparable cluster.
+
+    Attributes:
+        reason: ``'scheduler unreachable'`` or ``'no workers registered'``.
+    """
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def check_cluster_alignment(address: str, timeout: float):
+    """Connect to the Dask cluster and compare its versions with this client.
+
+    This is the whole startup check -- connect, wait for a worker, then compare
+    the serialization-critical packages and the off-boundary lsdb/hats -- without
+    the fail-fast exit, so a caller that is not the Celery master (the replay
+    command) can report drift instead of signalling its parent process.
+
+    Args:
+        address: The Dask scheduler address.
+        timeout: Seconds to wait for the scheduler and a first worker.
+
+    Returns:
+        ``(client, drifted)``: the connected Client, left open for the caller, and
+        the drift records (empty when aligned).
+
+    Raises:
+        DaskAlignmentError: The scheduler or a worker did not appear in time. The
+            timeout is logged before raising, and any client is closed.
+    """
+    deadline = time.monotonic() + timeout
+    started = time.monotonic()
+
+    client = _connect_with_retry(address, deadline, started)
+    if client is None:
+        elapsed = time.monotonic() - started
+        logger.error('Dask version check timed out',
+                     scheduler_address=address,
+                     reason='scheduler unreachable',
+                     timeout_seconds=timeout,
+                     elapsed_seconds=round(elapsed, 1))
+        raise DaskAlignmentError('scheduler unreachable')
+
+    try:
+        if not _wait_for_worker(client, deadline, address, timeout, started):
+            raise DaskAlignmentError('no workers registered')
+        drifted = _check_versions(client) + _check_off_boundary_versions(client)
+    except BaseException:
+        close_client_quietly(client)
+        raise
+    return client, drifted
+
+
+def close_client_quietly(client):
+    """Close a Dask client, ignoring any error from the close itself."""
+    try:
+        client.close()
+    except Exception:
+        pass
+
+
 @worker_init.connect
 def verify_dask_versions(**kwargs):
     """Verify Dask cluster versions match. Runs once in the Celery master.
@@ -104,27 +172,18 @@ def verify_dask_versions(**kwargs):
         return
 
     timeout = settings.DASK_VERSION_CHECK_TIMEOUT_SECONDS
-    deadline = time.monotonic() + timeout
     started = time.monotonic()
 
     logger.info('Verifying Dask cluster version alignment',
                 address=address, timeout_seconds=timeout)
 
-    client = _connect_with_retry(address, deadline, started)
-    if client is None:
-        elapsed = time.monotonic() - started
-        logger.error('Dask version check timed out',
-                     scheduler_address=address,
-                     reason='scheduler unreachable',
-                     timeout_seconds=timeout,
-                     elapsed_seconds=round(elapsed, 1))
+    try:
+        client, drifted = check_cluster_alignment(address, timeout)
+    except DaskAlignmentError:
         _fail_fast()
+        return
 
     try:
-        if not _wait_for_worker(client, deadline, address, timeout, started):
-            _fail_fast()
-
-        drifted = _check_versions(client) + _check_off_boundary_versions(client)
         if drifted:
             logger.error('Dask version drift detected',
                          scheduler_address=address,
@@ -140,10 +199,7 @@ def verify_dask_versions(**kwargs):
     finally:
         # Don't leave a dangling connection in the master — each forked child
         # will create its own Client in connect_dask_scheduler() below.
-        try:
-            client.close()
-        except Exception:
-            pass
+        close_client_quietly(client)
 
 
 @worker_process_init.connect
@@ -237,6 +293,17 @@ def _check_versions(client):
     return drifted
 
 
+def _import_versions(packages):
+    """Return {package: version-or-None}, mapping an import failure to None."""
+    versions = {}
+    for pkg in packages:
+        try:
+            versions[pkg] = __import__(pkg).__version__
+        except Exception:
+            versions[pkg] = None
+    return versions
+
+
 def _package_versions_local():
     """Return {package: version-or-None} for the off-boundary packages, in-process.
 
@@ -244,13 +311,7 @@ def _package_versions_local():
     None instead of raising — one worker that cannot import lsdb must not fail the
     whole client.run call; it should surface as that worker's drift instead.
     """
-    versions = {}
-    for pkg in _OFF_BOUNDARY_PACKAGES:
-        try:
-            versions[pkg] = __import__(pkg).__version__
-        except Exception:
-            versions[pkg] = None
-    return versions
+    return _import_versions(_OFF_BOUNDARY_PACKAGES)
 
 
 def _check_off_boundary_versions(client):
@@ -287,3 +348,41 @@ def _check_off_boundary_versions(client):
                 'worker_versions': worker_versions,
             })
     return drifted
+
+
+def _context_versions_local():
+    """Return {package: version-or-None} for the run-context packages, in-process.
+
+    Runs on a worker via client.run (shipped by value, see above), so a missing
+    package maps to None instead of raising.
+    """
+    return _import_versions(_CONTEXT_PACKAGES)
+
+
+def cluster_package_versions(client):
+    """Collect package versions from the client, scheduler, and every worker.
+
+    Used for a replay snapshot's run context. Combines what
+    ``client.get_versions`` reports (python, dask, distributed, numpy, pandas...)
+    with lsdb/hats/nested-pandas probed directly on the client and each worker.
+
+    Args:
+        client: A connected Dask Client.
+
+    Returns:
+        ``{'client': {pkg: ver}, 'scheduler': {pkg: ver},
+        'workers': {address: {pkg: ver}}}``.
+    """
+    versions = client.get_versions(check=False)
+    worker_context = client.run(_context_versions_local)
+    workers = {}
+    for addr, info in (versions.get('workers', {}) or {}).items():
+        workers[addr] = dict(info.get('packages', {}))
+    for addr, extra in worker_context.items():
+        workers.setdefault(addr, {}).update(extra)
+    return {
+        'client': {**versions.get('client', {}).get('packages', {}),
+                   **_context_versions_local()},
+        'scheduler': dict(versions.get('scheduler', {}).get('packages', {})),
+        'workers': workers,
+    }

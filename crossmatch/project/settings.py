@@ -214,6 +214,13 @@ CROSSMATCH_READ_RETRY_BACKOFF_SECONDS = float(
     os.getenv('CROSSMATCH_READ_RETRY_BACKOFF_SECONDS', '1.0')
 )
 
+# Crossmatch replay (docs/runbooks/crossmatch-replay.md): replay_run refuses
+# unless this is set. Enable it on DEV only -- replays must never run against the
+# PROD Dask cluster.
+CROSSMATCH_REPLAY_ENABLED = os.getenv(
+    'CROSSMATCH_REPLAY_ENABLED', 'false'
+).lower() in ('true', '1', 'yes')
+
 ######################################################################
 # Django apps and middlewares
 #

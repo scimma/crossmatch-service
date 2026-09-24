@@ -14,6 +14,14 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+### Added
+
+- Crossmatch replay tool for validating dependency upgrades without live alerts: `replay_export_sample` exports a read-only coverage sample of historical alerts (PROD), `replay_run` replays it through the production crossmatch compute step on the Dask cluster without writing or publishing anything (DEV only, gated by the new `CROSSMATCH_REPLAY_ENABLED` setting), and `replay_compare` diffs two snapshots into a grouped Markdown report. See `docs/runbooks/crossmatch-replay.md`.
+
+### Changed
+
+- `crossmatch_batch` now delegates its in-memory work to a shared `compute_crossmatch` step and persists through callbacks at the same points as before; batch behavior, write order, and metrics are unchanged. The Dask version-alignment check is callable without the startup fail-fast (`check_cluster_alignment`); the Celery startup guard behaves as before.
+
 ## [0.12.0] - 2026-08-19
 
 ### Added

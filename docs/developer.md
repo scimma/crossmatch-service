@@ -74,6 +74,16 @@ Tests that depend on commit semantics (the dispatch/ordering tests) use
 `@pytest.mark.django_db(transaction=True)` and require Postgres — they will not
 behave on SQLite.
 
+## Crossmatch replay (dependency-upgrade validation)
+
+Unit tests mock LSDB, so they cannot show whether a dependency upgrade changes
+what the service publishes. The replay commands re-run a sample of historical
+alerts through the real crossmatch compute step and diff the results:
+`replay_export_sample` (PROD, read-only), `replay_run` (DEV only), and
+`replay_compare`. The code lives in `crossmatch/replay/`. The operator flow,
+including the local Dask profile for trying it against real catalogs, is in
+`docs/runbooks/crossmatch-replay.md`.
+
 ## Continuous integration
 
 The `Tests` GitHub Actions workflow (`.github/workflows/test.yml`) runs the
