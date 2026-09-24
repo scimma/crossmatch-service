@@ -295,3 +295,87 @@ def test_stale_tns_snapshot_is_reported_not_current(monkeypatch):
     assert result.tns.current is False
     assert result.tns.epoch is None
     assert result.records[0].published_payload["tns_checked"] is False
+
+
+# --- pandas 3 (lsdb 0.11 upgrade plan U2) --------------------------------------
+
+
+@pytest.mark.django_db
+@override_settings(
+    CROSSMATCH_CATALOGS=[
+        {**_BASE, "name": "cat_a", "payload_columns": ["name", "flags"]}
+    ]
+)
+def test_compute_publishes_pandas3_string_and_na_values_as_json(monkeypatch):
+    alert = AlertFactory(status=Alert.Status.QUEUED)
+    result_df = pd.DataFrame(
+        {
+            "lsst_diaObject_diaObjectId": [alert.lsst_diaObject_diaObjectId],
+            "source_id": ["src-1"],
+            "_dist_arcsec": [0.4],
+            "ra": [180.0],
+            "dec": [-30.0],
+            "name": ["Gaia DR3 42"],
+            "flags": pd.array([None], dtype="Int64"),
+        }
+    )
+    monkeypatch.setattr(crossmatch_mod, "crossmatch_alerts", lambda *a, **k: result_df)
+
+    record = compute_crossmatch(_rows(alert)).records[0]
+
+    assert record.catalog_payload == {"name": "Gaia DR3 42", "flags": None}
+    assert record.published_payload["catalog_payload"] == {
+        "name": "Gaia DR3 42",
+        "flags": None,
+    }
+    assert record.published_payload["diaObjectId"] == alert.lsst_diaObject_diaObjectId
+    assert record.source_id == "src-1"
+
+
+@pytest.mark.django_db
+@override_settings(CROSSMATCH_CATALOGS=ONE_CATALOG)
+def test_alert_frame_keeps_string_uuids_and_exact_ids(monkeypatch):
+    alert = AlertFactory(
+        status=Alert.Status.QUEUED, lsst_diaObject_diaObjectId=2**62 + 7
+    )
+    seen = {}
+
+    def _capture(frame, **kwargs):
+        seen["frame"] = frame
+        return MagicMock()
+
+    monkeypatch.setattr(crossmatch_mod.lsdb, "from_dataframe", _capture)
+    monkeypatch.setattr(
+        crossmatch_mod, "crossmatch_alerts", lambda *a, **k: pd.DataFrame()
+    )
+
+    compute_crossmatch(_rows(alert))
+
+    frame = seen["frame"]
+    row = next(frame.itertuples(index=False))
+    assert row.uuid == str(alert.uuid)
+    assert isinstance(row.uuid, str)
+    assert int(row.lsst_diaObject_diaObjectId) == 2**62 + 7
+
+
+@pytest.mark.django_db
+def test_tns_enrichment_loop_under_pandas3_frame():
+    near = AlertFactory(ra_deg=180.0, dec_deg=-30.0)
+    far = AlertFactory(ra_deg=10.0, dec_deg=10.0)
+    _seed_current_tns(ra=180.0, dec=-30.0)
+    frame = pd.DataFrame(
+        _rows(near, far),
+        columns=["uuid", "lsst_diaObject_diaObjectId", "ra_deg", "dec_deg"],
+    )
+    frame["uuid"] = frame["uuid"].astype(str)
+
+    tns = crossmatch_mod._compute_tns_enrichment(frame)
+
+    assert tns.current is True
+    near_block = tns.enrichment[near.lsst_diaObject_diaObjectId]
+    far_block = tns.enrichment[far.lsst_diaObject_diaObjectId]
+    assert near_block["tns"]["objid"] == 1
+    assert near_block["tns_checked"] is True
+    assert far_block["tns"] is None
+    assert far_block["tns_checked"] is True
+    assert TnsAssociation.objects.count() == 0
