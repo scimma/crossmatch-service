@@ -8,7 +8,6 @@ footprint, and matches whose stored catalog values include nulls.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from collections.abc import Iterator
@@ -25,6 +24,7 @@ from django.db.models.functions import MD5, Cast, Concat
 from django.utils import timezone
 
 from core.models import Alert, CatalogMatch
+from replay.formats import content_digest, write_json
 
 SAMPLE_KIND = "crossmatch-replay-sample"
 SAMPLE_FORMAT_VERSION = 1
@@ -159,13 +159,12 @@ def select_sample(per_category: int, seed: str) -> dict:
 
 def write_sample(sample: dict, path: Path | str) -> None:
     """Write a sample as JSON; NaN is rejected so the file stays valid JSON."""
-    Path(path).write_text(json.dumps(sample, indent=1, allow_nan=False) + "\n")
+    write_json(sample, path)
 
 
 def alerts_digest(alerts: list) -> str:
     """SHA-256 of the canonical alert list, identifying a sample's input."""
-    canonical = json.dumps(alerts, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
+    return content_digest(alerts)
 
 
 def load_sample(path: Path | str) -> LoadedSample:

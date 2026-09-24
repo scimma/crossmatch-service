@@ -9,8 +9,6 @@ outcomes and identity, and the TNS snapshot's state.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from pathlib import Path
 
 from django.conf import settings
@@ -21,7 +19,12 @@ from core.healpix import angular_separation_arcsec
 from core.log import get_logger
 from core.models import TnsSnapshotMeta
 from matching.tns_match import cone_candidates
-from replay.formats import SNAPSHOT_FORMAT_VERSION, SNAPSHOT_KIND
+from replay.formats import (
+    SNAPSHOT_FORMAT_VERSION,
+    SNAPSHOT_KIND,
+    content_digest,
+    write_json,
+)
 from replay.sample import LoadedSample
 from tasks.crossmatch import compute_crossmatch
 
@@ -41,11 +44,6 @@ __all__ = [
     "tns_fingerprint",
     "write_snapshot",
 ]
-
-
-def _sha256(value) -> str:
-    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def tns_fingerprint(ra_deg: float, dec_deg: float, radius_arcsec: float) -> str:
@@ -69,7 +67,7 @@ def tns_fingerprint(ra_deg: float, dec_deg: float, radius_arcsec: float) -> str:
         if angular_separation_arcsec(ra_deg, dec_deg, obj.ra_deg, obj.dec_deg)
         <= radius_arcsec
     )
-    return _sha256(objects)
+    return content_digest(objects)
 
 
 def catalog_identity(catalog_config: dict) -> dict:
@@ -85,11 +83,11 @@ def catalog_identity(catalog_config: dict) -> dict:
     Returns:
         ``{'hats_url', ...properties}``, or with ``error`` when unreadable.
     """
-    from matching.catalog import _get_catalog
+    from matching.catalog import get_catalog
 
     identity = {"hats_url": catalog_config["hats_url"]}
     try:
-        info = _get_catalog(catalog_config).hc_structure.catalog_info
+        info = get_catalog(catalog_config).hc_structure.catalog_info
         identity["total_rows"] = info.total_rows
         extra = info.model_extra or {}
         for key in _CATALOG_IDENTITY_KEYS:
@@ -211,7 +209,7 @@ def build_snapshot(sample: LoadedSample, image_tag: str, versions: dict) -> dict
                 ),
                 "last_refresh_epoch": last_refresh_epoch,
                 "error": tns_error,
-                "content_identity": _sha256(sorted(fingerprints.items())),
+                "content_identity": content_digest(sorted(fingerprints.items())),
                 "fingerprints": fingerprints,
             },
         },
@@ -221,4 +219,4 @@ def build_snapshot(sample: LoadedSample, image_tag: str, versions: dict) -> dict
 
 def write_snapshot(snapshot: dict, path: Path | str) -> None:
     """Write a snapshot as JSON; NaN is rejected so the file stays valid JSON."""
-    Path(path).write_text(json.dumps(snapshot, indent=1, allow_nan=False) + "\n")
+    write_json(snapshot, path)

@@ -175,6 +175,15 @@ def _get_catalog(catalog_config):
     return _catalog_cache[name]
 
 
+def get_catalog(catalog_config):
+    """Return the loaded (cached) LSDB catalog for a configured catalog.
+
+    Public accessor over the module's catalog cache, for callers outside the
+    crossmatch path (the replay tool records the catalog's build properties).
+    """
+    return _get_catalog(catalog_config)
+
+
 def crossmatch_alerts(alerts_catalog, catalog_config):
     """Crossmatch an LSDB alerts catalog against a single HATS catalog.
 

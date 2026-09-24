@@ -144,12 +144,13 @@ def check_cluster_alignment(address: str, timeout: float):
             raise DaskAlignmentError('no workers registered')
         drifted = _check_versions(client) + _check_off_boundary_versions(client)
     except BaseException:
-        _close_quietly(client)
+        close_client_quietly(client)
         raise
     return client, drifted
 
 
-def _close_quietly(client):
+def close_client_quietly(client):
+    """Close a Dask client, ignoring any error from the close itself."""
     try:
         client.close()
     except Exception:
@@ -198,7 +199,7 @@ def verify_dask_versions(**kwargs):
     finally:
         # Don't leave a dangling connection in the master — each forked child
         # will create its own Client in connect_dask_scheduler() below.
-        _close_quietly(client)
+        close_client_quietly(client)
 
 
 @worker_process_init.connect
@@ -292,6 +293,17 @@ def _check_versions(client):
     return drifted
 
 
+def _import_versions(packages):
+    """Return {package: version-or-None}, mapping an import failure to None."""
+    versions = {}
+    for pkg in packages:
+        try:
+            versions[pkg] = __import__(pkg).__version__
+        except Exception:
+            versions[pkg] = None
+    return versions
+
+
 def _package_versions_local():
     """Return {package: version-or-None} for the off-boundary packages, in-process.
 
@@ -299,13 +311,7 @@ def _package_versions_local():
     None instead of raising — one worker that cannot import lsdb must not fail the
     whole client.run call; it should surface as that worker's drift instead.
     """
-    versions = {}
-    for pkg in _OFF_BOUNDARY_PACKAGES:
-        try:
-            versions[pkg] = __import__(pkg).__version__
-        except Exception:
-            versions[pkg] = None
-    return versions
+    return _import_versions(_OFF_BOUNDARY_PACKAGES)
 
 
 def _check_off_boundary_versions(client):
@@ -350,13 +356,7 @@ def _context_versions_local():
     Runs on a worker via client.run (shipped by value, see above), so a missing
     package maps to None instead of raising.
     """
-    versions = {}
-    for pkg in _CONTEXT_PACKAGES:
-        try:
-            versions[pkg] = __import__(pkg).__version__
-        except Exception:
-            versions[pkg] = None
-    return versions
+    return _import_versions(_CONTEXT_PACKAGES)
 
 
 def cluster_package_versions(client):

@@ -9,7 +9,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 import replay.snapshot as snapshot
-from core.dask import DaskAlignmentError
+from core.dask import DaskAlignmentError, close_client_quietly
 from replay.sample import SampleFormatError, load_sample
 
 _DEFAULT_APP_VERSION = "0.0.0"
@@ -72,10 +72,7 @@ class Command(BaseCommand):
             versions = snapshot.cluster_package_versions(client)
             data = snapshot.build_snapshot(sample, image_tag, versions)
         finally:
-            try:
-                client.close()
-            except Exception:
-                pass
+            close_client_quietly(client)
 
         snapshot.write_snapshot(data, options["output"])
         ctx = data["run_context"]
