@@ -303,3 +303,30 @@ def test_catalog_identity_records_error_instead_of_raising(monkeypatch):
     identity = _real_catalog_identity(CATALOGS[0])
 
     assert identity == {"hats_url": CATALOGS[0]["hats_url"], "error": "unreachable"}
+
+
+@pytest.mark.django_db
+@override_settings(**REPLAY_SETTINGS)
+def test_unreadable_tns_tables_still_produce_a_snapshot(tmp_path, monkeypatch):
+    # Production's TNS enrichment fails soft; the snapshot must too, recording
+    # why TNS could not be read instead of aborting the replay.
+    from django.db import DatabaseError
+
+    alert = AlertFactory(status=Alert.Status.NOTIFIED)
+    sample = _sample_file(tmp_path, alert)
+    monkeypatch.setattr(
+        crossmatch_mod, "crossmatch_alerts", lambda *a, **k: _match_row(alert)
+    )
+
+    def _no_table(*a, **k):
+        raise DatabaseError('relation "tns_objects" does not exist')
+
+    monkeypatch.setattr(snapshot_mod, "tns_fingerprint", _no_table)
+
+    snap = _run(tmp_path, sample)
+
+    tns = snap["run_context"]["tns"]
+    assert tns["current"] is False
+    assert tns["fingerprints"] == {}
+    assert "tns_objects" in tns["error"]
+    assert len(snap["matches"]) == 1

@@ -120,6 +120,36 @@ def _crossmatch_config() -> dict:
     }
 
 
+def _tns_state(rows: list) -> tuple:
+    """Per-alert TNS fingerprints and the snapshot's last refresh, fail-soft.
+
+    Production's TNS enrichment never aborts a batch, so an unreadable TNS table
+    must not abort a replay either; the reason is recorded instead.
+
+    Args:
+        rows: The sample's ``(uuid, diaObjectId, ra, dec)`` rows.
+
+    Returns:
+        ``(fingerprints, last_refresh_epoch, error)``; on failure the
+        fingerprints are empty and ``error`` names the cause.
+    """
+    radius = settings.TNS_MATCH_RADIUS_ARCSEC
+    try:
+        fingerprints = {
+            str(dia_id): tns_fingerprint(ra, dec, radius) for _, dia_id, ra, dec in rows
+        }
+        meta = TnsSnapshotMeta.objects.first()
+    except Exception as exc:
+        logger.exception("Could not read the TNS snapshot for replay fingerprints")
+        return {}, None, str(exc)
+    last_refresh = (
+        meta.last_refresh_epoch.isoformat()
+        if meta is not None and meta.last_refresh_epoch is not None
+        else None
+    )
+    return fingerprints, last_refresh, None
+
+
 def build_snapshot(sample: LoadedSample, image_tag: str, versions: dict) -> dict:
     """Replay a sample through the shared compute step and build its snapshot.
 
@@ -152,12 +182,7 @@ def build_snapshot(sample: LoadedSample, image_tag: str, versions: dict) -> dict
     ]
     matches.sort(key=lambda m: (m["dia_object_id"], m["catalog"], m["source_id"]))
 
-    radius = settings.TNS_MATCH_RADIUS_ARCSEC
-    fingerprints = {
-        str(dia_id): tns_fingerprint(ra, dec, radius)
-        for _, dia_id, ra, dec in sample.rows
-    }
-    meta = TnsSnapshotMeta.objects.first()
+    fingerprints, last_refresh_epoch, tns_error = _tns_state(sample.rows)
     tns = result.tns
     return {
         "kind": SNAPSHOT_KIND,
@@ -184,11 +209,8 @@ def build_snapshot(sample: LoadedSample, image_tag: str, versions: dict) -> dict
                 "epoch": (
                     tns.epoch.isoformat() if tns and tns.epoch is not None else None
                 ),
-                "last_refresh_epoch": (
-                    meta.last_refresh_epoch.isoformat()
-                    if meta is not None and meta.last_refresh_epoch is not None
-                    else None
-                ),
+                "last_refresh_epoch": last_refresh_epoch,
+                "error": tns_error,
                 "content_identity": _sha256(sorted(fingerprints.items())),
                 "fingerprints": fingerprints,
             },
