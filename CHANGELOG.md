@@ -14,6 +14,10 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+### Changed
+
+- The crossmatch replay runbook no longer sets `CROSSMATCH_REPLAY_ENABLED` or `--image-tag` on the command line: the gitops chart now enables replay in the DEV pods only and sets `APP_VERSION` on every app pod, so a replay against PROD is refused regardless of what the operator types and each snapshot records the deployed image tag automatically.
+
 ## [0.13.1] - 2026-09-24
 
 ### Fixed

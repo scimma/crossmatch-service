@@ -22,7 +22,9 @@ and production metrics are not incremented.
 ## Rules
 
 - **Never run `replay_run` on PROD.** It would put load on the PROD Dask cluster. It
-  refuses unless `CROSSMATCH_REPLAY_ENABLED=true`, which nothing sets on PROD.
+  refuses unless `CROSSMATCH_REPLAY_ENABLED=true`, which the gitops chart sets in the
+  DEV pods only; PROD pods render `false`. Do not set it on the command line: the
+  guard only holds if the value comes from the pod's environment.
 - **Take the baseline before the DEV rollout** of the change under test, and the
   candidate after it. Both run on DEV against the same sample file.
 - **Write every file to a path, then `kubectl cp` it out.** The app's structured logs
@@ -56,17 +58,18 @@ Switch `kubectl` to the DEV cluster, then:
 
 ```bash
 kubectl -n crossmatch-service cp ./replay-sample.json celery-worker-0:/tmp/replay-sample.json
-kubectl -n crossmatch-service exec celery-worker-0 -- env CROSSMATCH_REPLAY_ENABLED=true \
+kubectl -n crossmatch-service exec celery-worker-0 -- \
   python manage.py replay_run --sample /tmp/replay-sample.json \
-  --output /tmp/replay-baseline.json --image-tag <current DEV image tag>
+  --output /tmp/replay-baseline.json
 kubectl -n crossmatch-service cp celery-worker-0:/tmp/replay-baseline.json ./replay-baseline.json
 ```
 
 `replay_run` first runs the same client/cluster version-alignment check the Celery
 worker runs at startup. It refuses if the scheduler address is unset, if any
 compared package drifts (including lsdb and hats), or if the image tag is unknown.
-The celery-worker pod has no `APP_VERSION` today, so pass `--image-tag` with the tag
-the DEV overlay pins.
+It records the deployed image tag from the pod's `APP_VERSION`, which the chart sets
+from the overlay's `common.image.tag`; `--image-tag` is only an override. If it
+refuses because replay is disabled, your kubectl context is not the DEV cluster.
 
 A replay of about 2,000 alerts takes a few minutes, like a production batch.
 
@@ -76,7 +79,8 @@ Roll the upgrade to DEV the usual way. For a cluster-aligned upgrade, roll the D
 cluster first (`docs/solutions/conventions/lockstep-dask-cluster-aligned-upgrade-rollout.md`).
 **Wait until the celery-worker pod is running and its startup check logged `Dask
 cluster verified`**. A replay started mid-rollout refuses on version drift. Then
-repeat step 2 with `--output /tmp/replay-candidate.json` and the new image tag.
+repeat step 2 with `--output /tmp/replay-candidate.json`; the snapshot records the new image tag
+from the pod.
 
 ## 4. Compare and explain
 
@@ -118,10 +122,6 @@ PR is the record of the judgment; the tool does not decide pass or fail.
 - **TNS on DEV.** TNS enrichment is exercised only when DEV has a current TNS
   snapshot, which needs the TNS bot credentials provisioned on DEV. Until then every
   report flags TNS as not current, and the TNS half of the comparison covers nothing.
-- **Gitops follow-ups** (maintainer):
-  - set `CROSSMATCH_REPLAY_ENABLED=true` in the DEV overlay only, so the `env`
-    prefix above becomes unnecessary;
-  - pass `APP_VERSION` to the celery-worker pod, so `--image-tag` becomes optional.
 
 ## Local development
 
