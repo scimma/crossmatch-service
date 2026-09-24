@@ -14,6 +14,8 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-24
+
 ### Added
 
 - Crossmatch replay tool for validating dependency upgrades without live alerts: `replay_export_sample` exports a read-only coverage sample of historical alerts (PROD), `replay_run` replays it through the production crossmatch compute step on the Dask cluster without writing or publishing anything (DEV only, gated by the new `CROSSMATCH_REPLAY_ENABLED` setting), and `replay_compare` diffs two snapshots into a grouped Markdown report. See `docs/runbooks/crossmatch-replay.md`.
