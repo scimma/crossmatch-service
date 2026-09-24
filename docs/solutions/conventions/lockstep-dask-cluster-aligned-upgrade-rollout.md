@@ -104,6 +104,15 @@ and passes on the **first** try, with no CrashLoop.
   the cluster catches up (see below), or manually stage the sync (sync dask-dev first,
   wait, then let crossmatch-service-dev sync) if you want to avoid the blip.
 
+**(3) Bracket the DEV rollout with replays before promoting to PROD.** Take the
+replay baseline on DEV *before* either DEV tag moves, and the candidate only after the
+celery worker's startup check has logged `Dask cluster verified` on the new tags
+(`docs/runbooks/crossmatch-replay.md`). `replay_run` runs the same alignment check and
+refuses on drift, so a replay started mid-rollout (cluster and app on different tags,
+as in the DEV auto-sync case above) stops instead of producing a misleading snapshot.
+Promote to PROD only after every difference in the comparison report is explained in
+the upgrade PR.
+
 **Related pitfall (not the main subject).** On DEV the dask app can *fail to roll at
 all* if its live ArgoCD Application has stale/empty `helm.valueFiles` and silently
 ignores `values-dev.yaml` — the overlay tag bump then has no effect. Fix by
@@ -197,3 +206,4 @@ r9 blip versus PROD's clean r0.
   pitfall above.
 - `docs/solutions/design-patterns/wire-deployed-image-tag-into-footer-version.md` —
   deploy-seam sibling that threads a single `common.image.tag` through the gitops chart.
+- `docs/runbooks/crossmatch-replay.md` — the pre-PROD replay gate that guidance (3) brackets the DEV rollout with.
