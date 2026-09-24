@@ -6,17 +6,19 @@ rows in the shape production loads them, with diaObjectId as an exact int (R3).
 """
 
 import json
+from unittest import mock
 from uuid import UUID
 
 import pytest
 from django.core.management import call_command
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, connection
 from django.test import override_settings
 
 from core.models import Alert
 from replay.sample import (
     SAMPLE_FORMAT_VERSION,
     SampleFormatError,
+    _seed_start,
     load_sample,
     read_only_transaction,
     select_sample,
@@ -192,6 +194,8 @@ def test_export_command_writes_sample_file(tmp_path):
         "5",
         "--seed",
         "abc",
+        "--statement-timeout",
+        "30",
     )
 
     data = json.loads(path.read_text())
@@ -199,3 +203,53 @@ def test_export_command_writes_sample_file(tmp_path):
     assert data["seed"] == "abc"
     assert data["per_category"] == 5
     assert len(data["alerts"]) == 4
+
+
+@pytest.mark.django_db
+@override_settings(CROSSMATCH_CATALOGS=CATALOGS)
+def test_selection_wraps_around_when_the_seed_starts_late():
+    # Five no-match alerts; start the walk at the last one so the category has
+    # to wrap to the beginning of the id range to fill its cap.
+    alerts = [_terminal_alert() for _ in range(5)]
+    last_id = alerts[-1].lsst_diaObject_diaObjectId
+
+    with mock.patch("replay.sample._seed_start", return_value=last_id):
+        sample = select_sample(per_category=3, seed="s1")
+
+    ids = [row["dia_object_id"] for row in sample["alerts"]]
+    assert sample["categories"]["no_match"] == 3
+    assert last_id in ids
+    assert alerts[0].lsst_diaObject_diaObjectId in ids
+
+
+@pytest.mark.django_db
+def test_seed_start_is_deterministic_and_inside_the_id_range():
+    alerts = [_terminal_alert() for _ in range(4)]
+    lo = alerts[0].lsst_diaObject_diaObjectId
+    hi = alerts[-1].lsst_diaObject_diaObjectId
+
+    first = _seed_start("abc")
+    assert _seed_start("abc") == first
+    assert lo <= first <= hi
+
+
+@pytest.mark.django_db
+def test_seed_start_with_no_alerts_is_none():
+    assert _seed_start("abc") is None
+
+
+@pytest.mark.django_db
+@override_settings(CROSSMATCH_CATALOGS=CATALOGS)
+def test_empty_database_gives_an_empty_sample():
+    sample = select_sample(per_category=5, seed="s1")
+
+    assert sample["alerts"] == []
+    assert "no_match" in sample["unfilled_categories"]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_read_only_transaction_sets_a_statement_timeout():
+    with read_only_transaction(statement_timeout_seconds=7):
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW statement_timeout")
+            assert cursor.fetchone()[0] == "7s"
