@@ -14,6 +14,8 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-09-24
+
 ### Fixed
 
 - `replay_export_sample` no longer hashes and sorts every qualifying row: each coverage category now walks its index from a seed-derived starting diaObjectId (wrapping around), so an export takes seconds on production-sized tables instead of running for many minutes. The same seed over the same data still reproduces the sample. A new `--statement-timeout` (default 120 s) cancels any single query that runs longer, so an export can never hold a long query on the PROD database.
