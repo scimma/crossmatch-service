@@ -36,7 +36,7 @@ kubectl -n crossmatch-service exec celery-worker-0 -- \
 kubectl -n crossmatch-service cp celery-worker-0:/tmp/replay-sample.json ./replay-sample.json
 ```
 
-The export runs in a Postgres `READ ONLY` transaction. It takes up to
+The export runs in a Postgres `READ ONLY` transaction, and `--statement-timeout` (default 120 seconds) cancels any single query that runs longer. Each category walks an index from a seed-derived starting point, so an export takes seconds even on production-sized tables (about 2.5 s on DEV's 1.9M alerts). It takes up to
 `--per-category` alerts (default 250) from each category:
 
 - matched in each configured catalog;

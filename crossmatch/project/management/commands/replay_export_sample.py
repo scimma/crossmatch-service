@@ -27,11 +27,18 @@ class Command(BaseCommand):
         parser.add_argument(
             "--seed",
             default="replay",
-            help="Seed for the deterministic selection order",
+            help="Seed for the deterministic selection starting point",
+        )
+        parser.add_argument(
+            "--statement-timeout",
+            type=int,
+            default=120,
+            help="Cancel any single query that runs longer than this many seconds "
+            "(default 120), so an export never holds a long query on PROD",
         )
 
     def handle(self, *args, **options):
-        with read_only_transaction():
+        with read_only_transaction(options["statement_timeout"]):
             sample = select_sample(options["per_category"], options["seed"])
         write_sample(sample, options["output"])
         self.stdout.write(
