@@ -19,17 +19,19 @@ hop-client
 httpx
 confluent_kafka
 lasair
-lsdb==0.10.4
-# hats and nested-pandas move with lsdb and are pinned explicitly: lsdb 0.10.4
-# requires hats>=0.10.4,<0.11 and nested-pandas>=0.6.10,<0.7.0. Both sit above
+lsdb==0.11.0
+# hats and nested-pandas move with lsdb and are pinned explicitly: lsdb 0.11.0
+# requires hats>=0.11.0,<0.12 and nested-pandas>=0.7.0,<0.8. Both of those
+# require pandas>=3, so pandas moves with them. hats and nested-pandas sit above
 # the Dask serialization boundary (not in core/dask.py's _VERSION_CHECK_PACKAGES),
 # so an app/cluster skew is caught by the lsdb/hats runtime guard in
-# core/dask.py; the end-to-end DEV smoke is the load-bearing verification.
-hats==0.10.4
-nested-pandas==0.6.10
+# core/dask.py; the replay (docs/runbooks/crossmatch-replay.md) is the
+# load-bearing verification of published output.
+hats==0.11.0
+nested-pandas==0.7.2
 pittgoogle-client
 numpy==2.4.2
-pandas==2.3.3
+pandas==3.0.6
 tornado==6.5.4
 dask[complete]==2026.1.2
 s3fs

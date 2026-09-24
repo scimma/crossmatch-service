@@ -16,6 +16,7 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ### Changed
 
+- Upgrade LSDB from 0.10.4 to 0.11.0, which moves hats to 0.11.0, nested-pandas to 0.7.2, and pandas from 2.3.3 to 3.0.6 (lsdb 0.11's hats and nested-pandas require pandas 3); db-dtypes moves transitively from 1.6.0 to 1.7.1. numpy, pyarrow and dask are unchanged. The app and the Dask cluster must run the same image; validate with the replay before promoting to PROD (see `docs/runbooks/crossmatch-replay.md`).
 - The crossmatch replay runbook no longer sets `CROSSMATCH_REPLAY_ENABLED` or `--image-tag` on the command line: the gitops chart now enables replay in the DEV pods only and sets `APP_VERSION` on every app pod, so a replay against PROD is refused regardless of what the operator types and each snapshot records the deployed image tag automatically.
 
 ## [0.13.1] - 2026-09-24
