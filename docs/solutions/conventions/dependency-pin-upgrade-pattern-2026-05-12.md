@@ -1,6 +1,7 @@
 ---
 title: "Atomic multi-site dependency pinning for cluster-aligned package upgrades"
 date: 2026-05-12
+last_updated: 2026-09-25
 category: docs/solutions/conventions/
 module: dependency_management
 problem_type: convention
@@ -11,8 +12,9 @@ applies_when:
   - Realigning local docker-compose Dask pins with the remote EKS Dask cluster
   - Performing a drop-in maintenance bump where no source-code API changes are expected
   - Upgrading a version-critical package that must match the Dask cluster (e.g., lsdb/hats), now guarded by the off-boundary startup check
+  - Regenerating requirements.lock when pip-compile fails with ResolutionImpossible after a base-pin bump, or when the lock header changes unexpectedly
 related_components: [tooling, testing_framework]
-tags: [dependency-management, dask-cluster, docker-compose, lsdb, version-pinning]
+tags: [dependency-management, dask-cluster, docker-compose, lsdb, version-pinning, pip-compile, requirements-lock]
 ---
 
 # Atomic multi-site dependency pinning for cluster-aligned package upgrades
@@ -43,7 +45,19 @@ A fail-fast Dask version check at celery worker startup (`crossmatch/core/dask.p
    5. Run a single-alert end-to-end smoke run against the hosted HATS catalogs. This is the only verification surface that exercises the full round-trip including any packages outside the fail-fast scope.
    6. **Before PROD, replay historical alerts on DEV** (`docs/runbooks/crossmatch-replay.md`): take a baseline snapshot of a PROD alert sample before the DEV rollout, a candidate snapshot after it, and compare them. The upgrade is ready for PROD when every difference group in the report is explained in the gitops PROD promotion MR (not the app PR: images are built only from release tags, so the app PR merges before a candidate replay can exist). This replaces a clean live DEV batch as the load-bearing gate: it needs no live alerts, and it compares what the service would *publish*, which a smoke run that merely completes cannot show.
 
-4. **Determine whether source-code edits are needed before touching the pins.** For drop-in maintenance bumps (patch or minor releases with no API changes), check the upstream release notes and diff the call sites in this repo. The two `lsdb` call sites today are `crossmatch/matching/catalog.py` (`lsdb.open_catalog`) and `crossmatch/tasks/crossmatch.py` (`lsdb.from_dataframe`). If the public signatures those call sites use are unchanged, the upgrade is a pure pin bump with no code edits. If signatures or behaviors changed, plan source edits alongside the pin bump and note the scope expansion in the commit message.
+4. **Regenerate the lock the way CI does, and expect transitive caps to block a major bump.** Two things about `pip-compile` are not visible from the lock itself:
+   - **It treats existing lock pins as preferences, so a transitive package that caps the moved package fails resolution.** A plain recompile keeps every other package at its locked version. If one of them declares an upper bound on the package you are moving, `pip-compile` reports `ResolutionImpossible` instead of moving that transitive package. Find the capping package from the conflict details, confirm on PyPI that a newer release lifts the cap, and move only that package:
+
+     ```bash
+     cd crossmatch
+     pip-compile --strip-extras --upgrade-package <capping-package> \
+       --output-file=requirements.lock requirements.base.txt
+     ```
+
+     Do not reach for a blanket `--upgrade`: it moves the whole transitive tree, and every package that moves is another version the Dask cluster must match. Then read the lock diff and confirm that it contains only the packages you intended to move plus the capping package. Record the forced transitive move in the CHANGELOG and the PR, because the base file does not show it.
+   - **The lock header records `pip-compile`'s own options, and they vary with the pip-tools version.** The `lock-drift` check (`.github/workflows/lock-drift.yml`) installs `"pip<26.2" pip-tools`, which gives the newest pip-tools under that pip cap, then recompiles and fails on any byte difference, header included. A lock compiled with a different pip or pip-tools can differ from CI's only in the header comment and still fail the check. Regenerate it in a Python 3.12 venv that uses the same install line as the workflow. If the header changes anyway, that is a pip-tools release changing its output; the check on the PR is the authority on whether it matches.
+
+5. **Determine whether source-code edits are needed before touching the pins.** For drop-in maintenance bumps (patch or minor releases with no API changes), check the upstream release notes and diff the call sites in this repo. The two `lsdb` call sites today are `crossmatch/matching/catalog.py` (`lsdb.open_catalog`) and `crossmatch/tasks/crossmatch.py` (`lsdb.from_dataframe`). If the public signatures those call sites use are unchanged, the upgrade is a pure pin bump with no code edits. If signatures or behaviors changed, plan source edits alongside the pin bump and note the scope expansion in the commit message.
 
 ## Why This Matters
 
@@ -83,6 +97,12 @@ Verification outcomes:
 3. `manage.py test` — found zero tests (Django's default runner does not discover this project's suite). **Note: a unit-test result is not load-bearing for a dependency bump.** A real pytest/pytest-django suite now exists under `crossmatch/tests/` and runs in-container (per `docs/developer.md`), but even a green run cannot reveal cluster version drift — the unit tests exercise app logic, not the remote Dask serialization round-trip. The meaningful verification surfaces for an upgrade are the docker-compose startup, the fail-fast Dask check, and the end-to-end smoke run.
 4. Celery worker started against the remote EKS cluster — fail-fast check reported all compared packages aligned.
 5. Single-alert end-to-end smoke run — returned sensible crossmatch results against all three catalogs with no pickle exceptions.
+
+### LSDB 0.10.4 → 0.11.0 upgrade (scimma/crossmatch-service#112, 2026-09-24)
+
+lsdb 0.11.0 requires hats 0.11 and nested-pandas 0.7, and both require `pandas>=3`, so the upgrade also moved pandas from 2.3.3 to 3.0.6. After the base pins moved, a plain recompile failed with `ResolutionImpossible`: the locked `db-dtypes==1.6.0`, which comes in through `pittgoogle-client`, declares `pandas<3.0.0`. `db-dtypes` 1.7.1 allows `pandas<4`, so `pip-compile --upgrade-package db-dtypes` resolved it. The lock diff was exactly five packages: db-dtypes, hats, lsdb, nested-pandas and pandas. numpy, pyarrow and dask did not move.
+
+The regenerated lock header changed from `pip-compile --output-file=...` to `pip-compile --no-index --output-file=...`. The regeneration ran under pip-tools 7.6.1, and the previous lock dated from pip-tools 7.6.0; nothing else about the compile changed. Regenerated with the CI install line, the lock recompiled byte-for-byte, and `lock-drift` passed on the PR.
 
 ## Related
 
