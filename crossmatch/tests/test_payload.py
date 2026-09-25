@@ -125,3 +125,99 @@ def test_tns_block_null_classification_and_redshift():
     json.dumps(out)  # NaN redshift must render as null, not a NaN token
     assert out["tns"]["classification"] is None
     assert out["tns"]["redshift"] is None
+
+
+# --- pandas 3 value shapes (lsdb 0.11 upgrade plan U2) ------------------------
+#
+# pandas 3 loads strings as a StringDtype whose missing value is NaN, keeps
+# nullable integers as Int64 (missing = pd.NA), and hands values to the payload
+# builder through itertuples exactly as the crossmatch compute step reads rows.
+# These pin the published values so a pandas change cannot alter them silently.
+
+
+def _row_values(frame):
+    """Values of the first row, read the way the compute step reads them."""
+    row = next(frame.itertuples(index=False))
+    return {col: getattr(row, col) for col in frame.columns}
+
+
+def test_pandas3_string_dtype_values_publish_as_plain_strings():
+    frame = pd.DataFrame({"name": ["Gaia DR3 123"], "band": ["g"]})
+    assert str(frame["name"].dtype) != "object"
+
+    out = build_catalog_payload(_row_values(frame), ["name", "band"])
+
+    assert out == {"name": "Gaia DR3 123", "band": "g"}
+    assert type(out["name"]) is str
+
+
+def test_pandas3_missing_string_publishes_null():
+    frame = pd.DataFrame({"name": [None], "band": ["r"]})
+
+    out = build_catalog_payload(_row_values(frame), ["name", "band"])
+
+    assert out == {"name": None, "band": "r"}
+    assert json.loads(json.dumps(out, allow_nan=False)) == out
+
+
+def test_pandas3_nullable_integer_and_float_nulls_publish_null():
+    frame = pd.DataFrame(
+        {
+            "flags": pd.array([None], dtype="Int64"),
+            "mag": [np.nan],
+            "count": pd.array([7], dtype="Int64"),
+        }
+    )
+
+    out = build_catalog_payload(_row_values(frame), ["flags", "mag", "count"])
+
+    assert out == {"flags": None, "mag": None, "count": 7}
+    assert type(out["count"]) is int
+
+
+def test_pandas3_numpy_scalars_from_frame_rows_are_json_native():
+    frame = pd.DataFrame(
+        {
+            "n": np.array([5], dtype=np.int64),
+            "mag": np.array([18.25], dtype=np.float32),
+            "ok": np.array([True]),
+        }
+    )
+
+    out = build_catalog_payload(_row_values(frame), ["n", "mag", "ok"])
+
+    assert out == {"n": 5, "mag": pytest.approx(18.25), "ok": True}
+    assert (type(out["n"]), type(out["mag"]), type(out["ok"])) == (int, float, bool)
+
+
+def test_pandas3_large_dia_object_id_survives_frame_rows_exactly():
+    big = 2**62 + 12345
+    frame = pd.DataFrame({"lsst_diaObject_diaObjectId": np.array([big], dtype=np.int64)})
+    row = next(frame.itertuples(index=False))
+
+    payload = build_published_payload(
+        row.lsst_diaObject_diaObjectId, 1.0, 2.0, "cat", "src", 0.1, {}
+    )
+
+    assert payload["diaObjectId"] == big
+    assert type(payload["diaObjectId"]) is int
+
+
+def test_pyarrow_backed_columns_publish_json_native():
+    # LSDB builds catalogs with pyarrow-backed types, so .compute() results can
+    # carry ArrowDtype columns; their row values and nulls must publish cleanly.
+    pa = pytest.importorskip("pyarrow")
+    frame = pd.DataFrame(
+        {
+            "name": pd.array(["obj-1"], dtype=pd.ArrowDtype(pa.string())),
+            "mag": pd.array([None], dtype=pd.ArrowDtype(pa.float64())),
+            "n": pd.array([3], dtype=pd.ArrowDtype(pa.int64())),
+            "ok": pd.array([False], dtype=pd.ArrowDtype(pa.bool_())),
+        }
+    )
+
+    out = build_catalog_payload(_row_values(frame), ["name", "mag", "n", "ok"])
+
+    assert out == {"name": "obj-1", "mag": None, "n": 3, "ok": False}
+    assert [type(out[k]) for k in ("name", "n", "ok")] == [str, int, bool]
+    assert json.loads(json.dumps(out, allow_nan=False)) == out

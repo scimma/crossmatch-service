@@ -1,0 +1,20 @@
+{
+  "data": [
+    {
+      "type": "alert",
+      "id": "lsst:1002",
+      "attributes": {
+        "mjd": 60941.2,
+        "processed_at": "2026-09-20T12:00:00+00:00",
+        "properties": {
+          "lsst_diaObject_diaObjectId": 170433143923278190,
+          "lsst_diaObject_ra": 238.986105,
+          "lsst_diaObject_dec": -14.424639,
+          "lsst_diaSource_diaSourceId": 170433143923278191,
+          "lsst_diaSource_reliability": 0.93,
+          "ant_time_received": 1790000000
+        }
+      }
+    }
+  ]
+}

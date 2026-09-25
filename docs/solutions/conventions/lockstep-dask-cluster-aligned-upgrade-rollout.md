@@ -111,7 +111,7 @@ celery worker's startup check has logged `Dask cluster verified` on the new tags
 refuses on drift, so a replay started mid-rollout (cluster and app on different tags,
 as in the DEV auto-sync case above) stops instead of producing a misleading snapshot.
 Promote to PROD only after every difference in the comparison report is explained in
-the upgrade PR.
+the gitops PROD promotion MR.
 
 **Related pitfall (not the main subject).** On DEV the dask app can *fail to roll at
 all* if its live ArgoCD Application has stale/empty `helm.valueFiles` and silently

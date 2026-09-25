@@ -1,0 +1,18 @@
+{
+  "data": {
+    "type": "locus",
+    "id": "ANT2026abcdefg",
+    "attributes": {
+      "htm16": 12345678,
+      "ra": 238.986105,
+      "dec": -14.424639,
+      "properties": {"num_alerts": 2, "survey": "lsst"},
+      "tags": ["lsst_scimma_quality_transient"],
+      "catalogs": [],
+      "lightcurve": "alert_id,ant_mjd,ant_survey,ant_ra,ant_dec,ant_passband,ant_mag,ant_magerr\nlsst:1001,60940.1,1,238.986105,-14.424639,g,22.51,0.08\nlsst:1002,60941.2,1,238.986100,-14.424641,r,,\n"
+    },
+    "relationships": {
+      "alerts": {"links": {"related": "https://api.antares.noirlab.edu/v1/loci/ANT2026abcdefg/alerts"}}
+    }
+  }
+}

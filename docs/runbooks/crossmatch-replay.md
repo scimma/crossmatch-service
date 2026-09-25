@@ -4,7 +4,7 @@ Validate a crossmatch stack change (an lsdb, hats, nested-pandas, pandas, numpy 
 dask upgrade) before PROD without live alerts. You replay a fixed sample of
 historical PROD alerts on DEV before and after the change, then compare the two
 snapshots. The upgrade passes when **every difference in the report is listed and
-explained in the upgrade pull request**. Plan of record:
+explained in the gitops PROD promotion merge request**. Plan of record:
 `docs/plans/2026-09-24-0552-feat-crossmatch-replay-tool-plan.md`.
 
 ## What the app ships
@@ -114,8 +114,22 @@ app image works too. The report lists, in order:
    - `TNS block changed`, or `TNS block changed (TNS snapshot drift)` when the TNS
      objects near that alert changed between the runs
 
-Paste the report into the upgrade pull request and explain every group there. The
-PR is the record of the judgment; the tool does not decide pass or fail.
+Paste the report into the gitops PROD promotion merge request and explain every
+group and every flag there. The MR is the record of the judgment; the tool does not
+decide pass or fail. It is the MR, not the app pull request, because images are
+built only from release tags: the app PR has merged before any candidate replay
+can exist, so the replay gates PROD, not the merge.
+
+In the same MR, state how anything the replay cannot see was covered, for example
+TNS (unit tests, while DEV has no TNS credentials) or alert ingest (broker decoding
+tests, while the alert stream is paused).
+
+**A persistent catalog-build flag.** Each snapshot records hats catalog properties.
+When the change under test moves hats, "a hosted catalog build differs" can appear
+on every candidate even though no catalog was republished. If the flag survives a
+re-run and the catalog URLs and row counts are unchanged, explain it as the hats
+version change instead of re-running again. Any other comparability break (a skipped
+catalog, a different sample) is fixed by re-running.
 
 ## Known gaps
 
