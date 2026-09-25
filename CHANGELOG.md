@@ -14,6 +14,8 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-25
+
 ### Changed
 
 - Upgrade LSDB from 0.10.4 to 0.11.0, which moves hats to 0.11.0, nested-pandas to 0.7.2, and pandas from 2.3.3 to 3.0.6 (lsdb 0.11's hats and nested-pandas require pandas 3); db-dtypes moves transitively from 1.6.0 to 1.7.1. numpy, pyarrow and dask are unchanged. The app and the Dask cluster must run the same image; validate with the replay before promoting to PROD (see `docs/runbooks/crossmatch-replay.md`).
@@ -201,7 +203,10 @@ Initial release of the crossmatch service.
 - Postgres init race condition on startup.
 - diaSourceId reliability filtering.
 
-[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/scimma/crossmatch-service/compare/v0.13.1...v0.14.0
+[0.13.1]: https://github.com/scimma/crossmatch-service/compare/v0.13.0...v0.13.1
+[0.13.0]: https://github.com/scimma/crossmatch-service/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/scimma/crossmatch-service/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/scimma/crossmatch-service/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/scimma/crossmatch-service/compare/v0.10.0...v0.10.1
