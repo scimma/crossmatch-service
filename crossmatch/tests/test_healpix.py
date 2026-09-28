@@ -86,3 +86,67 @@ def test_cone_near_pole_returns_valid_ranges():
     ranges = cone_ipix_ranges(0.0, 89.9, 120.0)
     assert ranges  # non-empty, no error
     assert _in_ranges(radec_to_ipix(0.0, 89.9), ranges)
+
+
+# --- U5 / KTD12.5: coarse-depth cone cover, widened to order 16 ---
+
+import math  # noqa: E402
+
+import astropy.units as u  # noqa: E402
+from cdshealpix import nested  # noqa: E402
+
+from core.healpix import MAX_COVER_PIXELS, cone_cover_depth, cone_cover_ranges  # noqa: E402
+
+
+def _cover_pixel_count(ra, dec, radius_arcsec, depth):
+    ipix, _depths, _full = nested.cone_search(
+        lon=ra * u.deg, lat=dec * u.deg, radius=radius_arcsec * u.arcsec,
+        depth=depth, flat=True,
+    )
+    return len(set(int(p) for p in ipix))
+
+
+def _points_on_circle(ra, dec, radius_arcsec, n=36):
+    """Points just inside the cone boundary, all around it."""
+    r = math.radians(radius_arcsec * 0.999 / 3600.0)
+    d0, a0 = math.radians(dec), math.radians(ra)
+    points = []
+    for k in range(n):
+        bearing = 2 * math.pi * k / n
+        d = math.asin(math.sin(d0) * math.cos(r) + math.cos(d0) * math.sin(r) * math.cos(bearing))
+        a = a0 + math.atan2(
+            math.sin(bearing) * math.sin(r) * math.cos(d0),
+            math.cos(r) - math.sin(d0) * math.sin(d),
+        )
+        points.append((math.degrees(a) % 360.0, math.degrees(d)))
+    return points
+
+
+def test_cover_depth_is_the_deepest_with_at_most_nine_pixels():
+    for ra, dec, radius in [(45.0, 45.0, 60.0), (10.0, -30.0, 2.0), (200.0, 5.0, 30.0)]:
+        depth = cone_cover_depth(ra, dec, radius)
+        assert _cover_pixel_count(ra, dec, radius, depth) <= MAX_COVER_PIXELS
+        if depth < HEALPIX_ORDER:
+            assert _cover_pixel_count(ra, dec, radius, depth + 1) > MAX_COVER_PIXELS
+
+
+def test_small_cone_covers_at_the_stored_order():
+    assert cone_cover_depth(10.0, -30.0, 0.5) == HEALPIX_ORDER
+
+
+def test_cover_ranges_are_order_16_and_contain_every_point_in_the_cone():
+    for ra, dec, radius in [(45.0, 45.0, 60.0), (0.0, 0.0, 30.0), (0.0, 89.99, 60.0),
+                            (123.0, -89.995, 45.0)]:
+        ranges = cone_cover_ranges(ra, dec, radius)
+        assert ranges == sorted(ranges)
+        assert len(ranges) <= MAX_COVER_PIXELS
+        assert all(0 <= lo <= hi < 12 * 4 ** HEALPIX_ORDER for lo, hi in ranges)
+        assert _in_ranges(radec_to_ipix(ra, dec), ranges)
+        for pra, pdec in _points_on_circle(ra, dec, radius):
+            assert _in_ranges(radec_to_ipix(pra, pdec), ranges), (ra, dec, pra, pdec)
+
+
+def test_cover_ranges_span_ra_wraparound():
+    ranges = cone_cover_ranges(0.0, 10.0, 20.0)
+    assert _in_ranges(radec_to_ipix(359.998, 10.0), ranges)
+    assert _in_ranges(radec_to_ipix(0.002, 10.0), ranges)

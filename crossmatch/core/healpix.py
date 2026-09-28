@@ -129,6 +129,82 @@ def cone_ipix_ranges(
     return _merge_contiguous(pixels)
 
 
+#: The most pixels a cone's coarse cover may hold (KTD12 step 5). A cone is
+#: covered at the deepest order where it touches at most this many pixels, so
+#: a search is a handful of index range scans whatever its radius.
+MAX_COVER_PIXELS = 9
+
+
+def _cone_pixels(
+    ra_deg: float, dec_deg: float, radius_arcsec: float, depth: int
+) -> np.ndarray:
+    """The sorted unique NESTED pixels at ``depth`` that a cone touches."""
+    ipix_arr, _depths, _fully_covered = nested.cone_search(
+        lon=ra_deg * u.deg,
+        lat=dec_deg * u.deg,
+        radius=radius_arcsec * u.arcsec,
+        depth=depth,
+        flat=True,
+    )
+    return np.unique(np.asarray(ipix_arr, dtype=np.int64))
+
+
+def cone_cover_depth(ra_deg: float, dec_deg: float, radius_arcsec: float) -> int:
+    """Return the deepest order at which a cone touches at most 9 pixels.
+
+    The pixel count only grows with depth, so the search walks down from
+    ``HEALPIX_ORDER`` and stops at the first order within
+    ``MAX_COVER_PIXELS``.
+
+    Args:
+        ra_deg: Cone-center right ascension in degrees.
+        dec_deg: Cone-center declination in degrees, in [-90, 90].
+        radius_arcsec: Cone radius in arcseconds, positive.
+
+    Returns:
+        The cover order, in ``[0, HEALPIX_ORDER]``.
+    """
+    for depth in range(HEALPIX_ORDER, 0, -1):
+        if len(_cone_pixels(ra_deg, dec_deg, radius_arcsec, depth)) <= MAX_COVER_PIXELS:
+            return depth
+    return 0
+
+
+def cone_cover_ranges(
+    ra_deg: float, dec_deg: float, radius_arcsec: float
+) -> list[tuple[int, int]]:
+    """Return the coarse cover of a cone as inclusive order-16 pixel ranges.
+
+    The cone is covered at :func:`cone_cover_depth` (at most
+    ``MAX_COVER_PIXELS`` pixels), and each coarse pixel is widened to the
+    contiguous block of order-``HEALPIX_ORDER`` pixels it contains, so the
+    result compares directly with the stored ``healpix_ipix`` values. Unlike
+    :func:`cone_ipix_ranges` this yields at most nine ranges whatever the
+    radius, at the cost of more cover candidates; callers must apply the exact
+    separation filter.
+
+    Args:
+        ra_deg: Cone-center right ascension in degrees.
+        dec_deg: Cone-center declination in degrees, in [-90, 90].
+        radius_arcsec: Cone radius in arcseconds, positive.
+
+    Returns:
+        A sorted list of at most ``MAX_COVER_PIXELS`` inclusive ``(lo, hi)``
+        order-16 NESTED pixel ranges.
+    """
+    depth = cone_cover_depth(ra_deg, dec_deg, radius_arcsec)
+    shift = 2 * (HEALPIX_ORDER - depth)
+    ranges: list[tuple[int, int]] = []
+    for pixel in _cone_pixels(ra_deg, dec_deg, radius_arcsec, depth):
+        lo = int(pixel) << shift
+        hi = ((int(pixel) + 1) << shift) - 1
+        if ranges and lo == ranges[-1][1] + 1:
+            ranges[-1] = (ranges[-1][0], hi)
+        else:
+            ranges.append((lo, hi))
+    return ranges
+
+
 def _merge_contiguous(pixels) -> list[tuple[int, int]]:
     """Merge a sorted iterable of pixel indices into contiguous ``[lo, hi]`` ranges."""
     ranges: list[tuple[int, int]] = []

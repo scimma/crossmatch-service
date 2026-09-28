@@ -35,6 +35,11 @@ from api.lookup import (
     PROVENANCE_NOT_RECORDED,
     PROVENANCE_RECORDED,
 )
+from api.positions import (
+    TRUNCATION_PER_INPUT,
+    TRUNCATION_PER_REQUEST,
+    TRUNCATION_VALUES,
+)
 from core import provenance
 from core.models import CutEnforcedBy, CutStatus
 
@@ -381,6 +386,77 @@ def _lookup_schemas() -> dict[str, Any]:
         'required': ['provenance_set'],
         'properties': {'provenance_set': provenance_set_ref},
     }
+    radius_max = float(settings.API_MAX_CONE_RADIUS_ARCSEC)
+    radius_max_text = f'At most {radius_max:g} arcsec.'
+    tns_radius = float(settings.TNS_MATCH_RADIUS_ARCSEC)
+    ra_schema = {
+        'type': 'number',
+        'minimum': 0,
+        'maximum': 360,
+        'description': 'Right ascension, degrees (ICRS).',
+    }
+    dec_schema = {
+        'type': 'number',
+        'minimum': -90,
+        'maximum': 90,
+        'description': 'Declination, degrees (ICRS).',
+    }
+    radius_schema = {
+        'type': 'number',
+        'exclusiveMinimum': 0,
+        'maximum': radius_max,
+    }
+    tns_name_schema = {
+        'type': 'string',
+        'maxLength': 64,
+        'description': (
+            'A TNS name such as 2026abc, SN 2026abc, or AT2026abc. Whitespace '
+            'and an SN/AT prefix are ignored and case does not matter.'
+        ),
+    }
+    cone_caveat = (
+        'Position searches cover every Rubin object the service has seen, '
+        'crossmatched or not; an object whose position could not be indexed '
+        'at ingest (null HEALPix index) is not reachable by position. A '
+        'coincident source is not a host association, and the absence of one '
+        'is not evidence of a hostless transient: the host galaxy of an '
+        'offset supernova is generally not a coincident source.'
+    )
+    cone_counts = {
+        'total': {
+            'type': ['integer', 'null'],
+            'minimum': 0,
+            'description': (
+                'Rubin objects within the radius; null when no search ran.'
+            ),
+        },
+        'truncated': {
+            'type': 'boolean',
+            'description': 'Whether objects lists fewer than total.',
+        },
+        'truncation': {
+            'description': (
+                'Why objects was cut: '
+                f'`{TRUNCATION_PER_INPUT}` (the per-input maximum of '
+                f'{_int_setting("API_MAX_OBJECTS_PER_POSITION")} objects; run '
+                'a cone search to page the rest) or '
+                f'`{TRUNCATION_PER_REQUEST}` (the per-request total of '
+                f'{_int_setting("API_MAX_OBJECTS_PER_REQUEST")} objects, spent '
+                'in input order). Null when not cut.'
+            ),
+            'anyOf': [
+                {'type': 'null'},
+                {'type': 'string', 'enum': list(TRUNCATION_VALUES)},
+            ],
+        },
+    }
+    truncated_top = {
+        'type': 'boolean',
+        'description': (
+            'Whether the per-request object total cut any result; those '
+            f'results carry truncation `{TRUNCATION_PER_REQUEST}`.'
+        ),
+    }
     return {
         'IdInput': {
             'type': 'object',
@@ -402,13 +478,57 @@ def _lookup_schemas() -> dict[str, Any]:
                 },
             },
         },
+        'PositionInput': {
+            'type': 'object',
+            'description': (
+                'Search one position for every Rubin object the service has '
+                'seen within the radius.'
+            ),
+            'required': ['kind', 'ra', 'dec'],
+            'additionalProperties': False,
+            'properties': {
+                'kind': {'const': 'position'},
+                'ra': ra_schema,
+                'dec': dec_schema,
+                'radius_arcsec': {
+                    **radius_schema,
+                    'description': (
+                        'Search radius, arcsec. Required unless the request '
+                        'carries a shared radius_arcsec. ' + radius_max_text
+                    ),
+                },
+            },
+        },
+        'TnsInput': {
+            'type': 'object',
+            'description': (
+                'Look up a TNS name: the name is resolved through the TNS '
+                'snapshot and answered as a position search around the TNS '
+                'position.'
+            ),
+            'required': ['kind', 'name'],
+            'additionalProperties': False,
+            'properties': {
+                'kind': {'const': 'tns'},
+                'name': tns_name_schema,
+                'radius_arcsec': {
+                    **radius_schema,
+                    'description': (
+                        'Search radius around the TNS position, arcsec. '
+                        'Default: the request radius_arcsec, else the TNS '
+                        f'association radius ({tns_radius:g} arcsec). '
+                        + radius_max_text
+                    ),
+                },
+            },
+        },
         'LookupInput': {
             'description': (
                 'One tagged input, discriminated by kind. An entry that does '
                 'not match is not a request error: it gets its own result with '
                 'status invalid_input.'
             ),
-            'oneOf': [_ref('IdInput')],
+            'oneOf': [_ref('IdInput'), _ref('PositionInput'), _ref('TnsInput')],
         },
         'LookupRequest': {
             'type': 'object',
@@ -422,10 +542,23 @@ def _lookup_schemas() -> dict[str, Any]:
                         'The inputs, answered one result per input in this '
                         'order; duplicates are answered twice. Per-request '
                         'maximums (currently: IDs '
-                        f'{_int_setting("API_MAX_IDS")}) apply; over a maximum '
-                        'the request is a 400 naming inputs.'
+                        f'{_int_setting("API_MAX_IDS")}; positions and TNS '
+                        f'names together {_int_setting("API_MAX_POSITIONS")}) '
+                        'apply; over a maximum the request is a 400 naming '
+                        'inputs. A position or TNS input lists at most '
+                        f'{_int_setting("API_MAX_OBJECTS_PER_POSITION")} '
+                        'objects, and the request at most '
+                        f'{_int_setting("API_MAX_OBJECTS_PER_REQUEST")} objects '
+                        'in all, spent in input order.'
                     ),
                     'items': _ref('LookupInput'),
+                },
+                'radius_arcsec': {
+                    **radius_schema,
+                    'description': (
+                        'Shared search radius, arcsec, for position and TNS '
+                        'inputs that carry none. ' + radius_max_text
+                    ),
                 },
                 'detail': {
                     'type': 'string',
@@ -580,6 +713,15 @@ def _lookup_schemas() -> dict[str, Any]:
                     ),
                     'items': _ref('LookupMatch'),
                 },
+                'separation_arcsec': {
+                    'type': 'number',
+                    'minimum': 0,
+                    'description': (
+                        'Present on position and TNS results only: angular '
+                        'separation of the object position from the searched '
+                        'position, arcsec.'
+                    ),
+                },
             },
         },
         'IdResult': {
@@ -607,6 +749,136 @@ def _lookup_schemas() -> dict[str, Any]:
                     'minItems': 1,
                     'maxItems': 1,
                     'items': _ref('LookupObject'),
+                },
+            },
+        },
+        'TnsRecord': {
+            'type': 'object',
+            'description': 'The TNS object a name resolved to, from the TNS snapshot.',
+            'required': [
+                'objid', 'name', 'name_prefix', 'ra', 'dec', 'classification',
+                'redshift', 'url',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'objid': {'type': 'integer', 'description': 'TNS internal object id.'},
+                'name': {
+                    'type': 'string',
+                    'description': 'Bare TNS designation, as TNS stores it.',
+                },
+                'name_prefix': {
+                    'type': ['string', 'null'],
+                    'description': 'TNS name prefix, e.g. SN or AT.',
+                },
+                'ra': {'type': 'number', 'description': 'TNS RA, degrees.'},
+                'dec': {'type': 'number', 'description': 'TNS Dec, degrees.'},
+                'classification': {
+                    'type': ['string', 'null'],
+                    'description': 'TNS classification, e.g. SN Ia; null if none.',
+                },
+                'redshift': {'type': ['number', 'null']},
+                'url': {'type': 'string', 'description': 'The TNS object page.'},
+            },
+        },
+        'PositionResult': {
+            'type': 'object',
+            'description': (
+                'The result of a position input: every Rubin object the '
+                'service has seen within the radius, each with its own '
+                'status, in (ingest_time, diaObjectId) order. '
+                + cone_caveat
+            ),
+            'required': [
+                'index', 'kind', 'input', 'normalized', 'status', 'objects',
+                'total', 'truncated', 'truncation',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'index': {'type': 'integer', 'minimum': 0},
+                'kind': {'const': 'position'},
+                'input': {'description': 'The input exactly as sent.'},
+                'normalized': {
+                    'type': 'object',
+                    'required': ['kind', 'ra', 'dec', 'radius_arcsec'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'kind': {'const': 'position'},
+                        'ra': {'type': 'number', 'description': 'RA, degrees.'},
+                        'dec': {'type': 'number', 'description': 'Dec, degrees.'},
+                        'radius_arcsec': {
+                            'type': 'number',
+                            'description': 'The radius searched, arcsec.',
+                        },
+                    },
+                },
+                'status': _code_enum(
+                    [InputStatus.NO_RUBIN_OBJECT.value, InputStatus.OBJECTS_FOUND.value],
+                    'Whether any Rubin object lies within the radius.',
+                ),
+                'objects': {'type': 'array', 'items': _ref('LookupObject')},
+                **cone_counts,
+            },
+        },
+        'TnsResult': {
+            'type': 'object',
+            'description': (
+                'The result of a TNS input. When the name resolves, it is '
+                'answered as a position search around the TNS position and '
+                'echoes the TNS record and snapshot epoch; an unknown name '
+                'reports tns_name_not_found with the epoch, and a stale or '
+                'absent snapshot reports resolver_unavailable. ' + cone_caveat
+            ),
+            'required': [
+                'index', 'kind', 'input', 'normalized', 'status', 'objects',
+                'total', 'truncated', 'truncation', 'tns', 'tns_snapshot_epoch',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'index': {'type': 'integer', 'minimum': 0},
+                'kind': {'const': 'tns'},
+                'input': {'description': 'The input exactly as sent.'},
+                'normalized': {
+                    'type': 'object',
+                    'required': ['kind', 'name', 'radius_arcsec'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'kind': {'const': 'tns'},
+                        'name': {
+                            'type': 'string',
+                            'description': (
+                                'The bare designation, lowercased, without '
+                                'SN/AT prefix or whitespace; matched against '
+                                'the lowercased TNS name.'
+                            ),
+                        },
+                        'radius_arcsec': {
+                            'type': 'number',
+                            'description': 'The radius searched, arcsec.',
+                        },
+                    },
+                },
+                'status': _code_enum(
+                    [
+                        InputStatus.NO_RUBIN_OBJECT.value,
+                        InputStatus.OBJECTS_FOUND.value,
+                        InputStatus.TNS_NAME_NOT_FOUND.value,
+                        InputStatus.RESOLVER_UNAVAILABLE.value,
+                    ],
+                    'The outcome of the TNS input.',
+                ),
+                'objects': {'type': 'array', 'items': _ref('LookupObject')},
+                **cone_counts,
+                'tns': {
+                    'description': 'The TNS record; null unless the name resolved.',
+                    'anyOf': [{'type': 'null'}, _ref('TnsRecord')],
+                },
+                'tns_snapshot_epoch': {
+                    'type': ['string', 'null'],
+                    'format': 'date-time',
+                    'description': (
+                        'Epoch of the TNS snapshot the name was resolved '
+                        'against (R21); null when resolver_unavailable.'
+                    ),
                 },
             },
         },
@@ -646,13 +918,20 @@ def _lookup_schemas() -> dict[str, Any]:
         },
         'LookupResult': {
             'description': 'One result per input, in input order.',
-            'oneOf': [_ref('IdResult'), _ref('InvalidInputResult')],
+            'oneOf': [
+                _ref('IdResult'), _ref('PositionResult'), _ref('TnsResult'),
+                _ref('InvalidInputResult'),
+            ],
         },
         'LookupResponse': {
             'type': 'object',
-            'required': ['provenance', 'detail', 'count', 'provenance_sets', 'results'],
+            'required': [
+                'provenance', 'detail', 'count', 'provenance_sets', 'truncated',
+                'results',
+            ],
             'additionalProperties': False,
             'properties': {
+                'truncated': truncated_top,
                 'provenance': _ref('Provenance'),
                 'detail': {
                     'type': 'string',
@@ -672,6 +951,55 @@ def _lookup_schemas() -> dict[str, Any]:
                     'additionalProperties': _ref('ProvenanceSet'),
                 },
                 'results': {'type': 'array', 'items': _ref('LookupResult')},
+            },
+        },
+        'ConeSearchResponse': {
+            'type': 'object',
+            'description': (
+                'One page of a single cone search: the lookup response shape '
+                'with one position result, whose objects are this page.'
+            ),
+            'required': [
+                'provenance', 'detail', 'count', 'provenance_sets', 'truncated',
+                'results', 'as_of', 'page_size', 'next_cursor',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'provenance': _ref('Provenance'),
+                'detail': {
+                    'type': 'string',
+                    'enum': ['ids', 'position', 'matches', 'full'],
+                },
+                'count': {'const': 1, 'description': 'Number of results.'},
+                'provenance_sets': {
+                    'type': 'object',
+                    'additionalProperties': _ref('ProvenanceSet'),
+                },
+                'truncated': {
+                    'const': False,
+                    'description': 'Always false: a single cone pages instead.',
+                },
+                'results': {
+                    'type': 'array',
+                    'minItems': 1,
+                    'maxItems': 1,
+                    'items': _ref('PositionResult'),
+                },
+                'as_of': {
+                    'type': 'string',
+                    'format': 'date-time',
+                    'description': (
+                        'The object set is pinned to objects ingested at or '
+                        'before this time, on every page of one walk. An '
+                        "object's status can still advance between pages as "
+                        'crossmatching proceeds.'
+                    ),
+                },
+                'page_size': {'type': 'integer', 'minimum': 1},
+                'next_cursor': {
+                    'type': ['string', 'null'],
+                    'description': 'Opaque token for the next page; null on the last.',
+                },
             },
         },
     }
@@ -695,6 +1023,11 @@ def _query_param(name: str, schema: dict[str, Any], description: str) -> dict[st
 
 def _paths() -> dict[str, Any]:
     """Path items for every documented operation."""
+    radius_param_schema = {
+        'type': 'number',
+        'exclusiveMinimum': 0,
+        'maximum': float(settings.API_MAX_CONE_RADIUS_ARCSEC),
+    }
     return {
         '/openapi.json': {
             'get': {
@@ -767,6 +1100,117 @@ def _paths() -> dict[str, Any]:
                         _ref('Error'),
                         'Invalid request: body, Content-Type, inputs, detail, '
                         'or an unknown field; or query_too_expensive.',
+                    ),
+                    '405': _json(_ref('Error'), 'Method not allowed.'),
+                    '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),
+                },
+            },
+        },
+        '/api/cone': {
+            'get': {
+                'operationId': 'cone_search',
+                'summary': 'Search one position for every Rubin object within a radius.',
+                'description': (
+                    'Every Rubin object the service has seen within the radius '
+                    'of the position, crossmatched or not, across the whole '
+                    'archive, each with its own status. A position with no '
+                    'object reports no_rubin_object. Objects whose position '
+                    'could not be indexed at ingest (null HEALPix index) are '
+                    'not reachable by position search; look them up by '
+                    'diaObjectId. Paged in (ingest_time, diaObjectId) order: '
+                    'follow next_cursor until null. The first page pins the '
+                    'object set with as_of. A coincident source is not a host '
+                    'association.'
+                ),
+                'parameters': [
+                    _query_param(
+                        'ra', {'type': 'number', 'minimum': 0, 'maximum': 360},
+                        'Center RA, degrees (ICRS). Required without cursor.',
+                    ),
+                    _query_param(
+                        'dec', {'type': 'number', 'minimum': -90, 'maximum': 90},
+                        'Center Dec, degrees (ICRS). Required without cursor.',
+                    ),
+                    _query_param(
+                        'radius_arcsec', radius_param_schema,
+                        'Radius, arcsec. Required without cursor. '
+                        f'At most {radius_param_schema["maximum"]:g} arcsec.',
+                    ),
+                    _query_param(
+                        'detail',
+                        {'type': 'string', 'enum': ['ids', 'position', 'matches', 'full']},
+                        'Cumulative detail level (default matches).',
+                    ),
+                    _query_param(
+                        'page_size',
+                        {'type': 'integer', 'minimum': 1},
+                        'Objects per page (default '
+                        f'{_int_setting("API_MAX_OBJECTS_PER_POSITION")}); '
+                        'clamped to '
+                        f'{_int_setting("API_MAX_OBJECTS_PER_REQUEST")}.',
+                    ),
+                    _query_param(
+                        'cursor',
+                        {'type': 'string'},
+                        'Opaque next_cursor from a prior page; pins ra, dec, '
+                        'radius_arcsec, detail, and as_of.',
+                    ),
+                ],
+                'responses': {
+                    '200': _json(_ref('ConeSearchResponse'), 'One page.'),
+                    '400': _json(
+                        _ref('Error'),
+                        'Invalid parameter or cursor (param names it), or '
+                        'query_too_expensive.',
+                    ),
+                    '405': _json(_ref('Error'), 'Method not allowed.'),
+                    '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),
+                },
+            },
+        },
+        '/api/tns/{name}': {
+            'get': {
+                'operationId': 'resolve_tns',
+                'summary': 'Look up a TNS name as a position search around it.',
+                'description': (
+                    'Resolves the name through the TNS snapshot and returns '
+                    'every Rubin object within the radius of the TNS '
+                    'position, echoing the TNS record and snapshot epoch. The '
+                    'response has the lookup_objects shape with one result. '
+                    'Not paged: at most '
+                    f'{_int_setting("API_MAX_OBJECTS_PER_POSITION")} objects, '
+                    'with truncated and total when capped. When the snapshot '
+                    'is stale or absent the result is resolver_unavailable '
+                    '(still a 200). A coincident source is not a host '
+                    'association, and the absence of one is not evidence of a '
+                    'hostless transient.'
+                ),
+                'parameters': [
+                    {
+                        'name': 'name',
+                        'in': 'path',
+                        'required': True,
+                        'schema': {'type': 'string', 'maxLength': 64},
+                        'description': 'The TNS name, e.g. 2026abc or SN 2026abc.',
+                    },
+                    _query_param(
+                        'radius_arcsec', radius_param_schema,
+                        'Radius around the TNS position, arcsec (default '
+                        f'{float(settings.TNS_MATCH_RADIUS_ARCSEC):g}); at most '
+                        f'{radius_param_schema["maximum"]:g}.',
+                    ),
+                    _query_param(
+                        'detail',
+                        {'type': 'string', 'enum': ['ids', 'position', 'matches', 'full']},
+                        'Cumulative detail level (default matches).',
+                    ),
+                ],
+                'responses': {
+                    '200': _json(_ref('LookupResponse'), 'One result.'),
+                    '400': _json(
+                        _ref('Error'),
+                        'Invalid name, radius_arcsec, or detail; or '
+                        'query_too_expensive.',
                     ),
                     '405': _json(_ref('Error'), 'Method not allowed.'),
                     '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),

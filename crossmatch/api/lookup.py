@@ -10,13 +10,15 @@ The framework has three parts, so new input kinds plug in without touching the
 rest:
 
 * ``InputKind``: one kind of input (``id`` here; ``position`` and ``tns`` are
-  added by registering further kinds in ``INPUT_KINDS``). A kind parses and
-  validates one raw input and resolves all of its parsed inputs in set-based
-  queries, returning each input's ``status`` and ``objects``.
+  registered by ``api.positions``, imported at the end of this module). A kind
+  parses and validates one raw input and resolves all of its parsed inputs in
+  set-based queries, returning each input's ``status`` and ``objects``. Kinds
+  with the same ``group`` are resolved together, in one call, so they can
+  share one query and one per-request object budget in input order.
 * Per-entry validation: a malformed input becomes an ``invalid_input`` result
   naming the offending field; it never fails the request (R28). Only
   request-level problems (not a list, empty, over the per-request maximum, a
-  bad ``detail``) raise ``InvalidQuery``.
+  bad ``detail`` or shared ``radius_arcsec``) raise ``InvalidQuery``.
 * ``build_objects``: the shared object builder. Every kind that finds Rubin
   objects turns their IDs into object entries through it, so object status
   (the status resolution in the plan's High-Level Technical Design), R10's
@@ -44,6 +46,7 @@ from api.contract import (
     dia_object_id_fields,
     envelope,
     parse_dia_object_id,
+    parse_radius_arcsec,
 )
 from api.errors import InvalidQuery
 from api.guard import check_deadline, sql_phase
@@ -74,7 +77,7 @@ PROVENANCE_RECORDED = 'recorded'
 PROVENANCE_NOT_RECORDED = 'not_recorded'
 
 #: Top-level fields of a ``POST api/lookup`` body.
-LOOKUP_BODY_FIELDS = ('inputs', 'detail')
+LOOKUP_BODY_FIELDS = ('inputs', 'detail', 'radius_arcsec')
 
 _BEST_GUESS_DESCRIPTION = (
     'A best guess, not a record: the current service settings, offered for '
@@ -132,12 +135,21 @@ class LookupContext:
 
     Attributes:
         detail: The detail level.
+        radius_arcsec: The request's shared radius, for position-like inputs
+            that carry none; ``None`` when not given.
         provenance_sets: The response's ``provenance_sets`` map, filled as
             objects are built.
+        object_budget: Objects the request may still list (the per-request
+            total, KTD12); kinds whose inputs list a variable number of
+            objects spend it in input order.
+        truncated: Set when the per-request total cut any input's objects.
     """
 
     detail: str
+    radius_arcsec: float | None = None
     provenance_sets: dict[str, dict[str, Any]] = field(default_factory=dict)
+    object_budget: int = 0
+    truncated: bool = False
 
 
 class InputKind:
@@ -147,20 +159,31 @@ class InputKind:
         name: The ``kind`` tag.
         fields: The fields an input of this kind may carry besides ``kind``.
         max_setting: The settings name of the per-request maximum of inputs of
-            this kind.
+            this kind. Kinds naming the same setting share that maximum.
+        group: Kinds with the same group are resolved together: ``resolve``
+            of the group's first kind receives every valid input of the group,
+            in request order. Empty means the kind is its own group.
+        fixed_objects: The number of objects every input of this kind lists,
+            reserved from the per-request object budget before resolution;
+            ``None`` when the number varies (the kind spends the budget).
     """
 
     name: str = ''
     fields: tuple[str, ...] = ()
     max_setting: str = ''
+    group: str = ''
+    fixed_objects: int | None = None
 
-    def parse(self, raw: dict[str, Any], param: str) -> tuple[Any, dict[str, Any]]:
+    def parse(
+        self, raw: dict[str, Any], param: str, ctx: LookupContext,
+    ) -> tuple[Any, dict[str, Any]]:
         """Validate one input of this kind.
 
         Args:
             raw: The input object (already known to be a dict of this kind with
                 no unknown fields).
             param: The input's parameter path, e.g. ``inputs[3]``.
+            ctx: The request context (e.g. the shared ``radius_arcsec``).
 
         Returns:
             ``(value, normalized)``: the parsed value handed to ``resolve`` and
@@ -177,7 +200,8 @@ class InputKind:
         """Answer every valid input of this kind in set-based queries.
 
         Args:
-            entries: The valid inputs of this kind, in request order.
+            entries: The valid inputs of this kind (or of its group), in
+                request order.
             ctx: The request context; object entries come from
                 ``build_objects(ids, ctx)``.
 
@@ -194,8 +218,11 @@ class IdInput(InputKind):
     name = 'id'
     fields = ('diaObjectId',)
     max_setting = 'API_MAX_IDS'
+    fixed_objects = 1
 
-    def parse(self, raw: dict[str, Any], param: str) -> tuple[Any, dict[str, Any]]:
+    def parse(
+        self, raw: dict[str, Any], param: str, ctx: LookupContext,
+    ) -> tuple[Any, dict[str, Any]]:
         """Parse the ID; see ``InputKind.parse``."""
         id_param = f'{param}.diaObjectId'
         if 'diaObjectId' not in raw:
@@ -220,35 +247,47 @@ class IdInput(InputKind):
         }
 
 
-#: The input kinds, by ``kind`` tag. U5 registers ``position`` and ``tns``.
+#: The input kinds, by ``kind`` tag. ``api.positions`` registers ``position``
+#: and ``tns``.
 INPUT_KINDS: dict[str, InputKind] = {IdInput.name: IdInput()}
 
 
-def lookup_objects(*, inputs: Any, detail: str | None = None) -> dict[str, Any]:
-    """Answer an ordered list of tagged inputs, one result per input (R2, R7).
+def lookup_objects(
+    *, inputs: Any, detail: str | None = None, radius_arcsec: Any = None,
+) -> dict[str, Any]:
+    """Answer an ordered list of tagged inputs, one result per input (R2, R5, R7).
 
     Args:
         inputs: The request's input list, as decoded from JSON. Each entry is a
             tagged object such as ``{"kind": "id", "diaObjectId": 123}``.
         detail: ``ids`` | ``position`` | ``matches`` (default) | ``full``.
+        radius_arcsec: Shared search radius in arcsec for position and TNS
+            inputs that carry none; at most ``API_MAX_CONE_RADIUS_ARCSEC``.
 
     Returns:
         The enveloped response: ``provenance``, ``detail``, ``count`` (number
-        of results), ``provenance_sets``, and ``results``, one per input in
-        input order.
+        of results), ``provenance_sets``, ``truncated`` (whether the
+        per-request object total cut any result), and ``results``, one per
+        input in input order.
 
     Raises:
         InvalidQuery: If ``inputs`` is not a non-empty list, exceeds a
-            per-request maximum, or ``detail`` is unknown.
+            per-request maximum, or ``detail`` or ``radius_arcsec`` is
+            invalid.
     """
     detail = _check_detail(detail)
+    radius = (
+        parse_radius_arcsec(radius_arcsec, param='radius_arcsec')
+        if radius_arcsec is not None else None
+    )
     if not isinstance(inputs, list):
         raise InvalidQuery('inputs must be a JSON array of input objects', param='inputs')
     if not inputs:
         raise InvalidQuery('inputs must contain at least one input', param='inputs')
     _check_request_size(inputs)
-    parsed = [_parse_input(index, raw) for index, raw in enumerate(inputs)]
-    return _answer(parsed, detail)
+    ctx = LookupContext(detail=detail, radius_arcsec=radius)
+    parsed = [_parse_input(index, raw, ctx) for index, raw in enumerate(inputs)]
+    return _answer(parsed, ctx)
 
 
 def get_object(*, dia_object_id: Any, detail: str | None = None) -> dict[str, Any]:
@@ -278,7 +317,7 @@ def get_object(*, dia_object_id: Any, detail: str | None = None) -> dict[str, An
         value=object_id,
         normalized={'kind': kind.name, **dia_object_id_fields(object_id)},
     )
-    return _answer([entry], detail)
+    return _answer([entry], LookupContext(detail=detail))
 
 
 def parse_lookup_body(body: Any) -> dict[str, Any]:
@@ -333,34 +372,45 @@ def _max_inputs(kind: InputKind) -> int:
 def _check_request_size(inputs: list[Any]) -> None:
     """Enforce the per-request maximums before any input is parsed (KTD12).
 
-    Each kind is capped by its own setting. The whole list is capped by the sum
-    of the registered kinds' maximums, so malformed entries (which have no
-    valid kind) cannot make a request arbitrarily large.
+    Kinds naming the same ``max_setting`` share that maximum (``position`` and
+    ``tns`` are both position searches). The whole list is capped by the sum
+    of the maximums of the kinds it uses (the largest single maximum when it
+    uses none), so malformed entries, which have no valid kind, cannot make a
+    request larger than a well-formed one.
 
     Raises:
         InvalidQuery: If a maximum is exceeded (``param`` ``inputs``).
     """
-    total_max = sum(_max_inputs(kind) for kind in INPUT_KINDS.values())
+    counts: dict[str, int] = {}
+    kinds_by_setting: dict[str, list[str]] = {}
+    for raw in inputs:
+        kind = _raw_kind(raw)
+        if kind in INPUT_KINDS:
+            setting = INPUT_KINDS[kind].max_setting
+            counts[setting] = counts.get(setting, 0) + 1
+            names = kinds_by_setting.setdefault(setting, [])
+            if kind not in names:
+                names.append(kind)
+    if counts:
+        total_max = sum(int(getattr(settings, setting)) for setting in counts)
+    else:
+        total_max = max(_max_inputs(kind) for kind in INPUT_KINDS.values())
     if len(inputs) > total_max:
         raise InvalidQuery(
             f'inputs has {len(inputs)} entries; the maximum is {total_max}',
             param='inputs',
         )
-    counts: dict[str, int] = {}
-    for raw in inputs:
-        kind = _raw_kind(raw)
-        if kind in INPUT_KINDS:
-            counts[kind] = counts.get(kind, 0) + 1
-    for name, count in counts.items():
-        limit = _max_inputs(INPUT_KINDS[name])
+    for setting, count in counts.items():
+        limit = int(getattr(settings, setting))
         if count > limit:
+            names = ', '.join(repr(name) for name in kinds_by_setting[setting])
             raise InvalidQuery(
-                f'inputs has {count} inputs of kind {name!r}; the maximum is {limit}',
+                f'inputs has {count} inputs of kind {names}; the maximum is {limit}',
                 param='inputs',
             )
 
 
-def _parse_input(index: int, raw: Any) -> ParsedInput:
+def _parse_input(index: int, raw: Any, ctx: LookupContext) -> ParsedInput:
     """Validate one input; a malformed one carries its error instead of raising."""
     param = f'inputs[{index}]'
     entry = ParsedInput(index=index, raw=raw, kind=_raw_kind(raw))
@@ -380,22 +430,30 @@ def _parse_input(index: int, raw: Any) -> ParsedInput:
                 raise InputError(
                     f'unknown field {key!r} for kind {kind.name!r}', f'{param}.{key}'
                 )
-        entry.value, entry.normalized = kind.parse(raw, param)
+        entry.value, entry.normalized = kind.parse(raw, param, ctx)
     except InputError as exc:
         entry.error = exc
     return entry
 
 
-def _answer(parsed: list[ParsedInput], detail: str) -> dict[str, Any]:
-    """Resolve the valid inputs kind by kind and assemble results in order."""
-    ctx = LookupContext(detail=detail)
-    by_kind: dict[str, list[ParsedInput]] = {}
+def _answer(parsed: list[ParsedInput], ctx: LookupContext) -> dict[str, Any]:
+    """Resolve the valid inputs group by group and assemble results in order.
+
+    Before resolution the per-request object total is reduced by the objects
+    that fixed-size kinds (one per ID) will list; the rest is the budget that
+    variable-size kinds spend in input order.
+    """
+    by_group: dict[str, list[ParsedInput]] = {}
+    reserved = 0
     for entry in parsed:
         if entry.error is None:
-            by_kind.setdefault(entry.kind, []).append(entry)
+            kind = INPUT_KINDS[entry.kind]
+            by_group.setdefault(kind.group or kind.name, []).append(entry)
+            reserved += kind.fixed_objects or 0
+    ctx.object_budget = max(0, int(settings.API_MAX_OBJECTS_PER_REQUEST) - reserved)
     resolved: dict[int, dict[str, Any]] = {}
-    for name, entries in by_kind.items():
-        resolved.update(INPUT_KINDS[name].resolve(entries, ctx))
+    for entries in by_group.values():
+        resolved.update(INPUT_KINDS[entries[0].kind].resolve(entries, ctx))
 
     results = []
     for entry in parsed:
@@ -417,9 +475,10 @@ def _answer(parsed: list[ParsedInput], detail: str) -> dict[str, Any]:
         results.append(result)
 
     return envelope({
-        'detail': detail,
+        'detail': ctx.detail,
         'count': len(results),
         'provenance_sets': ctx.provenance_sets,
+        'truncated': ctx.truncated,
         'results': results,
     })
 
@@ -624,3 +683,9 @@ def _crossmatch_block(
         'brokers_at_crossmatch': [str(b) for b in record.brokers],
         'catalog_outcomes': outcomes,
     }
+
+
+# The position and TNS kinds build on this module and register themselves in
+# INPUT_KINDS when imported; importing them here registers them whichever of
+# the two modules is imported first.
+from api import positions as _positions  # noqa: E402,F401

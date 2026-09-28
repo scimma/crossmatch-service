@@ -22,6 +22,7 @@ from api.errors import ApiError
 from api.guard import api_guard
 from api.lookup import get_object, lookup_objects, parse_lookup_body
 from api.openapi import build_document
+from api.positions import cone_search, resolve_tns
 from api.service import InvalidQuery, recent_crossmatches
 
 logger = get_logger(__name__)
@@ -197,3 +198,52 @@ def lookup_objects_view(request: HttpRequest) -> JsonResponse:
         raise _method_not_allowed()
     kwargs = parse_lookup_body(_json_body(request))
     return JsonResponse(lookup_objects(**kwargs))
+
+
+@api_guard
+def cone_search_view(request: HttpRequest) -> JsonResponse:
+    """GET one page of the Rubin objects within a radius of a position (R4, R16).
+
+    Query params: ``ra`` and ``dec`` (degrees) and ``radius_arcsec`` (arcsec,
+    at most ``API_MAX_CONE_RADIUS_ARCSEC``), required unless ``cursor`` is
+    given; optional ``detail``, ``page_size``, and ``cursor`` (a prior page's
+    ``next_cursor``, which pins the query and its ``as_of``).
+
+    Returns:
+        A ``JsonResponse``: 200 with the page, 400 naming the parameter, 405
+        for a non-GET method, or a guard error (KTD12).
+    """
+    if request.method != 'GET':
+        raise _method_not_allowed()
+    params = request.GET
+    result = cone_search(
+        ra=params.get('ra'),
+        dec=params.get('dec'),
+        radius_arcsec=params.get('radius_arcsec'),
+        detail=params.get('detail'),
+        page_size=params.get('page_size'),
+        cursor=params.get('cursor'),
+    )
+    return JsonResponse(result)
+
+
+@api_guard
+def resolve_tns_view(request: HttpRequest, name: str) -> JsonResponse:
+    """GET the Rubin objects around a TNS object, by TNS name (R3, R21, R31).
+
+    The path segment is the name (``2026abc``, ``SN 2026abc``, ...); optional
+    query params ``radius_arcsec`` and ``detail``.
+
+    Returns:
+        A ``JsonResponse``: 200 with one result (including
+        ``resolver_unavailable`` and ``tns_name_not_found``), 400 naming the
+        parameter, 405 for a non-GET method, or a guard error (KTD12).
+    """
+    if request.method != 'GET':
+        raise _method_not_allowed()
+    result = resolve_tns(
+        name=name,
+        radius_arcsec=request.GET.get('radius_arcsec'),
+        detail=request.GET.get('detail'),
+    )
+    return JsonResponse(result)

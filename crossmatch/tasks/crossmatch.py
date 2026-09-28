@@ -128,19 +128,13 @@ def _compute_tns_enrichment(clean_df, now=None) -> TnsResult:
     """
     now = now or timezone.now()
     try:
-        meta = TnsSnapshotMeta.objects.first()
-        current = (
-            meta is not None
-            and meta.last_refresh_epoch is not None
-            and (now - meta.last_refresh_epoch).total_seconds()
-            <= settings.TNS_SNAPSHOT_MAX_AGE_SECONDS
-        )
+        epoch = TnsSnapshotMeta.current_epoch(now)
     except SoftTimeLimitExceeded:
         raise
     except Exception:
         logger.exception('TNS snapshot currency check failed; skipping TNS enrichment')
         return TnsResult()
-    epoch = meta.last_refresh_epoch if current else None
+    current = epoch is not None
 
     result = TnsResult(current=current, epoch=epoch)
     for tns_row in clean_df.itertuples(index=False):

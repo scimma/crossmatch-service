@@ -12,9 +12,11 @@ this module reuses them and adds the codes that exist only in responses.
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
+from django.conf import settings
 from django.db import models
 from django.http import JsonResponse
 
@@ -209,6 +211,103 @@ def parse_dia_object_id(value: Any, param: str = 'diaObjectId') -> int:
     return parsed
 
 
+def _parse_number(value: Any, param: str, allow_string: bool) -> float:
+    """Parse a finite number: a JSON number, or a decimal string when allowed.
+
+    Raises:
+        InvalidQuery: If the value is missing, a boolean, not a number (or
+            numeric string when allowed), or not finite.
+    """
+    parsed: float | None = None
+    if isinstance(value, bool):
+        parsed = None
+    elif isinstance(value, (int, float)):
+        parsed = float(value)
+    elif allow_string and isinstance(value, str):
+        try:
+            parsed = float(value.strip())
+        except ValueError:
+            parsed = None
+    if parsed is None or not math.isfinite(parsed):
+        kind = 'a finite number' if not allow_string else 'a finite decimal number'
+        raise InvalidQuery(f'{param} must be {kind}, got {value!r}', param=param)
+    return parsed
+
+
+def parse_position(
+    ra: Any,
+    dec: Any,
+    *,
+    ra_param: str = 'ra',
+    dec_param: str = 'dec',
+    allow_string: bool = False,
+) -> tuple[float, float]:
+    """Parse a sky position in degrees (ICRS RA in [0, 360], Dec in [-90, 90]).
+
+    Args:
+        ra: Right ascension, degrees.
+        dec: Declination, degrees.
+        ra_param: The name reported for an invalid ``ra``.
+        dec_param: The name reported for an invalid ``dec``.
+        allow_string: Accept decimal strings (query-string parameters).
+
+    Returns:
+        ``(ra, dec)`` as floats.
+
+    Raises:
+        InvalidQuery: If either value is missing, not a finite number, or out
+            of range; ``param`` names it.
+    """
+    if ra is None:
+        raise InvalidQuery(f'{ra_param} is required', param=ra_param)
+    ra_deg = _parse_number(ra, ra_param, allow_string)
+    if not 0.0 <= ra_deg <= 360.0:
+        raise InvalidQuery(
+            f'{ra_param} must be in [0, 360] degrees, got {ra!r}', param=ra_param
+        )
+    if dec is None:
+        raise InvalidQuery(f'{dec_param} is required', param=dec_param)
+    dec_deg = _parse_number(dec, dec_param, allow_string)
+    if not -90.0 <= dec_deg <= 90.0:
+        raise InvalidQuery(
+            f'{dec_param} must be in [-90, 90] degrees, got {dec!r}', param=dec_param
+        )
+    return ra_deg, dec_deg
+
+
+def parse_radius_arcsec(
+    value: Any, *, param: str = 'radius_arcsec', allow_string: bool = False,
+) -> float:
+    """Parse a search radius in arcsec, bounded by ``API_MAX_CONE_RADIUS_ARCSEC``.
+
+    The maximum is read at call time, so an environment override needs only a
+    restart (KTD12).
+
+    Args:
+        value: The radius, arcsec.
+        param: The name reported when it is invalid.
+        allow_string: Accept a decimal string (query-string parameters).
+
+    Returns:
+        The radius as a float in (0, maximum].
+
+    Raises:
+        InvalidQuery: If the radius is missing, not a finite number, not
+            positive, or above the maximum.
+    """
+    if value is None:
+        raise InvalidQuery(f'{param} is required', param=param)
+    radius = _parse_number(value, param, allow_string)
+    maximum = float(settings.API_MAX_CONE_RADIUS_ARCSEC)
+    if not 0.0 < radius <= maximum:
+        raise InvalidQuery(
+            f'{param} must be greater than 0 and at most {maximum:g} arcsec, '
+            f'got {value!r}',
+            param=param,
+        )
+    return radius
+
+
 def dia_object_id_fields(object_id: int) -> dict[str, Any]:
     """The integer and string forms of a ``diaObjectId`` for a response (KTD4).
 
@@ -239,4 +338,6 @@ __all__ = [
     'envelope',
     'error_response',
     'parse_dia_object_id',
+    'parse_position',
+    'parse_radius_arcsec',
 ]

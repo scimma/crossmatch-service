@@ -1,4 +1,9 @@
+from datetime import datetime
+
+from django.conf import settings
 from django.db import models
+from django.db.models.functions import Lower
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from uuid import uuid4
 from core.log import get_logger
@@ -285,6 +290,10 @@ class TnsObject(models.Model):
         db_table = 'tns_objects'
         indexes = [
             models.Index(fields=['healpix_ipix'], name='core_tns_healpix_ipix_idx'),
+            # TNS-name lookup (KTD13) compares the normalized input with the
+            # lowercased name, so '2026a' finds a stored '2026A'. Built
+            # concurrently in its own migration (0012).
+            models.Index(Lower('name'), name='core_tns_name_lower_idx'),
         ]
 
 
@@ -303,6 +312,30 @@ class TnsSnapshotMeta(models.Model):
 
     class Meta:
         db_table = 'tns_snapshot_meta'
+
+    @classmethod
+    def current_epoch(cls, now: datetime | None = None) -> datetime | None:
+        """The snapshot epoch when the TNS snapshot is current, else ``None``.
+
+        The one currency rule shared by crossmatch TNS enrichment and TNS-name
+        resolution in the API (KTD13): the snapshot is current when its last
+        refresh is at most ``TNS_SNAPSHOT_MAX_AGE_SECONDS`` old.
+
+        Args:
+            now: The current time; defaults to ``timezone.now()``.
+
+        Returns:
+            ``last_refresh_epoch`` when a snapshot exists and is current;
+            ``None`` when there is no snapshot yet or it is stale.
+        """
+        now = now or timezone.now()
+        meta = cls.objects.first()
+        if meta is None or meta.last_refresh_epoch is None:
+            return None
+        age = (now - meta.last_refresh_epoch).total_seconds()
+        if age > settings.TNS_SNAPSHOT_MAX_AGE_SECONDS:
+            return None
+        return meta.last_refresh_epoch
 
 
 class TnsAssociation(models.Model):
