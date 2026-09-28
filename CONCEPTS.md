@@ -37,9 +37,10 @@ its Alerts become *queued*, then *matched* once the Batch's crossmatch completes
 
 ### Reliability
 The LSST real/bogus score for a detection: a 0-to-1 estimate of the probability that a
-diaSource is a genuine astrophysical transient rather than an imaging artifact. Brokers
-apply a minimum-reliability filter before delivery, so delivered Alerts carry a score
-above that floor. It is the ranking basis for "most likely transient" queries. The value
+diaSource is a genuine astrophysical transient rather than an imaging artifact. A
+minimum-reliability filter is applied before delivery, so delivered Alerts carry a score
+above that floor: ANTARES and Lasair enforce it in their own broker-side filters, while
+the Pitt-Google subscription enforces the service's `MIN_DIASOURCE_RELIABILITY`. It is the ranking basis for "most likely transient" queries. The value
 is per-diaSource and, where the read model persists it, is captured at an object's first
 detection.
 
@@ -56,7 +57,9 @@ uppercase, and SkyMapper coordinates carry a J2000 suffix.
 
 ### Match
 A catalog source found within the crossmatch radius of an Alert, together with its
-angular separation. The Match is the unit of result the service produces.
+angular separation. The Match is the unit of result the service produces. It is a
+coincident source at the Alert's position, not a host-galaxy association: offset hosts
+generally fall outside the radius, so the absence of a Match does not mean hostless.
 
 ### Payload
 The per-Match JSON record published to the public astronomy community over Hopskotch. It
