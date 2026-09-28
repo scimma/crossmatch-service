@@ -1,0 +1,653 @@
+{
+  "errors": {
+    "bad_cursor": {
+      "body": {
+        "error": "cursor is not a valid token: 'not-a-real-cursor!!'"
+      },
+      "params": {
+        "cursor": "not-a-real-cursor!!"
+      },
+      "status": 400
+    },
+    "bad_detail": {
+      "body": {
+        "error": "detail must be one of ('ids', 'position', 'matches', 'full'), got 'bogus'"
+      },
+      "params": {
+        "detail": "bogus"
+      },
+      "status": 400
+    },
+    "bad_page_size": {
+      "body": {
+        "error": "page_size is not an integer: 'abc'"
+      },
+      "params": {
+        "page_size": "abc"
+      },
+      "status": 400
+    },
+    "bad_start": {
+      "body": {
+        "error": "start is not a valid ISO-8601 timestamp: 'not-a-timestamp'"
+      },
+      "params": {
+        "start": "not-a-timestamp"
+      },
+      "status": 400
+    },
+    "bad_time_field": {
+      "body": {
+        "error": "time_field must be one of ('ingest_time', 'event_time'), got 'created_at'"
+      },
+      "params": {
+        "time_field": "created_at"
+      },
+      "status": 400
+    },
+    "post": {
+      "body": {
+        "error": "method not allowed"
+      },
+      "params": null,
+      "status": 405
+    },
+    "reversed_window": {
+      "body": {
+        "error": "end must not be earlier than start"
+      },
+      "params": {
+        "end": "2026-09-01T11:00:00+00:00",
+        "start": "2026-09-01T13:00:00+00:00"
+      },
+      "status": 400
+    },
+    "zero_page_size": {
+      "body": {
+        "error": "page_size must be a positive integer"
+      },
+      "params": {
+        "page_size": "0"
+      },
+      "status": 400
+    }
+  },
+  "pages": {
+    "event_time/full": {
+      "first": {
+        "count": 2,
+        "detail": "full",
+        "next_cursor": "eyJrIjoicmVjZW50X2Nyb3NzbWF0Y2hlcyIsInQiOiIyMDI2LTA5LTAxVDExOjU5OjAwKzAwOjAwIiwiaSI6OTAwNzE5OTI1NDc0MTAwMywicyI6IjIwMjYtMDktMDFUMTE6MDA6MDArMDA6MDAiLCJlIjoiMjAyNi0wOS0wMVQxMzowMDowMCswMDowMCIsImYiOiJldmVudF90aW1lIiwiZCI6ImZ1bGwifQ",
+        "objects": [
+          {
+            "dec": -20.0,
+            "diaObjectId": 9007199254740993,
+            "matches": [
+              {
+                "catalog_name": "des_y6_gold",
+                "catalog_payload": {
+                  "mag_auto_g": 21.25
+                },
+                "catalog_source_id": "202",
+                "catalogs_skipped": [],
+                "dec": -20.0002,
+                "diaObjectId": 9007199254740993,
+                "partial": false,
+                "ra": 10.0002,
+                "separation_arcsec": 0.9,
+                "tns_checked": false,
+                "tns_snapshot_epoch": null
+              },
+              {
+                "catalog_name": "gaia_dr3",
+                "catalog_payload": {
+                  "parallax": null,
+                  "phot_g_mean_mag": 18.5
+                },
+                "catalog_source_id": "100",
+                "catalogs_skipped": [],
+                "dec": -20.0001,
+                "diaObjectId": 9007199254740993,
+                "partial": false,
+                "ra": 10.0001,
+                "separation_arcsec": 0.25,
+                "tns_checked": false,
+                "tns_snapshot_epoch": null
+              }
+            ],
+            "ra": 10.0
+          },
+          {
+            "dec": -21.0,
+            "diaObjectId": 9007199254741003,
+            "matches": [
+              {
+                "catalog_name": "gaia_dr3",
+                "catalog_payload": {
+                  "phot_g_mean_mag": 19.0
+                },
+                "catalog_source_id": "101",
+                "catalogs_skipped": [],
+                "dec": -21.0001,
+                "diaObjectId": 9007199254741003,
+                "partial": false,
+                "ra": 11.0001,
+                "separation_arcsec": 0.4,
+                "tns_checked": false,
+                "tns_snapshot_epoch": null
+              }
+            ],
+            "ra": 11.0
+          }
+        ],
+        "page_size": 2,
+        "time_field": "event_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      },
+      "params": {
+        "detail": "full",
+        "end": "2026-09-01T13:00:00+00:00",
+        "page_size": "2",
+        "start": "2026-09-01T11:00:00+00:00",
+        "time_field": "event_time"
+      },
+      "second": {
+        "count": 1,
+        "detail": "full",
+        "next_cursor": null,
+        "objects": [
+          {
+            "dec": -22.0,
+            "diaObjectId": 9007199254741013,
+            "matches": [
+              {
+                "catalog_name": "gaia_dr3",
+                "catalog_payload": {
+                  "parallax": null,
+                  "phot_g_mean_mag": 20.5
+                },
+                "catalog_source_id": "102",
+                "catalogs_skipped": [],
+                "dec": -22.0001,
+                "diaObjectId": 9007199254741013,
+                "partial": false,
+                "ra": 12.0001,
+                "separation_arcsec": 0.45,
+                "tns_checked": false,
+                "tns_snapshot_epoch": null
+              }
+            ],
+            "ra": 12.0
+          }
+        ],
+        "page_size": 2,
+        "time_field": "event_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      }
+    },
+    "event_time/ids": {
+      "first": {
+        "count": 2,
+        "detail": "ids",
+        "next_cursor": "eyJrIjoicmVjZW50X2Nyb3NzbWF0Y2hlcyIsInQiOiIyMDI2LTA5LTAxVDExOjU5OjAwKzAwOjAwIiwiaSI6OTAwNzE5OTI1NDc0MTAwMywicyI6IjIwMjYtMDktMDFUMTE6MDA6MDArMDA6MDAiLCJlIjoiMjAyNi0wOS0wMVQxMzowMDowMCswMDowMCIsImYiOiJldmVudF90aW1lIiwiZCI6ImlkcyJ9",
+        "objects": [
+          {
+            "diaObjectId": 9007199254740993
+          },
+          {
+            "diaObjectId": 9007199254741003
+          }
+        ],
+        "page_size": 2,
+        "time_field": "event_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      },
+      "params": {
+        "detail": "ids",
+        "end": "2026-09-01T13:00:00+00:00",
+        "page_size": "2",
+        "start": "2026-09-01T11:00:00+00:00",
+        "time_field": "event_time"
+      },
+      "second": {
+        "count": 1,
+        "detail": "ids",
+        "next_cursor": null,
+        "objects": [
+          {
+            "diaObjectId": 9007199254741013
+          }
+        ],
+        "page_size": 2,
+        "time_field": "event_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      }
+    },
+    "event_time/matches": {
+      "first": {
+        "count": 2,
+        "detail": "matches",
+        "next_cursor": "eyJrIjoicmVjZW50X2Nyb3NzbWF0Y2hlcyIsInQiOiIyMDI2LTA5LTAxVDExOjU5OjAwKzAwOjAwIiwiaSI6OTAwNzE5OTI1NDc0MTAwMywicyI6IjIwMjYtMDktMDFUMTE6MDA6MDArMDA6MDAiLCJlIjoiMjAyNi0wOS0wMVQxMzowMDowMCswMDowMCIsImYiOiJldmVudF90aW1lIiwiZCI6Im1hdGNoZXMifQ",
+        "objects": [
+          {
+            "dec": -20.0,
+            "diaObjectId": 9007199254740993,
+            "matches": [
+              {
+                "catalog_name": "des_y6_gold",
+                "catalog_source_id": "202",
+                "separation_arcsec": 0.9
+              },
+              {
+                "catalog_name": "gaia_dr3",
+                "catalog_source_id": "100",
+                "separation_arcsec": 0.25
+              }
+            ],
+            "ra": 10.0
+          },
+          {
+            "dec": -21.0,
+            "diaObjectId": 9007199254741003,
+            "matches": [
+              {
+                "catalog_name": "gaia_dr3",
+                "catalog_source_id": "101",
+                "separation_arcsec": 0.4
+              }
+            ],
+            "ra": 11.0
+          }
+        ],
+        "page_size": 2,
+        "time_field": "event_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      },
+      "params": {
+        "detail": "matches",
+        "end": "2026-09-01T13:00:00+00:00",
+        "page_size": "2",
+        "start": "2026-09-01T11:00:00+00:00",
+        "time_field": "event_time"
+      },
+      "second": {
+        "count": 1,
+        "detail": "matches",
+        "next_cursor": null,
+        "objects": [
+          {
+            "dec": -22.0,
+            "diaObjectId": 9007199254741013,
+            "matches": [
+              {
+                "catalog_name": "gaia_dr3",
+                "catalog_source_id": "102",
+                "separation_arcsec": 0.45
+              }
+            ],
+            "ra": 12.0
+          }
+        ],
+        "page_size": 2,
+        "time_field": "event_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      }
+    },
+    "event_time/position": {
+      "first": {
+        "count": 2,
+        "detail": "position",
+        "next_cursor": "eyJrIjoicmVjZW50X2Nyb3NzbWF0Y2hlcyIsInQiOiIyMDI2LTA5LTAxVDExOjU5OjAwKzAwOjAwIiwiaSI6OTAwNzE5OTI1NDc0MTAwMywicyI6IjIwMjYtMDktMDFUMTE6MDA6MDArMDA6MDAiLCJlIjoiMjAyNi0wOS0wMVQxMzowMDowMCswMDowMCIsImYiOiJldmVudF90aW1lIiwiZCI6InBvc2l0aW9uIn0",
+        "objects": [
+          {
+            "dec": -20.0,
+            "diaObjectId": 9007199254740993,
+            "ra": 10.0
+          },
+          {
+            "dec": -21.0,
+            "diaObjectId": 9007199254741003,
+            "ra": 11.0
+          }
+        ],
+        "page_size": 2,
+        "time_field": "event_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      },
+      "params": {
+        "detail": "position",
+        "end": "2026-09-01T13:00:00+00:00",
+        "page_size": "2",
+        "start": "2026-09-01T11:00:00+00:00",
+        "time_field": "event_time"
+      },
+      "second": {
+        "count": 1,
+        "detail": "position",
+        "next_cursor": null,
+        "objects": [
+          {
+            "dec": -22.0,
+            "diaObjectId": 9007199254741013,
+            "ra": 12.0
+          }
+        ],
+        "page_size": 2,
+        "time_field": "event_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      }
+    },
+    "ingest_time/full": {
+      "first": {
+        "count": 2,
+        "detail": "full",
+        "next_cursor": "eyJrIjoicmVjZW50X2Nyb3NzbWF0Y2hlcyIsInQiOiIyMDI2LTA5LTAxVDExOjU5OjAwKzAwOjAwIiwiaSI6OTAwNzE5OTI1NDc0MTAwMywicyI6IjIwMjYtMDktMDFUMTE6MDA6MDArMDA6MDAiLCJlIjoiMjAyNi0wOS0wMVQxMzowMDowMCswMDowMCIsImYiOiJpbmdlc3RfdGltZSIsImQiOiJmdWxsIn0",
+        "objects": [
+          {
+            "dec": -20.0,
+            "diaObjectId": 9007199254740993,
+            "matches": [
+              {
+                "catalog_name": "des_y6_gold",
+                "catalog_payload": {
+                  "mag_auto_g": 21.25
+                },
+                "catalog_source_id": "202",
+                "catalogs_skipped": [],
+                "dec": -20.0002,
+                "diaObjectId": 9007199254740993,
+                "partial": false,
+                "ra": 10.0002,
+                "separation_arcsec": 0.9,
+                "tns_checked": false,
+                "tns_snapshot_epoch": null
+              },
+              {
+                "catalog_name": "gaia_dr3",
+                "catalog_payload": {
+                  "parallax": null,
+                  "phot_g_mean_mag": 18.5
+                },
+                "catalog_source_id": "100",
+                "catalogs_skipped": [],
+                "dec": -20.0001,
+                "diaObjectId": 9007199254740993,
+                "partial": false,
+                "ra": 10.0001,
+                "separation_arcsec": 0.25,
+                "tns_checked": false,
+                "tns_snapshot_epoch": null
+              }
+            ],
+            "ra": 10.0
+          },
+          {
+            "dec": -21.0,
+            "diaObjectId": 9007199254741003,
+            "matches": [
+              {
+                "catalog_name": "gaia_dr3",
+                "catalog_payload": {
+                  "phot_g_mean_mag": 19.0
+                },
+                "catalog_source_id": "101",
+                "catalogs_skipped": [],
+                "dec": -21.0001,
+                "diaObjectId": 9007199254741003,
+                "partial": false,
+                "ra": 11.0001,
+                "separation_arcsec": 0.4,
+                "tns_checked": false,
+                "tns_snapshot_epoch": null
+              }
+            ],
+            "ra": 11.0
+          }
+        ],
+        "page_size": 2,
+        "time_field": "ingest_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      },
+      "params": {
+        "detail": "full",
+        "end": "2026-09-01T13:00:00+00:00",
+        "page_size": "2",
+        "start": "2026-09-01T11:00:00+00:00",
+        "time_field": "ingest_time"
+      },
+      "second": {
+        "count": 1,
+        "detail": "full",
+        "next_cursor": null,
+        "objects": [
+          {
+            "dec": -22.0,
+            "diaObjectId": 9007199254741013,
+            "matches": [
+              {
+                "catalog_name": "gaia_dr3",
+                "catalog_payload": {
+                  "parallax": null,
+                  "phot_g_mean_mag": 20.5
+                },
+                "catalog_source_id": "102",
+                "catalogs_skipped": [],
+                "dec": -22.0001,
+                "diaObjectId": 9007199254741013,
+                "partial": false,
+                "ra": 12.0001,
+                "separation_arcsec": 0.45,
+                "tns_checked": false,
+                "tns_snapshot_epoch": null
+              }
+            ],
+            "ra": 12.0
+          }
+        ],
+        "page_size": 2,
+        "time_field": "ingest_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      }
+    },
+    "ingest_time/ids": {
+      "first": {
+        "count": 2,
+        "detail": "ids",
+        "next_cursor": "eyJrIjoicmVjZW50X2Nyb3NzbWF0Y2hlcyIsInQiOiIyMDI2LTA5LTAxVDExOjU5OjAwKzAwOjAwIiwiaSI6OTAwNzE5OTI1NDc0MTAwMywicyI6IjIwMjYtMDktMDFUMTE6MDA6MDArMDA6MDAiLCJlIjoiMjAyNi0wOS0wMVQxMzowMDowMCswMDowMCIsImYiOiJpbmdlc3RfdGltZSIsImQiOiJpZHMifQ",
+        "objects": [
+          {
+            "diaObjectId": 9007199254740993
+          },
+          {
+            "diaObjectId": 9007199254741003
+          }
+        ],
+        "page_size": 2,
+        "time_field": "ingest_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      },
+      "params": {
+        "detail": "ids",
+        "end": "2026-09-01T13:00:00+00:00",
+        "page_size": "2",
+        "start": "2026-09-01T11:00:00+00:00",
+        "time_field": "ingest_time"
+      },
+      "second": {
+        "count": 1,
+        "detail": "ids",
+        "next_cursor": null,
+        "objects": [
+          {
+            "diaObjectId": 9007199254741013
+          }
+        ],
+        "page_size": 2,
+        "time_field": "ingest_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      }
+    },
+    "ingest_time/matches": {
+      "first": {
+        "count": 2,
+        "detail": "matches",
+        "next_cursor": "eyJrIjoicmVjZW50X2Nyb3NzbWF0Y2hlcyIsInQiOiIyMDI2LTA5LTAxVDExOjU5OjAwKzAwOjAwIiwiaSI6OTAwNzE5OTI1NDc0MTAwMywicyI6IjIwMjYtMDktMDFUMTE6MDA6MDArMDA6MDAiLCJlIjoiMjAyNi0wOS0wMVQxMzowMDowMCswMDowMCIsImYiOiJpbmdlc3RfdGltZSIsImQiOiJtYXRjaGVzIn0",
+        "objects": [
+          {
+            "dec": -20.0,
+            "diaObjectId": 9007199254740993,
+            "matches": [
+              {
+                "catalog_name": "des_y6_gold",
+                "catalog_source_id": "202",
+                "separation_arcsec": 0.9
+              },
+              {
+                "catalog_name": "gaia_dr3",
+                "catalog_source_id": "100",
+                "separation_arcsec": 0.25
+              }
+            ],
+            "ra": 10.0
+          },
+          {
+            "dec": -21.0,
+            "diaObjectId": 9007199254741003,
+            "matches": [
+              {
+                "catalog_name": "gaia_dr3",
+                "catalog_source_id": "101",
+                "separation_arcsec": 0.4
+              }
+            ],
+            "ra": 11.0
+          }
+        ],
+        "page_size": 2,
+        "time_field": "ingest_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      },
+      "params": {
+        "detail": "matches",
+        "end": "2026-09-01T13:00:00+00:00",
+        "page_size": "2",
+        "start": "2026-09-01T11:00:00+00:00",
+        "time_field": "ingest_time"
+      },
+      "second": {
+        "count": 1,
+        "detail": "matches",
+        "next_cursor": null,
+        "objects": [
+          {
+            "dec": -22.0,
+            "diaObjectId": 9007199254741013,
+            "matches": [
+              {
+                "catalog_name": "gaia_dr3",
+                "catalog_source_id": "102",
+                "separation_arcsec": 0.45
+              }
+            ],
+            "ra": 12.0
+          }
+        ],
+        "page_size": 2,
+        "time_field": "ingest_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      }
+    },
+    "ingest_time/position": {
+      "first": {
+        "count": 2,
+        "detail": "position",
+        "next_cursor": "eyJrIjoicmVjZW50X2Nyb3NzbWF0Y2hlcyIsInQiOiIyMDI2LTA5LTAxVDExOjU5OjAwKzAwOjAwIiwiaSI6OTAwNzE5OTI1NDc0MTAwMywicyI6IjIwMjYtMDktMDFUMTE6MDA6MDArMDA6MDAiLCJlIjoiMjAyNi0wOS0wMVQxMzowMDowMCswMDowMCIsImYiOiJpbmdlc3RfdGltZSIsImQiOiJwb3NpdGlvbiJ9",
+        "objects": [
+          {
+            "dec": -20.0,
+            "diaObjectId": 9007199254740993,
+            "ra": 10.0
+          },
+          {
+            "dec": -21.0,
+            "diaObjectId": 9007199254741003,
+            "ra": 11.0
+          }
+        ],
+        "page_size": 2,
+        "time_field": "ingest_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      },
+      "params": {
+        "detail": "position",
+        "end": "2026-09-01T13:00:00+00:00",
+        "page_size": "2",
+        "start": "2026-09-01T11:00:00+00:00",
+        "time_field": "ingest_time"
+      },
+      "second": {
+        "count": 1,
+        "detail": "position",
+        "next_cursor": null,
+        "objects": [
+          {
+            "dec": -22.0,
+            "diaObjectId": 9007199254741013,
+            "ra": 12.0
+          }
+        ],
+        "page_size": 2,
+        "time_field": "ingest_time",
+        "window": {
+          "end": "2026-09-01T13:00:00+00:00",
+          "start": "2026-09-01T11:00:00+00:00"
+        }
+      }
+    }
+  }
+}

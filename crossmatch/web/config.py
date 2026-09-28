@@ -182,7 +182,8 @@ def api_reference() -> Any:
     contract-derived values (no HATS URLs or credentials).
 
     Returns:
-        A dict with ``service_version``, ``radius_arcsec``, ``catalogs``,
+        A dict with ``service_version``, ``contract_version``,
+        ``radius_arcsec``, ``catalogs``,
         ``example_catalog``, ``reliability_cuts``, ``limits``, ``recent``,
         ``detail_levels``, ``default_detail``, ``caveats``, ``nearest_rule``,
         ``conventions``, ``operations``, and ``urls``; or
@@ -192,6 +193,7 @@ def api_reference() -> Any:
         ref = docs.reference()
         return {
             'service_version': ref['service_version'],
+            'contract_version': ref['contract_version'],
             'radius_arcsec': _present(ref['radius_arcsec']),
             'catalogs': [
                 {

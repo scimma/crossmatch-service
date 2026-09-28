@@ -46,7 +46,9 @@ def _parse_timestamp(raw: str, field: str) -> datetime:
     """
     parsed = parse_datetime(raw)
     if parsed is None:
-        raise InvalidQuery(f"{field} is not a valid ISO-8601 timestamp: {raw!r}")
+        raise InvalidQuery(
+            f"{field} is not a valid ISO-8601 timestamp: {raw!r}", param=field
+        )
     if is_naive(parsed):
         parsed = make_aware(parsed, timezone.utc)
     return parsed
@@ -62,9 +64,10 @@ def _parse_page_size(raw: str) -> int:
     try:
         return int(raw)
     except (TypeError, ValueError):
-        raise InvalidQuery(f"page_size is not an integer: {raw!r}")
+        raise InvalidQuery(f"page_size is not an integer: {raw!r}", param='page_size')
 
 
+@api_guard
 def recent_crossmatches_view(request: HttpRequest) -> JsonResponse:
     """GET one keyset page of crossmatches for objects with recent alerts.
 
@@ -82,12 +85,19 @@ def recent_crossmatches_view(request: HttpRequest) -> JsonResponse:
     unfiltered results are never mistaken for filtered ones. Every other
     unknown parameter is ignored, as before.
 
+    The response contract is added without changing an existing key (R6):
+    the page gains ``provenance`` and ``as_of``, and error bodies gain
+    ``code``, ``message``, ``param``, and ``retryable`` beside the unchanged
+    ``error`` string. The view runs under the request guard (KTD12).
+
     Returns:
-        A ``JsonResponse``: 200 with the page, 400 with a JSON error body on any
-        invalid parameter or cursor conflict, or 405 for a non-GET method.
+        A ``JsonResponse``: 200 with the page, 400 with a structured error body
+        on any invalid parameter or cursor conflict, 405 for a non-GET method,
+        or a guard error (400 ``query_too_expensive``, 503
+        ``service_unavailable``).
     """
     if request.method != 'GET':
-        return JsonResponse({'error': 'method not allowed'}, status=405)
+        raise _method_not_allowed()
 
     params = request.GET
     unsupported = [
@@ -122,7 +132,7 @@ def recent_crossmatches_view(request: HttpRequest) -> JsonResponse:
         result = recent_crossmatches(**kwargs)
     except InvalidQuery as exc:
         logger.info('recent_crossmatches bad request', error=str(exc))
-        return JsonResponse({'error': str(exc)}, status=400)
+        return error_response(exc)
 
     return JsonResponse(result)
 

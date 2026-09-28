@@ -286,19 +286,21 @@ def test_fixture_fails_loudly_on_unknown_operation(openapi_validate):
 
 
 @pytest.mark.django_db
-def test_recent_crossmatches_responses_conform_unchanged(client, openapi_validate):
-    """The existing operation is described as-is; its behavior is untouched (U9)."""
+def test_recent_crossmatches_responses_conform(client, openapi_validate):
+    """The existing operation carries the contract additively (U9): provenance
+    on every page, and the structured error keys beside the original error."""
     CatalogMatchFactory(alert=AlertFactory())
     for detail in ('ids', 'position', 'matches', 'full'):
         ok = client.get(RECENT_URL, {'detail': detail})
         assert ok.status_code == 200
         assert ok.json()['count'] == 1
-        assert 'provenance' not in ok.json()
+        assert ok.json()['provenance'] == provenance.service_provenance()
         openapi_validate('recent_crossmatches', 200, ok.json())
 
     bad = client.get(RECENT_URL, {'detail': 'bogus'})
     assert bad.status_code == 400
-    assert list(bad.json()) == ['error']
+    assert bad.json()['error'] == bad.json()['message']
+    assert bad.json()['code'] == 'invalid_parameter'
     openapi_validate('recent_crossmatches', 400, bad.json())
 
     not_allowed = client.post(RECENT_URL)

@@ -196,23 +196,30 @@ def decode_cursor(raw: str) -> Cursor:
         time_field = payload[_KEY_TIME_FIELD]
         detail = payload[_KEY_DETAIL]
     except (KeyError, TypeError) as exc:
-        raise InvalidQuery('cursor is missing a required field') from exc
+        raise InvalidQuery(
+            'cursor is missing a required field', param='cursor'
+        ) from exc
 
     if not isinstance(object_id, int) or isinstance(object_id, bool):
-        raise InvalidQuery('cursor object id must be an integer')
+        raise InvalidQuery('cursor object id must be an integer', param='cursor')
     if not isinstance(time_field, str) or not isinstance(detail, str):
-        raise InvalidQuery('cursor time_field/detail must be strings')
+        raise InvalidQuery(
+            'cursor time_field/detail must be strings', param='cursor'
+        )
 
     as_of = payload.get(_KEY_AS_OF)
-    return Cursor(
-        time_field_value=_parse_dt(time_value),
-        dia_object_id=object_id,
-        start=_parse_dt(start),
-        end=_parse_dt(end),
-        time_field=time_field,
-        detail=detail,
-        as_of=_parse_dt(as_of) if as_of is not None else None,
-    )
+    try:
+        return Cursor(
+            time_field_value=_parse_dt(time_value),
+            dia_object_id=object_id,
+            start=_parse_dt(start),
+            end=_parse_dt(end),
+            time_field=time_field,
+            detail=detail,
+            as_of=_parse_dt(as_of) if as_of is not None else None,
+        )
+    except InvalidQuery as exc:
+        raise InvalidQuery(exc.message, param='cursor') from None
 
 
 def encode_cone_cursor(cursor: ConeCursor) -> str:
@@ -307,13 +314,19 @@ def ensure_no_conflict(
         InvalidQuery: If any supplied param differs from the cursor's value.
     """
     if start is not None and start != cursor.start:
-        raise InvalidQuery("start conflicts with the cursor's pinned window")
+        raise InvalidQuery(
+            "start conflicts with the cursor's pinned window", param='start'
+        )
     if end is not None and end != cursor.end:
-        raise InvalidQuery("end conflicts with the cursor's pinned window")
+        raise InvalidQuery("end conflicts with the cursor's pinned window", param='end')
     if time_field is not None and time_field != cursor.time_field:
-        raise InvalidQuery("time_field conflicts with the cursor's pinned context")
+        raise InvalidQuery(
+            "time_field conflicts with the cursor's pinned context", param='time_field'
+        )
     if detail is not None and detail != cursor.detail:
-        raise InvalidQuery("detail conflicts with the cursor's pinned context")
+        raise InvalidQuery(
+            "detail conflicts with the cursor's pinned context", param='detail'
+        )
 
 
 def _parse_dt(value: object) -> datetime:

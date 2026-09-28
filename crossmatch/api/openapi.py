@@ -350,12 +350,6 @@ def _components(current: dict[str, Any]) -> dict[str, Any]:
                     },
                 },
             },
-            'LegacyError': {
-                'type': 'object',
-                'description': 'The original error body: a reason string only.',
-                'required': ['error'],
-                'properties': {'error': {'type': 'string'}},
-            },
             **_recent_crossmatches_schemas(),
             **_lookup_schemas(),
             **_filter_schemas(),
@@ -365,7 +359,8 @@ def _components(current: dict[str, Any]) -> dict[str, Any]:
 
 
 def _recent_crossmatches_schemas() -> dict[str, Any]:
-    """Schemas describing the existing recent-crossmatches response as-is."""
+    """Schemas of the recent-crossmatches response: its original fields plus the
+    contract additions (``provenance``, ``as_of``), which change none of them."""
     source_id = _source_id_description()
     positions = position_conventions()
     return {
@@ -429,9 +424,10 @@ def _recent_crossmatches_schemas() -> dict[str, Any]:
         'RecentObject': {
             'type': 'object',
             'description': 'One object; fields grow with the detail level.',
-            'required': ['diaObjectId'],
+            'required': ['diaObjectId', 'diaObjectId_str'],
             'properties': {
                 'diaObjectId': _ref('DiaObjectId'),
+                'diaObjectId_str': _ref('DiaObjectIdStr'),
                 'ra': {
                     'type': ['number', 'null'],
                     'x-unit': DEG,
@@ -453,10 +449,11 @@ def _recent_crossmatches_schemas() -> dict[str, Any]:
         'RecentCrossmatchesPage': {
             'type': 'object',
             'required': [
-                'window', 'time_field', 'detail', 'page_size', 'count',
-                'next_cursor', 'objects',
+                'provenance', 'window', 'time_field', 'detail', 'page_size',
+                'count', 'next_cursor', 'objects', 'as_of',
             ],
             'properties': {
+                'provenance': _ref('Provenance'),
                 'window': {
                     'type': 'object',
                     'required': ['start', 'end'],
@@ -477,8 +474,27 @@ def _recent_crossmatches_schemas() -> dict[str, Any]:
                     'minimum': 0,
                     'description': 'Objects on this page, not a total.',
                 },
-                'next_cursor': {'type': ['string', 'null']},
+                'next_cursor': {
+                    'type': ['string', 'null'],
+                    'description': (
+                        'Opaque token for the next page; null when the window '
+                        'is exhausted. It pins the window, time_field, detail, '
+                        'and as_of.'
+                    ),
+                },
                 'objects': {'type': 'array', 'items': _ref('RecentObject')},
+                'as_of': {
+                    'type': 'string',
+                    'format': 'date-time',
+                    'description': (
+                        'The walk is pinned to alerts ingested at or before this '
+                        'time, on every page of one walk (set by the first page; '
+                        'a cursor issued before this field existed pins at the '
+                        'request that presents it). ' + PAGING_CAVEAT + ' Here '
+                        'that means an object in the pinned set whose first '
+                        'match lands mid-walk can appear on a later page.'
+                    ),
+                },
             },
         },
     }
@@ -1997,13 +2013,16 @@ def _paths() -> dict[str, Any]:
                 'description': (
                     'One keyset page of matched objects whose alert falls in the '
                     'window, newest first. Matches-only: an object with no '
-                    'catalog match is not listed. Follow next_cursor until null. '
-                    'Does not filter or count: a filter-named parameter '
-                    '(<catalog>.<column>_min|_max, catalog, '
-                    'separation_arcsec_max, reliability_min|_max, or any name '
-                    'with a dot or ending _min/_max) or response is a 400 '
-                    'unsupported_parameter; other unknown parameters are '
-                    'ignored.'
+                    'catalog match is not listed. Follow next_cursor until null; '
+                    'the walk is pinned by as_of. Does not filter or count: a '
+                    'filter-named parameter (<catalog>.<column>_min|_max, '
+                    'catalog, separation_arcsec_max, reliability_min|_max, or '
+                    'any name with a dot or ending _min/_max) or response is a '
+                    '400 unsupported_parameter; other unknown parameters are '
+                    'ignored. Runs under the per-request budget of '
+                    f'{float(settings.API_REQUEST_BUDGET_SECONDS):g} s: a large page at '
+                    'detail=full can exceed it (400 query_too_expensive); use a '
+                    'smaller page_size.'
                 ),
                 'parameters': [
                     _query_param(
@@ -2048,13 +2067,16 @@ def _paths() -> dict[str, Any]:
                 'responses': {
                     '200': _json(_ref('RecentCrossmatchesPage'), 'One page.'),
                     '400': _json(
-                        {'anyOf': [_ref('Error'), _ref('LegacyError')]},
-                        'Invalid parameter (the original body, error only); or '
-                        'unsupported_parameter (a structured Error naming the '
-                        'filter or response parameters, which this operation '
-                        'does not support).',
+                        _ref('Error'),
+                        'invalid_parameter (a bad start, end, time_field, '
+                        'detail, page_size, or cursor, or a cursor conflict); '
+                        'unsupported_parameter (a filter or response parameter, '
+                        'which this operation does not support); or '
+                        'query_too_expensive. error repeats message, as in the '
+                        'original error-only body.',
                     ),
-                    '405': _json(_ref('LegacyError'), 'Method not allowed.'),
+                    '405': _json(_ref('Error'), 'Method not allowed.'),
+                    '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),
                 },
             },
         },

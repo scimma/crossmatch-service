@@ -11,7 +11,7 @@ Machine-readable: [OpenAPI 3.1 document]({{ ref.urls.openapi }}), [llms.txt]({{ 
 - {{ ref.caveats.coincidence }}
 - {{ ref.caveats.not_in_service }}
 - {{ ref.caveats.paging }}
-- Every successful response of the new queries carries a `provenance` block: `service_version`, `contract_version`, `crossmatch_radius_arcsec`, `catalogs` (name and release), and `reliability_cuts` (per broker). Together they are the methods sentence for a paper.
+- Every successful response carries a `provenance` block: `service_version`, `contract_version`, `crossmatch_radius_arcsec`, `catalogs` (name and release), and `reliability_cuts` (per broker). Together they are the methods sentence for a paper.
 - `diaObjectId` is a 64-bit integer; read `diaObjectId_str` in JavaScript, which loses precision above 2^53.
 
 ## Crossmatch configuration

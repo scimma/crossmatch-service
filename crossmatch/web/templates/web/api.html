@@ -41,7 +41,7 @@
 </div>
 
 <h2 class="h4 mt-4">Service configuration</h2>
-<p>Read from the running service (version {{ api.service_version }}); every response of the new queries repeats it in its <code>provenance</code> block.</p>
+<p>Read from the running service (version {{ api.service_version }}); every successful response repeats it in its <code>provenance</code> block.</p>
 <ul>
   <li>Crossmatch radius: {% if api.radius_arcsec %}{{ api.radius_arcsec }} arcsec{% else %}not configured{% endif %}. {{ api.nearest_rule }}</li>
   <li>Catalogs:
@@ -69,7 +69,19 @@
 <p>
   Results are keyset (cursor) paged, newest first. Follow the top-level
   <code>next_cursor</code> to page through the whole window; it is
-  <code>null</code> when the window is exhausted.
+  <code>null</code> when the window is exhausted. The first page sets
+  <code>as_of</code> and its cursors carry it, so one walk lists only alerts
+  ingested at or before that time. The pin fixes which alerts are in the set,
+  not their crossmatch state: an alert that gains its first match while you
+  page can appear on a later page. A walk never repeats an object.
+</p>
+<p>
+  This endpoint does not filter or count: a filter parameter or
+  <code>response</code> returns a 400 <code>unsupported_parameter</code>
+  error; other unknown parameters are ignored. It runs within the
+  {{ api.limits.request_budget_seconds }} s request budget, so a large page at
+  <code>detail=full</code> can return a 400 <code>query_too_expensive</code>;
+  request a smaller <code>page_size</code> if it does.
 </p>
 
 <h2 class="h4 mt-4">Query parameters</h2>
@@ -121,27 +133,37 @@
 <h2 class="h4 mt-4">Detail levels</h2>
 <p>Detail levels are cumulative, each adding to the one before it:</p>
 <ul>
-  <li><code>ids</code> &mdash; the <code>diaObjectId</code> only.</li>
+  <li><code>ids</code> &mdash; the <code>diaObjectId</code> only, as an integer and as the string <code>diaObjectId_str</code>.</li>
   <li><code>position</code> &mdash; adds the object's <code>ra</code> / <code>dec</code>.</li>
   <li><code>matches</code> &mdash; adds a summary per match (catalog, source id, separation).</li>
   <li><code>full</code> &mdash; adds the complete published payload for each match.</li>
 </ul>
 
 <h2 class="h4 mt-4">Response envelope</h2>
-<p>Every successful response wraps the objects with the resolved query metadata:</p>
+<p>Every successful response wraps the objects with the service provenance and the resolved query metadata:</p>
 <pre class="bg-light p-3 border rounded"><code>{
+  "provenance": {
+    "service_version": "...",
+    "contract_version": "...",
+    "crossmatch_radius_arcsec": ...,
+    "catalogs": [ ... ],
+    "reliability_cuts": [ ... ]
+  },
   "window": {"start": "...", "end": "..."},
   "time_field": "ingest_time",
   "detail": "matches",
   "page_size": {{ api.recent.default_page_size }},
   "count": 2,
   "next_cursor": null,
-  "objects": [ ... ]
+  "objects": [ ... ],
+  "as_of": "..."
 }</code></pre>
 <p>
   <code>count</code> is the number of objects on this page (not a whole-set
   total). <code>objects</code> contains one entry per matched
   <code>diaObjectId</code> (objects with no match are omitted).
+  <code>provenance</code> and <code>as_of</code> were added without changing
+  any earlier field; ignore keys your client does not know.
 </p>
 
 <h2 class="h4 mt-4">Example request</h2>
@@ -149,6 +171,13 @@
 
 <h3 class="h5 mt-3">Success (200)</h3>
 <pre class="bg-light p-3 border rounded"><code>{
+  "provenance": {
+    "service_version": "{{ api.service_version }}",
+    "contract_version": "{{ api.contract_version }}",
+    "crossmatch_radius_arcsec": {% if api.radius_arcsec %}{{ api.radius_arcsec }}{% else %}null{% endif %},
+    "catalogs": [{% for cat in api.catalogs %}{"name": "{{ cat.name }}", "release": "{{ cat.release }}"}{% if not forloop.last %}, {% endif %}{% endfor %}],
+    "reliability_cuts": [ ... ]
+  },
   "window": {"start": "2026-08-10T00:00:00+00:00", "end": "2026-08-10T12:00:00+00:00"},
   "time_field": "ingest_time",
   "detail": "matches",
@@ -158,6 +187,7 @@
   "objects": [
     {
       "diaObjectId": 1234567890123456789,
+      "diaObjectId_str": "1234567890123456789",
       "ra": 150.113,
       "dec": 2.205,
       "matches": [
@@ -168,22 +198,42 @@
         }
       ]
     }
-  ]
+  ],
+  "as_of": "2026-08-10T12:00:03.123456+00:00"
 }</code></pre>
 
 <h3 class="h5 mt-3">Error &mdash; invalid parameter (400)</h3>
-<p>An unparseable timestamp, unknown <code>detail</code>/<code>time_field</code>, non-positive <code>page_size</code>, malformed or conflicting <code>cursor</code>, or an out-of-range window returns a 400 with a JSON error body:</p>
+<p>An unparseable timestamp, unknown <code>detail</code>/<code>time_field</code>, non-positive <code>page_size</code>, malformed or conflicting <code>cursor</code>, or an out-of-range window returns a 400 with a structured JSON error body. Branch on <code>code</code>; <code>error</code> keeps the original text and equals <code>message</code>:</p>
 {% verbatim %}
 <pre class="bg-light p-3 border rounded"><code>{
-  "error": "detail must be one of ('ids', 'position', 'matches', 'full'), got 'everything'"
+  "error": "detail must be one of ('ids', 'position', 'matches', 'full'), got 'everything'",
+  "code": "invalid_parameter",
+  "message": "detail must be one of ('ids', 'position', 'matches', 'full'), got 'everything'",
+  "param": "detail",
+  "retryable": false
 }</code></pre>
 {% endverbatim %}
+<p>The same body shape carries <code>unsupported_parameter</code> (a filter or <code>response</code> parameter) and <code>query_too_expensive</code> (over the request budget), both 400 and not retryable.</p>
 
 <h3 class="h5 mt-3">Error &mdash; wrong method (405)</h3>
 <p>Only <code>GET</code> is supported. Any other method returns a 405:</p>
 {% verbatim %}
 <pre class="bg-light p-3 border rounded"><code>{
-  "error": "method not allowed"
+  "error": "method not allowed",
+  "code": "method_not_allowed",
+  "message": "method not allowed",
+  "retryable": false
+}</code></pre>
+{% endverbatim %}
+
+<h3 class="h5 mt-3">Error &mdash; service unavailable (503)</h3>
+<p>When the service database cannot be reached, the response is a 503 with a <code>Retry-After</code> header; retry after that many seconds:</p>
+{% verbatim %}
+<pre class="bg-light p-3 border rounded"><code>{
+  "error": "The service database is temporarily unavailable; retry later.",
+  "code": "service_unavailable",
+  "message": "The service database is temporarily unavailable; retry later.",
+  "retryable": true
 }</code></pre>
 {% endverbatim %}
 {% endblock %}

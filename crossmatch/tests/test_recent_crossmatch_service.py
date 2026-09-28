@@ -9,15 +9,16 @@ construction; tests that pin it use an explicit ``.update()`` after the factory
 builds the row (mirroring how production stamps it on ingest).
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from django.test import override_settings
 from django.utils import timezone
 
-from api.pagination import Cursor, encode_cursor
+from api.pagination import Cursor, decode_cursor, encode_cursor
 from api.service import InvalidQuery, recent_crossmatches
 from core.models import TnsAssociation
+from core.provenance import service_provenance
 from tests.factories import AlertFactory, CatalogMatchFactory, set_ingest_time
 
 
@@ -84,7 +85,10 @@ def test_detail_ids_returns_only_object_ids():
     result = recent_crossmatches(time_field='event_time', detail='ids')
 
     obj = result['objects'][0]
-    assert obj == {'diaObjectId': alert.lsst_diaObject_diaObjectId}
+    assert obj == {
+        'diaObjectId': alert.lsst_diaObject_diaObjectId,
+        'diaObjectId_str': str(alert.lsst_diaObject_diaObjectId),
+    }
     assert 'ra' not in obj and 'matches' not in obj
 
 
@@ -597,3 +601,124 @@ def test_detail_full_checked_no_match_has_indicator_no_block():
 
     assert match['tns_checked'] is True
     assert 'tns' not in match
+
+
+# --- U9: the contract, added without changing existing keys (R6, R17, KTD11) --
+
+@pytest.mark.django_db
+def test_response_carries_service_level_provenance():
+    """R17: the page carries the same provenance block as the new queries."""
+    now = timezone.now()
+    _seed_matched_objects(1, now)
+
+    result = recent_crossmatches(time_field='event_time', detail='ids')
+
+    assert result['provenance'] == service_provenance()
+
+
+@pytest.mark.django_db
+def test_first_page_pins_as_of_and_cursor_carries_it():
+    """KTD11: the first page pins the walk; its cursor carries kind and as_of."""
+    now = timezone.now()
+    _seed_matched_objects(3, now)
+    before = timezone.now()
+
+    first = recent_crossmatches(time_field='event_time', detail='ids', page_size=1)
+
+    as_of = datetime.fromisoformat(first['as_of'])
+    assert before <= as_of <= timezone.now()
+    decoded = decode_cursor(first['next_cursor'])
+    assert decoded.kind == 'recent_crossmatches'
+    assert decoded.as_of == as_of
+
+    second = recent_crossmatches(page_size=1, cursor=first['next_cursor'])
+    assert second['as_of'] == first['as_of']
+    assert decode_cursor(second['next_cursor']).as_of == as_of
+
+
+@pytest.mark.django_db
+def test_as_of_pin_excludes_objects_ingested_mid_walk():
+    """KTD11: an alert ingested after page 1 never joins that walk, even when
+    its event_time falls below the cursor (contrast the unpinned read-committed
+    behavior characterized above)."""
+    now = timezone.now()
+    seeded = _seed_matched_objects(3, now)
+    first = recent_crossmatches(time_field='event_time', detail='ids', page_size=1)
+
+    late = AlertFactory(event_time=now - timedelta(hours=1))
+    CatalogMatchFactory(alert=late)
+    set_ingest_time(late, datetime.fromisoformat(first['as_of']) + timedelta(microseconds=1))
+
+    seen = [o['diaObjectId'] for o in first['objects']]
+    cursor = first['next_cursor']
+    while cursor is not None:
+        page = recent_crossmatches(page_size=1, cursor=cursor)
+        assert page['as_of'] == first['as_of']
+        seen.extend(o['diaObjectId'] for o in page['objects'])
+        cursor = page['next_cursor']
+
+    assert seen == seeded
+    assert late.lsst_diaObject_diaObjectId not in seen
+    # A fresh walk (new pin) does see it.
+    assert late.lsst_diaObject_diaObjectId in _walk(10, time_field='event_time', detail='ids')
+
+
+@pytest.mark.django_db
+def test_unpinned_pre_upgrade_cursor_continues_and_pins_from_there():
+    """A cursor minted before as_of existed (no kind, no pin) continues the walk
+    from its position; the rest of the walk is pinned from that request on."""
+    now = timezone.now()
+    seeded = _seed_matched_objects(3, now)
+    first = recent_crossmatches(time_field='event_time', detail='ids', page_size=1)
+    pinned = decode_cursor(first['next_cursor'])
+    # Re-mint the same position the way the pre-upgrade code did.
+    legacy = _legacy_token(pinned)
+
+    before = timezone.now()
+    second = recent_crossmatches(page_size=1, cursor=legacy)
+
+    assert [o['diaObjectId'] for o in second['objects']] == seeded[1:2]
+    assert before <= datetime.fromisoformat(second['as_of']) <= timezone.now()
+    assert decode_cursor(second['next_cursor']).as_of is not None
+    rest = _walk_from(second['next_cursor'])
+    assert rest == seeded[2:]
+
+
+def _legacy_token(cursor):
+    """Encode ``cursor``'s position as a pre-discriminator token (no kind, no as_of)."""
+    import base64
+    import json
+    payload = {
+        't': cursor.time_field_value.isoformat(), 'i': cursor.dia_object_id,
+        's': cursor.start.isoformat(), 'e': cursor.end.isoformat(),
+        'f': cursor.time_field, 'd': cursor.detail,
+    }
+    raw = json.dumps(payload, separators=(',', ':')).encode('utf-8')
+    return base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
+
+
+def _walk_from(cursor):
+    """Follow ``cursor`` to exhaustion; return the diaObjectIds seen."""
+    seen = []
+    while cursor is not None:
+        page = recent_crossmatches(page_size=1, cursor=cursor)
+        seen.extend(o['diaObjectId'] for o in page['objects'])
+        cursor = page['next_cursor']
+    return seen
+
+
+@pytest.mark.django_db
+def test_invalid_parameters_name_the_parameter():
+    """KTD2: the service's 400s carry the structured param alongside the message."""
+    cases = [
+        ({'detail': 'everything'}, 'detail'),
+        ({'time_field': 'created_at'}, 'time_field'),
+        ({'page_size': 0}, 'page_size'),
+        ({'cursor': ''}, 'cursor'),
+        ({'cursor': 'not-a-real-cursor!!'}, 'cursor'),
+    ]
+    for kwargs, param in cases:
+        with pytest.raises(InvalidQuery) as info:
+            recent_crossmatches(**kwargs)
+        assert info.value.param == param, kwargs
+        assert info.value.code == 'invalid_parameter'
