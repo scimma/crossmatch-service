@@ -14,6 +14,9 @@ from django.utils.dateparse import parse_datetime
 from django.utils.timezone import is_naive, make_aware
 
 from core.log import get_logger
+from api.contract import ErrorCode, error_response
+from api.errors import ApiError
+from api.openapi import build_document
 from api.service import InvalidQuery, recent_crossmatches
 
 logger = get_logger(__name__)
@@ -94,3 +97,21 @@ def recent_crossmatches_view(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'error': str(exc)}, status=400)
 
     return JsonResponse(result)
+
+
+def openapi_view(request: HttpRequest) -> JsonResponse:
+    """GET the OpenAPI 3.1 document, built from live settings (R22, KTD14).
+
+    Returns:
+        A ``JsonResponse``: 200 with the document, or a structured 405 error for
+        a non-GET method.
+    """
+    if request.method != 'GET':
+        return error_response(
+            ApiError(
+                'method not allowed',
+                code=ErrorCode.METHOD_NOT_ALLOWED,
+                status=405,
+            )
+        )
+    return JsonResponse(build_document())

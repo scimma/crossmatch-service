@@ -1,3 +1,4 @@
+import datetime
 import logging.config
 import os
 
@@ -26,12 +27,20 @@ GAIA_HATS_URL = os.getenv('GAIA_HATS_URL', 's3://stpubdata/gaia/gaia_dr3/public/
 DES_HATS_URL = os.getenv('DES_HATS_URL', 's3://stpubdata/mast/public/des/hats/des_y6_gold')
 DELVE_HATS_URL = os.getenv('DELVE_HATS_URL', 's3://stpubdata/mast/public/delve/hats/delve_dr3_gold')
 SKYMAPPER_HATS_URL = os.getenv('SKYMAPPER_HATS_URL', 'https://data.lsdb.io/hats/skymapper_dr4/catalog')
+# Catalog release labels reported as provenance (KTD7). Configured labels, not
+# read from the HATS build, so the web tier and API never open LSDB to report
+# them. Change a label together with its HATS URL when a new release is served.
+GAIA_RELEASE = os.getenv('GAIA_RELEASE', 'Gaia DR3')
+DES_RELEASE = os.getenv('DES_RELEASE', 'DES Y6 Gold')
+DELVE_RELEASE = os.getenv('DELVE_RELEASE', 'DELVE DR3 Gold')
+SKYMAPPER_RELEASE = os.getenv('SKYMAPPER_RELEASE', 'SkyMapper DR4')
 CROSSMATCH_RADIUS_ARCSEC = float(os.getenv('CROSSMATCH_RADIUS_ARCSEC', '1.0'))
 
 CROSSMATCH_CATALOGS = [
     {
         'name': 'gaia_dr3',
         'hats_url': GAIA_HATS_URL,
+        'release': GAIA_RELEASE,
         'source_id_column': 'source_id',
         'ra_column': 'ra',
         'dec_column': 'dec',
@@ -55,6 +64,7 @@ CROSSMATCH_CATALOGS = [
     {
         'name': 'des_y6_gold',
         'hats_url': DES_HATS_URL,
+        'release': DES_RELEASE,
         'source_id_column': 'COADD_OBJECT_ID',
         'ra_column': 'RA',
         'dec_column': 'DEC',
@@ -82,6 +92,7 @@ CROSSMATCH_CATALOGS = [
     {
         'name': 'delve_dr3_gold',
         'hats_url': DELVE_HATS_URL,
+        'release': DELVE_RELEASE,
         'source_id_column': 'COADD_OBJECT_ID',
         'ra_column': 'RA',
         'dec_column': 'DEC',
@@ -108,6 +119,7 @@ CROSSMATCH_CATALOGS = [
     {
         'name': 'skymapper_dr4',
         'hats_url': SKYMAPPER_HATS_URL,
+        'release': SKYMAPPER_RELEASE,
         'source_id_column': 'object_id',
         'ra_column': 'raj2000',
         'dec_column': 'dej2000',
@@ -127,6 +139,27 @@ CROSSMATCH_CATALOGS = [
         ],
     },
 ]
+
+
+def _validate_catalog_releases(catalogs):
+    """Require a non-empty ``release`` label on every catalog entry (KTD7).
+
+    Args:
+        catalogs: The ``CROSSMATCH_CATALOGS`` list.
+
+    Raises:
+        ImproperlyConfigured: If an entry has no ``release`` or a blank one.
+    """
+    for cat in catalogs:
+        release = cat.get('release')
+        if not isinstance(release, str) or not release.strip():
+            raise ImproperlyConfigured(
+                f"CROSSMATCH_CATALOGS entry {cat.get('name')!r} needs a non-empty "
+                f"'release' label (got {release!r})"
+            )
+
+
+_validate_catalog_releases(CROSSMATCH_CATALOGS)
 
 # Batch crossmatch thresholds
 CROSSMATCH_BATCH_MAX_WAIT_SECONDS = int(
@@ -500,6 +533,66 @@ RECENT_CROSSMATCH_MAX_PAGE_SIZE = int(
 )
 RECENT_CROSSMATCH_MAX_WINDOW_HOURS = int(
     os.environ.get('RECENT_CROSSMATCH_MAX_WINDOW_HOURS', '168')
+)
+
+# Declared broker-enforced reliability cuts (R20, KTD8). ANTARES and Lasair
+# apply their own reliability filter before alerts reach this service, so the
+# service cannot observe the value; the maintainer declares it here with the
+# date it was confirmed (ISO YYYY-MM-DD). Unset reports ``not_declared``. A value
+# and its as-of date are set together or not at all. Pitt-Google's cut is
+# MIN_DIASOURCE_RELIABILITY, enforced by this service, and needs no declaration.
+# Read only through core/provenance.py.
+
+
+def _declared_cut(broker):
+    """Parse and validate one broker's declared reliability cut from the env.
+
+    Args:
+        broker: The env-var prefix, e.g. ``'LASAIR'``.
+
+    Returns:
+        ``(value, as_of)``: a float in [0, 1] and an ISO date string, or
+        ``(None, None)`` when neither is set.
+
+    Raises:
+        ImproperlyConfigured: If only one of the pair is set, the value is not a
+            finite float in [0, 1], or the date is not an ISO ``YYYY-MM-DD``.
+    """
+    value_var = f'{broker}_DECLARED_MIN_RELIABILITY'
+    as_of_var = f'{value_var}_AS_OF'
+    raw_value = os.environ.get(value_var, '').strip()
+    raw_as_of = os.environ.get(as_of_var, '').strip()
+    if not raw_value and not raw_as_of:
+        return None, None
+    if not (raw_value and raw_as_of):
+        raise ImproperlyConfigured(
+            f'{value_var} and {as_of_var} must be set together (got '
+            f'{raw_value!r} / {raw_as_of!r})'
+        )
+    try:
+        value = float(raw_value)
+    except ValueError:
+        value = float('nan')
+    if not (0.0 <= value <= 1.0):
+        raise ImproperlyConfigured(
+            f'{value_var} must be a finite float in [0.0, 1.0]; got {raw_value!r}'
+        )
+    try:
+        as_of = datetime.date.fromisoformat(raw_as_of)
+    except ValueError:
+        as_of = None
+    if as_of is None or as_of.isoformat() != raw_as_of:
+        raise ImproperlyConfigured(
+            f'{as_of_var} must be an ISO date (YYYY-MM-DD); got {raw_as_of!r}'
+        )
+    return value, as_of.isoformat()
+
+
+ANTARES_DECLARED_MIN_RELIABILITY, ANTARES_DECLARED_MIN_RELIABILITY_AS_OF = (
+    _declared_cut('ANTARES')
+)
+LASAIR_DECLARED_MIN_RELIABILITY, LASAIR_DECLARED_MIN_RELIABILITY_AS_OF = (
+    _declared_cut('LASAIR')
 )
 
 # Password validation

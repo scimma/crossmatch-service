@@ -22,6 +22,7 @@ from typing import Any
 
 from django.conf import settings
 
+from core import provenance
 from core.log import get_logger
 
 logger = get_logger(__name__)
@@ -154,19 +155,18 @@ def service_config() -> dict[str, Any]:
     """The scalar display facts, each read from a single named setting.
 
     Only these named fields are exposed; the settings module is never passed to
-    a template, so secrets in the same module cannot leak (R11).
+    a template, so secrets in the same module cannot leak (R11). The radius,
+    reliability cut, and version come from the provenance builder
+    (``core/provenance.py``, KTD8), the one reader of those settings, so the
+    pages report the same values as the API.
     """
     return {
-        'crossmatch_radius_arcsec': _present(
-            getattr(settings, 'CROSSMATCH_RADIUS_ARCSEC', None)
-        ),
-        'min_diasource_reliability': _present(
-            getattr(settings, 'MIN_DIASOURCE_RELIABILITY', None)
-        ),
+        'crossmatch_radius_arcsec': _present(provenance.crossmatch_radius_arcsec()),
+        'min_diasource_reliability': _present(provenance.service_min_reliability()),
         'hopskotch_broker_url': _present(
             getattr(settings, 'HOPSKOTCH_BROKER_URL', None)
         ),
         'hopskotch_topic': _present(getattr(settings, 'HOPSKOTCH_TOPIC', None)),
-        'app_version': _present(getattr(settings, 'APP_VERSION', None)),
+        'app_version': _present(provenance.service_version()),
         'lsdb_version': lsdb_version(),
     }

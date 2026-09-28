@@ -5,6 +5,34 @@ from core.log import get_logger
 logger = get_logger(__name__)
 
 
+# Stored contract codes (KTD2). The crossmatch task and the provenance builder
+# write these values, so they live here rather than in ``api`` and the Celery
+# worker never imports the API layer. The values are a published contract:
+# agents branch on them, so never rename one. Response-only codes, and the
+# descriptions of every code, live in ``api/contract.py``.
+class CatalogSearchOutcome(models.TextChoices):
+    """How one catalog was searched for one crossmatched object."""
+    SEARCHED = 'searched', _('searched')
+    OUTSIDE_FOOTPRINT = 'outside_footprint', _('outside the catalog footprint')
+    SKIPPED_READ_FAILURE = 'skipped_read_failure', _('skipped after a read failure')
+    NOT_SEARCHED_INVALID_POSITION = (
+        'not_searched_invalid_position', _('not searched: invalid position')
+    )
+
+
+class CutEnforcedBy(models.TextChoices):
+    """Where a broker's reliability cut is enforced (R20)."""
+    SERVICE = 'service', _('this service')
+    BROKER = 'broker', _('the broker')
+
+
+class CutStatus(models.TextChoices):
+    """How the reported value of a broker's reliability cut is known (R20)."""
+    SERVICE_SETTING = 'service_setting', _("this service's own setting")
+    DECLARED = 'declared', _('declared by the maintainer as of a date')
+    NOT_DECLARED = 'not_declared', _('not declared')
+
+
 class Alert(models.Model):
     class Status(models.TextChoices):
         INGESTED = 'INGESTED', _('ingested')
