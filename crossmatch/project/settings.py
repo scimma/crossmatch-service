@@ -488,6 +488,16 @@ DATABASES = {
         'PORT': os.getenv('DATABASE_PORT', '5432'),
         'CONN_MAX_AGE': int(os.getenv('CONN_MAX_AGE', '60')),
         'CONN_HEALTH_CHECKS': True,
+        # libpq connect_timeout, web tier only: entrypoints/run_web.sh exports
+        # DATABASE_CONNECT_TIMEOUT so an unreachable database fails fast into the
+        # API's structured 503 (KTD12) instead of outliving the request. Unset in
+        # every other process (Celery, beat, ingest consumers), which keep
+        # libpq's default wait-for-TCP behavior.
+        'OPTIONS': (
+            {'connect_timeout': int(os.environ['DATABASE_CONNECT_TIMEOUT'])}
+            if os.environ.get('DATABASE_CONNECT_TIMEOUT')
+            else {}
+        ),
     },
     'sqlite': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -533,6 +543,39 @@ RECENT_CROSSMATCH_MAX_PAGE_SIZE = int(
 )
 RECENT_CROSSMATCH_MAX_WINDOW_HOURS = int(
     os.environ.get('RECENT_CROSSMATCH_MAX_WINDOW_HOURS', '168')
+)
+
+# Object and position API per-request cost bound (KTD12, R32). The edge rate
+# limit caps only request rate, so each request's work is bounded here:
+#   - API_REQUEST_BUDGET_SECONDS is the wall-clock budget of one guarded API
+#     request (api/guard.py): SQL runs in a read-only transaction whose
+#     statement_timeout is reset to the time remaining before each SQL phase,
+#     and an overrun returns 400 query_too_expensive (not retryable).
+#   - The maximums below are set together so the largest allowed request fits
+#     the budget: 1000 IDs, 200 positions, a 60 arcsec cone radius, 100 objects
+#     per batched position, and 5000 objects per request across all inputs.
+# All are starting values: the pre-release benchmark on DEV (plan Verification
+# Contract) confirms or lowers each so its p95 is at most half the budget. They
+# are read at call time, so an env override needs only a pod restart.
+# Worker model (entrypoints/run_web.sh): gunicorn gthread workers,
+# WEB_WORKERS=2 x WEB_THREADS=4 = 8 concurrent requests per web pod. Each thread
+# holds at most one Postgres connection (CONN_MAX_AGE persists it), so one web
+# replica uses at most 8 connections -- well inside Postgres's default
+# max_connections=100 alongside Celery and the ingest consumers. With a 5 s
+# budget, a pod saturated by worst-case API requests still frees a thread every
+# ~5/8 s, so /healthz and the HTML pages are not queued behind them; gunicorn's
+# --timeout (WEB_TIMEOUT, 30 s) is only the worker-heartbeat backstop, well above
+# the budget, and the web-only DATABASE_CONNECT_TIMEOUT (3 s) keeps an
+# unreachable database inside it.
+API_REQUEST_BUDGET_SECONDS = float(os.environ.get('API_REQUEST_BUDGET_SECONDS', '5'))
+API_MAX_IDS = int(os.environ.get('API_MAX_IDS', '1000'))
+API_MAX_POSITIONS = int(os.environ.get('API_MAX_POSITIONS', '200'))
+API_MAX_CONE_RADIUS_ARCSEC = float(os.environ.get('API_MAX_CONE_RADIUS_ARCSEC', '60'))
+API_MAX_OBJECTS_PER_POSITION = int(
+    os.environ.get('API_MAX_OBJECTS_PER_POSITION', '100')
+)
+API_MAX_OBJECTS_PER_REQUEST = int(
+    os.environ.get('API_MAX_OBJECTS_PER_REQUEST', '5000')
 )
 
 # Declared broker-enforced reliability cuts (R20, KTD8). ANTARES and Lasair
