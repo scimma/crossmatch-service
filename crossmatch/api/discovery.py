@@ -103,12 +103,57 @@ _SOURCE_ID_MEANINGS = {
     ),
 }
 
-_NEAREST_RULE = (
+#: The crossmatch keeps one source per catalog (``n_neighbors=1`` in
+#: ``matching/catalog.py``). Shared by describe, the OpenAPI document, and the
+#: agent-facing docs (``api/docs.py``).
+NEAREST_SOURCE_RULE = (
     'For each object and each catalog, the crossmatch keeps only the nearest '
     'catalog source within the crossmatch radius, so an object has at most one '
     'coincident source per catalog; other sources inside the radius are not '
     'reported. A coincident source is not a host association.'
 )
+
+#: R9: what "not in this service" does not mean. Reliability filtering happens
+#: before an alert is stored: at the broker, or at ingest for the cut this
+#: service enforces itself (see ``reliability_cuts``).
+NOT_IN_SERVICE_CAVEAT = (
+    '"Not in this service" (status not_in_service, or no_rubin_object for a '
+    'position) is not evidence that the object failed a reliability cut or '
+    'does not exist in Rubin: reliability filtering happens before an alert '
+    'is stored (at the broker, or at ingest for the cut this service enforces; '
+    'see reliability_cuts), and the service holds only alerts its brokers '
+    'delivered.'
+)
+
+#: R24: coincidence is not host association, and its absence says nothing
+#: about a host.
+COINCIDENCE_CAVEAT = (
+    'A coincident source is a catalog source within the crossmatch radius of '
+    'the object position; it is not a host association. The host galaxy of an '
+    'offset supernova is generally not a coincident source, so the absence of '
+    'a coincident source is not evidence of a hostless transient.'
+)
+
+#: A cursor pins which objects a walk returns, not their state.
+PAGING_CAVEAT = (
+    "A cursor pins the object set of a paged walk, not the objects' state: an "
+    "object's status and coincident sources can advance between pages as "
+    'crossmatching proceeds.'
+)
+
+#: What is known about each catalog's published position, keyed by catalog
+#: name; asserted only where the repo's catalog references confirm it.
+_POSITION_NOTES = {
+    'gaia_dr3': (
+        'gaia_dr3 positions are at the reference epoch in the ref_epoch payload '
+        'column (J2016.0 for Gaia DR3).'
+    ),
+    'skymapper_dr4': (
+        'skymapper_dr4 coordinate columns carry a J2000 suffix (raj2000, '
+        'dej2000) and are published under those names; see the SkyMapper DR4 '
+        'documentation for their epoch.'
+    ),
+}
 
 
 def check_database() -> datetime | None:
@@ -220,7 +265,33 @@ def _catalogs() -> list[dict[str, Any]]:
     fields_by_catalog: dict[str, list[dict[str, Any]]] = {}
     for field in filter_fields():
         fields_by_catalog.setdefault(field.catalog, []).append(_filterable_field(field))
+    meanings = catalog_source_id_meanings()
     result = []
+    for cat in settings.CROSSMATCH_CATALOGS:
+        name = str(cat['name'])
+        result.append({
+            'name': name,
+            'release': releases[name],
+            'catalog_source_id': {
+                'column': str(cat['source_id_column']),
+                'description': meanings[name],
+            },
+            'filterable_fields': fields_by_catalog.get(name, []),
+            'coverage_map': _coverage_map(cat.get('footprint_moc_order')),
+        })
+    return result
+
+
+def catalog_source_id_meanings() -> dict[str, str]:
+    """What ``catalog_source_id`` means for each catalog in service (R23).
+
+    Returns:
+        ``{catalog name: description}`` in configured order, read live. A
+        catalog without a curated meaning is described from its configured
+        source-id column.
+    """
+    releases = {c['name']: c['release'] for c in provenance.catalog_releases()}
+    meanings = {}
     for cat in settings.CROSSMATCH_CATALOGS:
         name = str(cat['name'])
         column = str(cat['source_id_column'])
@@ -228,20 +299,40 @@ def _catalogs() -> list[dict[str, Any]]:
             f'The {releases[name]} {column} column: the identifier of the source '
             'in that catalog, served as a string.'
         )
-        result.append({
-            'name': name,
-            'release': releases[name],
-            'catalog_source_id': {
-                'column': column,
-                'description': (
-                    f'{meaning} Identifiers are unique only within one '
-                    'catalog_name.'
-                ),
-            },
-            'filterable_fields': fields_by_catalog.get(name, []),
-            'coverage_map': _coverage_map(cat.get('footprint_moc_order')),
-        })
-    return result
+        meanings[name] = f'{meaning} Identifiers are unique only within one catalog_name.'
+    return meanings
+
+
+def position_conventions() -> str:
+    """Units, frames, and epochs of the positions in responses (R23), read live.
+
+    Rubin object positions are ICRS degrees. A catalog source position is the
+    catalog's own, from its configured coordinate columns: the crossmatch
+    compares positions as stored, with no proper motion or epoch propagation.
+
+    Returns:
+        One paragraph naming each configured catalog's coordinate columns and
+        any confirmed epoch note.
+    """
+    columns = '; '.join(
+        f"{cat['name']}: {cat['ra_column']}, {cat['dec_column']}"
+        for cat in settings.CROSSMATCH_CATALOGS
+    ) or 'none configured'
+    notes = ' '.join(
+        _POSITION_NOTES[str(cat['name'])]
+        for cat in settings.CROSSMATCH_CATALOGS
+        if str(cat['name']) in _POSITION_NOTES
+    )
+    text = (
+        'Rubin object positions (ra, dec, and searched positions) are ICRS '
+        'right ascension and declination in degrees; radii and separations are '
+        'in arcsec. A coincident source position is the catalog\'s own, in '
+        'degrees, read from its coordinate columns '
+        f'({columns}), in the frame and epoch the catalog publishes: the '
+        'crossmatch compares positions as stored, with no proper motion '
+        'applied and no epoch propagation.'
+    )
+    return f'{text} {notes}' if notes else text
 
 
 def _limits() -> dict[str, Any]:
@@ -277,7 +368,7 @@ def describe_service() -> dict[str, Any]:
         'crossmatch': {
             'radius_arcsec': provenance.crossmatch_radius_arcsec(),
             'nearest_source_per_catalog': True,
-            'description': _NEAREST_RULE,
+            'description': NEAREST_SOURCE_RULE,
         },
         'tns': {
             'default_radius_arcsec': float(settings.TNS_MATCH_RADIUS_ARCSEC),

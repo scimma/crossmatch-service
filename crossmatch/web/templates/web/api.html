@@ -3,13 +3,69 @@
 {% block body %}
 <h1>API reference</h1>
 <p class="lead">
-  The read-model REST API returns recent crossmatches for objects that had an
-  alert in a time window, grouped by object, at a caller-selected detail level.
-  Responses are JSON.
+  The read-model REST API answers what the service knows about Rubin objects
+  and which catalog sources sit at their positions: by <code>diaObjectId</code>,
+  by sky position, by TNS name, or for objects with alerts in a recent time
+  window. Responses are JSON.
 </p>
 
-<h2 class="h4 mt-4">Endpoint</h2>
+<h2 class="h4 mt-4">Machine-readable docs</h2>
+<ul>
+  <li><a href="/openapi.json">OpenAPI 3.1 document</a> &mdash; every operation, parameter, response field, status value, and error code, with units.</li>
+  <li><a href="/llms.txt">llms.txt</a> &mdash; the entry point for AI agents.</li>
+  <li><a href="/api-docs.md">This reference as Markdown</a>, including every code and its meaning.</li>
+</ul>
+
+{% if api %}
+<h2 class="h4 mt-4">Endpoints</h2>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered">
+    <caption class="text-dark" style="caption-side: top; font-weight: 600;">Operations (details in the OpenAPI document)</caption>
+    <thead class="thead-light">
+      <tr>
+        <th scope="col">Request</th>
+        <th scope="col">Operation</th>
+        <th scope="col">Summary</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for op in api.operations %}
+      <tr>
+        <th scope="row"><code>{{ op.method }} {{ op.path }}</code></th>
+        <td><code>{{ op.operation_id }}</code></td>
+        <td>{{ op.summary }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2 class="h4 mt-4">Service configuration</h2>
+<p>Read from the running service (version {{ api.service_version }}); every response of the new queries repeats it in its <code>provenance</code> block.</p>
+<ul>
+  <li>Crossmatch radius: {% if api.radius_arcsec %}{{ api.radius_arcsec }} arcsec{% else %}not configured{% endif %}. {{ api.nearest_rule }}</li>
+  <li>Catalogs:
+    {% for cat in api.catalogs %}<code>{{ cat.name }}</code> ({{ cat.release }}; <code>catalog_source_id</code> is its <code>{{ cat.source_id_column }}</code>){% if not forloop.last %}, {% endif %}{% empty %}none configured{% endfor %}.
+  </li>
+  <li>Minimum LSST reliability per broker:
+    {% for cut in api.reliability_cuts %}{{ cut.broker }} {% if cut.min_reliability is not None %}{{ cut.min_reliability }}{% else %}not declared{% endif %} (enforced by {{ cut.enforced_by }}){% if not forloop.last %}; {% endif %}{% endfor %}.
+  </li>
+  <li>Per request: at most {{ api.limits.max_ids }} IDs, {{ api.limits.max_positions }} positions and TNS names, a {{ api.limits.max_cone_radius_arcsec }} arcsec radius, {{ api.limits.max_objects_per_position }} objects per position and {{ api.limits.max_objects_per_request }} in all, within a {{ api.limits.request_budget_seconds }} s budget.</li>
+  <li>{{ api.conventions }}</li>
+</ul>
+<p>{{ api.caveats.coincidence }}</p>
+<p>{{ api.caveats.not_in_service }}</p>
+{% else %}
+<div class="alert alert-warning" role="status">The endpoint list and service configuration are temporarily unavailable.</div>
+{% endif %}
+
+<h2 class="h4 mt-4">Recent crossmatches</h2>
 <pre class="bg-light p-3 border rounded"><code>GET /api/recent-crossmatches</code></pre>
+<p>
+  Returns recent crossmatches for objects that had an alert in a time window,
+  grouped by object, at a caller-selected detail level. Matches-only: an
+  object with no catalog match is not listed.
+</p>
 <p>
   Results are keyset (cursor) paged, newest first. Follow the top-level
   <code>next_cursor</code> to page through the whole window; it is
@@ -31,7 +87,7 @@
       <tr>
         <th scope="row"><code>start</code></th>
         <td>ISO-8601 timestamp (UTC)</td>
-        <td>Window start. Defaults to <code>end</code> minus 12 hours.</td>
+        <td>Window start. Defaults to <code>end</code> minus {{ api.recent.default_window_hours }} hours. The window may span at most {{ api.recent.max_window_hours }} hours.</td>
       </tr>
       <tr>
         <th scope="row"><code>end</code></th>
@@ -51,7 +107,7 @@
       <tr>
         <th scope="row"><code>page_size</code></th>
         <td>positive integer</td>
-        <td>Objects per page, clamped down to the server maximum.</td>
+        <td>Objects per page (default {{ api.recent.default_page_size }}), clamped down to the server maximum of {{ api.recent.max_page_size }}.</td>
       </tr>
       <tr>
         <th scope="row"><code>cursor</code></th>
@@ -73,17 +129,15 @@
 
 <h2 class="h4 mt-4">Response envelope</h2>
 <p>Every successful response wraps the objects with the resolved query metadata:</p>
-{% verbatim %}
 <pre class="bg-light p-3 border rounded"><code>{
   "window": {"start": "...", "end": "..."},
   "time_field": "ingest_time",
   "detail": "matches",
-  "page_size": 1000,
+  "page_size": {{ api.recent.default_page_size }},
   "count": 2,
   "next_cursor": null,
   "objects": [ ... ]
 }</code></pre>
-{% endverbatim %}
 <p>
   <code>count</code> is the number of objects on this page (not a whole-set
   total). <code>objects</code> contains one entry per matched
@@ -94,7 +148,6 @@
 <pre class="bg-light p-3 border rounded"><code>curl "https://example.org/api/recent-crossmatches?detail=matches&amp;page_size=2"</code></pre>
 
 <h3 class="h5 mt-3">Success (200)</h3>
-{% verbatim %}
 <pre class="bg-light p-3 border rounded"><code>{
   "window": {"start": "2026-08-10T00:00:00+00:00", "end": "2026-08-10T12:00:00+00:00"},
   "time_field": "ingest_time",
@@ -109,7 +162,7 @@
       "dec": 2.205,
       "matches": [
         {
-          "catalog_name": "gaia_dr3",
+          "catalog_name": "{{ api.example_catalog }}",
           "catalog_source_id": "987654321098765432",
           "separation_arcsec": 0.42
         }
@@ -117,7 +170,6 @@
     }
   ]
 }</code></pre>
-{% endverbatim %}
 
 <h3 class="h5 mt-3">Error &mdash; invalid parameter (400)</h3>
 <p>An unparseable timestamp, unknown <code>detail</code>/<code>time_field</code>, non-positive <code>page_size</code>, malformed or conflicting <code>cursor</code>, or an out-of-range window returns a 400 with a JSON error body:</p>

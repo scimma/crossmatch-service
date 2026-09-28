@@ -13,6 +13,11 @@ No runtime dependency: validation tooling is dev-only.
 Schema components shared by every operation live under
 ``components/schemas``; each operation adds its path item in ``_paths``.
 Operation IDs match the planned MCP tool names (KTD1).
+
+Every numeric schema carries ``x-unit`` (U8): a physical unit (``deg``,
+``arcsec``, ``arcmin``, ``s``, ``h``), ``count``, ``probability``,
+``dimensionless``, or, for numbers that are not quantities, ``identifier``,
+``index``, ``version``, or ``HEALPix order``.
 """
 
 from __future__ import annotations
@@ -31,11 +36,17 @@ from api.contract import (
     QualifiesReason,
 )
 from api.discovery import (
+    COINCIDENCE_CAVEAT,
     DATABASE_STATES,
     DETAIL_LEVEL_DESCRIPTIONS,
+    NEAREST_SOURCE_RULE,
+    NOT_IN_SERVICE_CAVEAT,
+    PAGING_CAVEAT,
     RESPONSE_MODE_DESCRIPTIONS,
     STATUS_CHECK_TIMEOUT_SECONDS,
     TNS_RESOLUTION_STATES,
+    catalog_source_id_meanings,
+    position_conventions,
 )
 from api.filters import (
     KIND_CATALOG,
@@ -56,10 +67,16 @@ from api.positions import (
     TRUNCATION_PER_REQUEST,
     TRUNCATION_VALUES,
 )
+from api.service import DEFAULT_WINDOW_HOURS
 from core import provenance
 from core.models import CutEnforcedBy, CutStatus
 
 _REF = '#/components/schemas/'
+
+#: ``x-unit`` values.
+DEG = 'deg'
+ARCSEC = 'arcsec'
+COUNT = 'count'
 
 
 def _ref(name: str) -> dict[str, str]:
@@ -82,6 +99,57 @@ def _code_enum(values: list[str], summary: str) -> dict[str, Any]:
     return {'type': 'string', 'enum': list(values), 'description': '\n'.join(lines)}
 
 
+def _source_id_description() -> str:
+    """What ``catalog_source_id`` means, per catalog in service (R23), live."""
+    meanings = catalog_source_id_meanings()
+    lines = [
+        'Source identifier in the catalog named by catalog_name, as a string; '
+        'unique only within one catalog_name. Per catalog in service:',
+        '',
+    ]
+    lines.extend(
+        f"- `{cat['name']}` (column {cat['source_id_column']}): "
+        f"{meanings[str(cat['name'])]}"
+        for cat in settings.CROSSMATCH_CATALOGS
+    )
+    return '\n'.join(lines)
+
+
+def _separation_schema() -> dict[str, Any]:
+    """A match's separation from its Rubin object."""
+    return {
+        'type': 'number',
+        'x-unit': ARCSEC,
+        'description': (
+            'Angular separation between the Rubin object position and the '
+            'catalog source position, arcsec; at most the crossmatch radius.'
+        ),
+    }
+
+
+def cuts_text(cuts: list[dict[str, Any]]) -> str:
+    """The reliability cut per broker as one sentence fragment (R20, R23).
+
+    Args:
+        cuts: ``provenance.reliability_cuts()`` output.
+
+    Returns:
+        E.g. ``antares: not declared (broker); pittgoogle: 0.6 (enforced by
+        service)``.
+    """
+    parts = []
+    for cut in cuts:
+        if cut['min_reliability'] is None:
+            value = 'not declared'
+        else:
+            value = f"{cut['min_reliability']}"
+        where = f"enforced by {cut['enforced_by']}, {cut['status']}"
+        if cut['as_of']:
+            where += f", as of {cut['as_of']}"
+        parts.append(f"{cut['broker']}: {value} ({where})")
+    return '; '.join(parts)
+
+
 def _json(schema: dict[str, Any], description: str) -> dict[str, Any]:
     """A response object with an ``application/json`` body."""
     return {
@@ -102,8 +170,9 @@ def _provenance_schema(current: dict[str, Any]) -> dict[str, Any]:
         'description': (
             'Service-level provenance carried by every response (R17), read '
             'from the live service configuration. On this deployment the '
-            f'crossmatch radius is {radius_text} and the catalogs in service '
-            f'are: {releases}.'
+            f'crossmatch radius is {radius_text}, the catalogs in service '
+            f'are: {releases}, and the minimum LSST reliability per broker is: '
+            f"{cuts_text(current['reliability_cuts'])}."
         ),
         'required': [
             'service_version',
@@ -124,6 +193,7 @@ def _provenance_schema(current: dict[str, Any]) -> dict[str, Any]:
             },
             'crossmatch_radius_arcsec': {
                 'type': ['number', 'null'],
+                'x-unit': ARCSEC,
                 'description': (
                     'Crossmatch radius in arcsec: a catalog source within this '
                     'angular separation of the object position is coincident.'
@@ -155,6 +225,7 @@ def _components(current: dict[str, Any]) -> dict[str, Any]:
             'DiaObjectId': {
                 'type': 'integer',
                 'format': 'int64',
+                'x-unit': 'identifier',
                 'minimum': 0,
                 'description': (
                     'Rubin diaObjectId, a 64-bit integer. JavaScript JSON '
@@ -225,6 +296,7 @@ def _components(current: dict[str, Any]) -> dict[str, Any]:
                     },
                     'min_reliability': {
                         'type': ['number', 'null'],
+                        'x-unit': 'probability',
                         'minimum': 0,
                         'maximum': 1,
                         'description': (
@@ -294,27 +366,31 @@ def _components(current: dict[str, Any]) -> dict[str, Any]:
 
 def _recent_crossmatches_schemas() -> dict[str, Any]:
     """Schemas describing the existing recent-crossmatches response as-is."""
+    source_id = _source_id_description()
+    positions = position_conventions()
     return {
         'MatchSummary': {
             'type': 'object',
+            'description': f'A coincident source. {NEAREST_SOURCE_RULE}',
             'required': ['catalog_name', 'catalog_source_id', 'separation_arcsec'],
             'properties': {
-                'catalog_name': {'type': 'string'},
+                'catalog_name': {
+                    'type': 'string',
+                    'description': 'The catalog the source is from.',
+                },
                 'catalog_source_id': {
                     'type': 'string',
-                    'description': "Source identifier in the named catalog.",
+                    'description': source_id,
                 },
-                'separation_arcsec': {
-                    'type': 'number',
-                    'description': 'Object-to-source angular separation, arcsec.',
-                },
+                'separation_arcsec': _separation_schema(),
             },
         },
         'PublishedMatch': {
             'type': 'object',
             'description': (
                 'A match built by the same payload builder as the Hopskotch '
-                'stream. ra/dec here are the catalog source position.'
+                'stream. ra/dec here are the catalog source position. '
+                + NEAREST_SOURCE_RULE
             ),
             'required': [
                 'diaObjectId', 'ra', 'dec', 'catalog_name', 'catalog_source_id',
@@ -323,11 +399,22 @@ def _recent_crossmatches_schemas() -> dict[str, Any]:
             ],
             'properties': {
                 'diaObjectId': _ref('DiaObjectId'),
-                'ra': {'type': 'number', 'description': 'Source RA, degrees.'},
-                'dec': {'type': 'number', 'description': 'Source Dec, degrees.'},
-                'catalog_name': {'type': 'string'},
-                'catalog_source_id': {'type': 'string'},
-                'separation_arcsec': {'type': 'number'},
+                'ra': {
+                    'type': 'number',
+                    'x-unit': DEG,
+                    'description': f'Catalog source RA, degrees. {positions}',
+                },
+                'dec': {
+                    'type': 'number',
+                    'x-unit': DEG,
+                    'description': f'Catalog source Dec, degrees. {positions}',
+                },
+                'catalog_name': {
+                    'type': 'string',
+                    'description': 'The catalog the source is from.',
+                },
+                'catalog_source_id': {'type': 'string', 'description': source_id},
+                'separation_arcsec': _separation_schema(),
                 'catalog_payload': {
                     'type': ['object', 'null'],
                     'description': 'Raw catalog columns, lowercased keys.',
@@ -347,11 +434,13 @@ def _recent_crossmatches_schemas() -> dict[str, Any]:
                 'diaObjectId': _ref('DiaObjectId'),
                 'ra': {
                     'type': ['number', 'null'],
-                    'description': 'Object RA, degrees.',
+                    'x-unit': DEG,
+                    'description': 'Object RA, degrees (ICRS).',
                 },
                 'dec': {
                     'type': ['number', 'null'],
-                    'description': 'Object Dec, degrees.',
+                    'x-unit': DEG,
+                    'description': 'Object Dec, degrees (ICRS).',
                 },
                 'matches': {
                     'type': 'array',
@@ -381,9 +470,10 @@ def _recent_crossmatches_schemas() -> dict[str, Any]:
                     'type': 'string',
                     'enum': ['ids', 'position', 'matches', 'full'],
                 },
-                'page_size': {'type': 'integer', 'minimum': 1},
+                'page_size': {'type': 'integer', 'x-unit': COUNT, 'minimum': 1},
                 'count': {
                     'type': 'integer',
+                    'x-unit': COUNT,
                     'minimum': 0,
                     'description': 'Objects on this page, not a total.',
                 },
@@ -414,18 +504,21 @@ def _lookup_schemas() -> dict[str, Any]:
     tns_radius = float(settings.TNS_MATCH_RADIUS_ARCSEC)
     ra_schema = {
         'type': 'number',
+        'x-unit': DEG,
         'minimum': 0,
         'maximum': 360,
         'description': 'Right ascension, degrees (ICRS).',
     }
     dec_schema = {
         'type': 'number',
+        'x-unit': DEG,
         'minimum': -90,
         'maximum': 90,
         'description': 'Declination, degrees (ICRS).',
     }
     radius_schema = {
         'type': 'number',
+        'x-unit': ARCSEC,
         'exclusiveMinimum': 0,
         'maximum': radius_max,
     }
@@ -440,14 +533,13 @@ def _lookup_schemas() -> dict[str, Any]:
     cone_caveat = (
         'Position searches cover every Rubin object the service has seen, '
         'crossmatched or not; an object whose position could not be indexed '
-        'at ingest (null HEALPix index) is not reachable by position. A '
-        'coincident source is not a host association, and the absence of one '
-        'is not evidence of a hostless transient: the host galaxy of an '
-        'offset supernova is generally not a coincident source.'
+        'at ingest (null HEALPix index) is not reachable by position. '
+        + COINCIDENCE_CAVEAT
     )
     cone_counts = {
         'total': {
             'type': ['integer', 'null'],
+            'x-unit': COUNT,
             'minimum': 0,
             'description': (
                 'Rubin objects within the radius; null when no search ran.'
@@ -489,6 +581,7 @@ def _lookup_schemas() -> dict[str, Any]:
     qualifying_total = {
         'qualifying_total': {
             'type': ['integer', 'null'],
+            'x-unit': COUNT,
             'minimum': 0,
             'description': (
                 'Present only when the request has filters: qualifying Rubin '
@@ -648,6 +741,7 @@ def _lookup_schemas() -> dict[str, Any]:
                 'description': {'type': 'string'},
                 'crossmatch_radius_arcsec': {
                     'type': ['number', 'null'],
+                    'x-unit': ARCSEC,
                     'description': 'Crossmatch radius, arcsec.',
                 },
                 'catalogs': {'type': 'array', 'items': _ref('CatalogRelease')},
@@ -677,7 +771,14 @@ def _lookup_schemas() -> dict[str, Any]:
                     'type': 'string',
                     'enum': [PROVENANCE_RECORDED, PROVENANCE_NOT_RECORDED],
                 },
-                'match_version': {'type': ['integer', 'null']},
+                'match_version': {
+                    'type': ['integer', 'null'],
+                    'x-unit': 'version',
+                    'description': (
+                        'Version of the stored crossmatch result; it increases '
+                        'when the object is crossmatched again.'
+                    ),
+                },
                 'crossmatched_at': {
                     'type': ['string', 'null'],
                     'format': 'date-time',
@@ -719,8 +820,8 @@ def _lookup_schemas() -> dict[str, Any]:
         },
         'LookupMatch': {
             'description': (
-                'A coincident source (raw catalog values at detail full). A '
-                'coincident source is not a host association.'
+                'A coincident source (raw catalog values at detail full). '
+                f'{NEAREST_SOURCE_RULE} {COINCIDENCE_CAVEAT}'
             ),
             'anyOf': [
                 {'allOf': [_ref('MatchSummary'), with_provenance_set]},
@@ -740,13 +841,23 @@ def _lookup_schemas() -> dict[str, Any]:
                 'diaObjectId': _ref('DiaObjectId'),
                 'diaObjectId_str': _ref('DiaObjectIdStr'),
                 'status': _ref('ObjectStatus'),
-                'ra': {'type': ['number', 'null'], 'description': 'Object RA, degrees (ICRS).'},
-                'dec': {'type': ['number', 'null'], 'description': 'Object Dec, degrees (ICRS).'},
+                'ra': {
+                    'type': ['number', 'null'],
+                    'x-unit': DEG,
+                    'description': 'Object RA, degrees (ICRS).',
+                },
+                'dec': {
+                    'type': ['number', 'null'],
+                    'x-unit': DEG,
+                    'description': 'Object Dec, degrees (ICRS).',
+                },
                 'reliability': {
                     'type': ['number', 'null'],
+                    'x-unit': 'probability',
                     'description': (
                         'LSST real/bogus reliability stored when the object '
-                        'was first seen.'
+                        'was first seen. Alerts below the per-broker cut in '
+                        'provenance.reliability_cuts never reach the service.'
                     ),
                 },
                 'ingest_time': {
@@ -778,6 +889,7 @@ def _lookup_schemas() -> dict[str, Any]:
                 },
                 'separation_arcsec': {
                     'type': 'number',
+                    'x-unit': ARCSEC,
                     'minimum': 0,
                     'description': (
                         'Present on position and TNS results only: angular '
@@ -794,7 +906,12 @@ def _lookup_schemas() -> dict[str, Any]:
             'required': ['index', 'kind', 'input', 'normalized', 'status', 'objects'],
             'additionalProperties': False,
             'properties': {
-                'index': {'type': 'integer', 'minimum': 0},
+                'index': {
+                    'type': 'integer',
+                    'x-unit': 'index',
+                    'minimum': 0,
+                    'description': 'Position of the input in the request, from 0.',
+                },
                 'kind': {'const': 'id'},
                 'input': {'description': 'The input exactly as sent.'},
                 'normalized': {
@@ -826,7 +943,11 @@ def _lookup_schemas() -> dict[str, Any]:
             ],
             'additionalProperties': False,
             'properties': {
-                'objid': {'type': 'integer', 'description': 'TNS internal object id.'},
+                'objid': {
+                    'type': 'integer',
+                    'x-unit': 'identifier',
+                    'description': 'TNS internal object id.',
+                },
                 'name': {
                     'type': 'string',
                     'description': 'Bare TNS designation, as TNS stores it.',
@@ -835,13 +956,25 @@ def _lookup_schemas() -> dict[str, Any]:
                     'type': ['string', 'null'],
                     'description': 'TNS name prefix, e.g. SN or AT.',
                 },
-                'ra': {'type': 'number', 'description': 'TNS RA, degrees.'},
-                'dec': {'type': 'number', 'description': 'TNS Dec, degrees.'},
+                'ra': {
+                    'type': 'number',
+                    'x-unit': DEG,
+                    'description': 'TNS RA, degrees, as TNS reports it.',
+                },
+                'dec': {
+                    'type': 'number',
+                    'x-unit': DEG,
+                    'description': 'TNS Dec, degrees, as TNS reports it.',
+                },
                 'classification': {
                     'type': ['string', 'null'],
                     'description': 'TNS classification, e.g. SN Ia; null if none.',
                 },
-                'redshift': {'type': ['number', 'null']},
+                'redshift': {
+                    'type': ['number', 'null'],
+                    'x-unit': 'dimensionless',
+                    'description': 'TNS redshift; null if none.',
+                },
                 'url': {'type': 'string', 'description': 'The TNS object page.'},
             },
         },
@@ -859,7 +992,12 @@ def _lookup_schemas() -> dict[str, Any]:
             ],
             'additionalProperties': False,
             'properties': {
-                'index': {'type': 'integer', 'minimum': 0},
+                'index': {
+                    'type': 'integer',
+                    'x-unit': 'index',
+                    'minimum': 0,
+                    'description': 'Position of the input in the request, from 0.',
+                },
                 'kind': {'const': 'position'},
                 'input': {'description': 'The input exactly as sent.'},
                 'normalized': {
@@ -868,10 +1006,19 @@ def _lookup_schemas() -> dict[str, Any]:
                     'additionalProperties': False,
                     'properties': {
                         'kind': {'const': 'position'},
-                        'ra': {'type': 'number', 'description': 'RA, degrees.'},
-                        'dec': {'type': 'number', 'description': 'Dec, degrees.'},
+                        'ra': {
+                            'type': 'number',
+                            'x-unit': DEG,
+                            'description': 'RA, degrees (ICRS).',
+                        },
+                        'dec': {
+                            'type': 'number',
+                            'x-unit': DEG,
+                            'description': 'Dec, degrees (ICRS).',
+                        },
                         'radius_arcsec': {
                             'type': 'number',
+                            'x-unit': ARCSEC,
                             'description': 'The radius searched, arcsec.',
                         },
                     },
@@ -901,7 +1048,12 @@ def _lookup_schemas() -> dict[str, Any]:
             ],
             'additionalProperties': False,
             'properties': {
-                'index': {'type': 'integer', 'minimum': 0},
+                'index': {
+                    'type': 'integer',
+                    'x-unit': 'index',
+                    'minimum': 0,
+                    'description': 'Position of the input in the request, from 0.',
+                },
                 'kind': {'const': 'tns'},
                 'input': {'description': 'The input exactly as sent.'},
                 'normalized': {
@@ -920,6 +1072,7 @@ def _lookup_schemas() -> dict[str, Any]:
                         },
                         'radius_arcsec': {
                             'type': 'number',
+                            'x-unit': ARCSEC,
                             'description': 'The radius searched, arcsec.',
                         },
                     },
@@ -962,7 +1115,12 @@ def _lookup_schemas() -> dict[str, Any]:
             ],
             'additionalProperties': False,
             'properties': {
-                'index': {'type': 'integer', 'minimum': 0},
+                'index': {
+                    'type': 'integer',
+                    'x-unit': 'index',
+                    'minimum': 0,
+                    'description': 'Position of the input in the request, from 0.',
+                },
                 'kind': {
                     'type': ['string', 'null'],
                     'description': 'The kind as sent, when it was a string.',
@@ -1009,6 +1167,7 @@ def _lookup_schemas() -> dict[str, Any]:
                 },
                 'count': {
                     'type': 'integer',
+                    'x-unit': COUNT,
                     'minimum': 0,
                     'description': 'Number of results (equal to the number of inputs).',
                 },
@@ -1061,12 +1220,11 @@ def _lookup_schemas() -> dict[str, Any]:
                     'format': 'date-time',
                     'description': (
                         'The object set is pinned to objects ingested at or '
-                        'before this time, on every page of one walk. An '
-                        "object's status can still advance between pages as "
-                        'crossmatching proceeds.'
+                        'before this time, on every page of one walk. '
+                        + PAGING_CAVEAT
                     ),
                 },
-                'page_size': {'type': 'integer', 'minimum': 1},
+                'page_size': {'type': 'integer', 'x-unit': COUNT, 'minimum': 1},
                 'next_cursor': {
                     'type': ['string', 'null'],
                     'description': 'Opaque token for the next page; null on the last.',
@@ -1093,10 +1251,11 @@ def _filter_schemas() -> dict[str, Any]:
     status_counts = {
         'type': 'object',
         'description': 'Count per status; every status is present, zero-filled.',
-        'additionalProperties': {'type': 'integer', 'minimum': 0},
+        'additionalProperties': {'type': 'integer', 'x-unit': COUNT, 'minimum': 0},
     }
     qualifying = {
         'type': ['integer', 'null'],
+        'x-unit': COUNT,
         'minimum': 0,
         'description': 'How many qualify under the filters; null without filters.',
     }
@@ -1150,7 +1309,9 @@ def _filter_schemas() -> dict[str, Any]:
                             'required': ['total', 'by_status', 'qualifying'],
                             'additionalProperties': False,
                             'properties': {
-                                'total': {'type': 'integer', 'minimum': 0},
+                                'total': {
+                                    'type': 'integer', 'x-unit': COUNT, 'minimum': 0,
+                                },
                                 'by_status': status_counts,
                                 'qualifying': qualifying,
                             },
@@ -1168,7 +1329,9 @@ def _filter_schemas() -> dict[str, Any]:
                             ],
                             'additionalProperties': False,
                             'properties': {
-                                'total': {'type': 'integer', 'minimum': 0},
+                                'total': {
+                                    'type': 'integer', 'x-unit': COUNT, 'minimum': 0,
+                                },
                                 'by_status': status_counts,
                                 'qualifying': qualifying,
                                 'by_qualifies_reason': {
@@ -1179,7 +1342,8 @@ def _filter_schemas() -> dict[str, Any]:
                                         'null without filters.'
                                     ),
                                     'additionalProperties': {
-                                        'type': 'integer', 'minimum': 0,
+                                        'type': 'integer', 'x-unit': COUNT,
+                                        'minimum': 0,
                                     },
                                 },
                             },
@@ -1195,6 +1359,7 @@ def _discovery_schemas() -> dict[str, Any]:
     """Schemas of the status and describe bodies (U7, KTD16)."""
     nullable_order = {
         'type': ['integer', 'null'],
+        'x-unit': 'HEALPix order',
         'minimum': 0,
         'maximum': 29,
     }
@@ -1356,6 +1521,7 @@ def _discovery_schemas() -> dict[str, Any]:
                         },
                         'resolution_arcmin': {
                             'type': ['number', 'null'],
+                            'x-unit': 'arcmin',
                             'description': (
                                 'Mean pixel side at that order, arcmin; null if '
                                 'not configured.'
@@ -1391,6 +1557,7 @@ def _discovery_schemas() -> dict[str, Any]:
                     'properties': {
                         'radius_arcsec': {
                             'type': ['number', 'null'],
+                            'x-unit': ARCSEC,
                             'description': 'Crossmatch radius, arcsec.',
                         },
                         'nearest_source_per_catalog': {
@@ -1410,12 +1577,14 @@ def _discovery_schemas() -> dict[str, Any]:
                     'properties': {
                         'default_radius_arcsec': {
                             'type': 'number',
+                            'x-unit': ARCSEC,
                             'description': (
                                 'Default radius around a TNS position, arcsec.'
                             ),
                         },
                         'max_radius_arcsec': {
                             'type': 'number',
+                            'x-unit': ARCSEC,
                             'description': 'Largest radius a request may set, arcsec.',
                         },
                     },
@@ -1434,12 +1603,18 @@ def _discovery_schemas() -> dict[str, Any]:
                     ],
                     'additionalProperties': False,
                     'properties': {
-                        'request_budget_seconds': {'type': 'number'},
-                        'max_ids': {'type': 'integer', 'minimum': 0},
-                        'max_positions': {'type': 'integer', 'minimum': 0},
-                        'max_cone_radius_arcsec': {'type': 'number'},
-                        'max_objects_per_position': {'type': 'integer', 'minimum': 0},
-                        'max_objects_per_request': {'type': 'integer', 'minimum': 0},
+                        'request_budget_seconds': {'type': 'number', 'x-unit': 's'},
+                        'max_ids': {'type': 'integer', 'x-unit': COUNT, 'minimum': 0},
+                        'max_positions': {
+                            'type': 'integer', 'x-unit': COUNT, 'minimum': 0,
+                        },
+                        'max_cone_radius_arcsec': {'type': 'number', 'x-unit': ARCSEC},
+                        'max_objects_per_position': {
+                            'type': 'integer', 'x-unit': COUNT, 'minimum': 0,
+                        },
+                        'max_objects_per_request': {
+                            'type': 'integer', 'x-unit': COUNT, 'minimum': 0,
+                        },
                         'recent_crossmatches': {
                             'type': 'object',
                             'required': [
@@ -1448,9 +1623,15 @@ def _discovery_schemas() -> dict[str, Any]:
                             ],
                             'additionalProperties': False,
                             'properties': {
-                                'default_page_size': {'type': 'integer', 'minimum': 0},
-                                'max_page_size': {'type': 'integer', 'minimum': 0},
-                                'max_window_hours': {'type': 'integer', 'minimum': 0},
+                                'default_page_size': {
+                                    'type': 'integer', 'x-unit': COUNT, 'minimum': 0,
+                                },
+                                'max_page_size': {
+                                    'type': 'integer', 'x-unit': COUNT, 'minimum': 0,
+                                },
+                                'max_window_hours': {
+                                    'type': 'integer', 'x-unit': 'h', 'minimum': 0,
+                                },
                             },
                         },
                     },
@@ -1551,6 +1732,7 @@ def _paths() -> dict[str, Any]:
     """Path items for every documented operation."""
     radius_param_schema = {
         'type': 'number',
+        'x-unit': ARCSEC,
         'exclusiveMinimum': 0,
         'maximum': float(settings.API_MAX_CONE_RADIUS_ARCSEC),
     }
@@ -1559,6 +1741,13 @@ def _paths() -> dict[str, Any]:
             'get': {
                 'operationId': 'get_openapi',
                 'summary': 'This OpenAPI document.',
+                'description': (
+                    'The OpenAPI 3.1 document for every operation, built per '
+                    'request from the live configuration, so its radius, '
+                    'catalogs, reliability cuts, limits, and version describe '
+                    'the running service. Numeric fields name their unit in '
+                    'x-unit. Start here, or at /llms.txt.'
+                ),
                 'responses': {
                     '200': _json(
                         {
@@ -1579,8 +1768,7 @@ def _paths() -> dict[str, Any]:
                     'What the service knows about one object: its status, '
                     'per-catalog search outcomes, provenance, and coincident '
                     'sources. The response has the lookup_objects shape with '
-                    'one result. not_in_service is not evidence that the object '
-                    'failed a reliability cut or does not exist in Rubin.'
+                    'one result. ' + NOT_IN_SERVICE_CAVEAT
                 ),
                 'parameters': [
                     {
@@ -1622,7 +1810,7 @@ def _paths() -> dict[str, Any]:
                     'normalized form. A malformed input is reported as '
                     'invalid_input in its own result and does not fail the '
                     'others; request-level problems are a 400 naming the '
-                    'parameter.'
+                    'parameter. ' + NOT_IN_SERVICE_CAVEAT
                 ),
                 'requestBody': {
                     'required': True,
@@ -1657,16 +1845,18 @@ def _paths() -> dict[str, Any]:
                     'not reachable by position search; look them up by '
                     'diaObjectId. Paged in (ingest_time, diaObjectId) order: '
                     'follow next_cursor until null. The first page pins the '
-                    'object set with as_of. A coincident source is not a host '
-                    'association.'
+                    'object set with as_of. ' + PAGING_CAVEAT + ' '
+                    + COINCIDENCE_CAVEAT
                 ),
                 'parameters': [
                     _query_param(
-                        'ra', {'type': 'number', 'minimum': 0, 'maximum': 360},
+                        'ra',
+                        {'type': 'number', 'x-unit': DEG, 'minimum': 0, 'maximum': 360},
                         'Center RA, degrees (ICRS). Required without cursor.',
                     ),
                     _query_param(
-                        'dec', {'type': 'number', 'minimum': -90, 'maximum': 90},
+                        'dec',
+                        {'type': 'number', 'x-unit': DEG, 'minimum': -90, 'maximum': 90},
                         'Center Dec, degrees (ICRS). Required without cursor.',
                     ),
                     _query_param(
@@ -1681,7 +1871,7 @@ def _paths() -> dict[str, Any]:
                     ),
                     _query_param(
                         'page_size',
-                        {'type': 'integer', 'minimum': 1},
+                        {'type': 'integer', 'x-unit': COUNT, 'minimum': 1},
                         'Objects per page (default '
                         f'{_int_setting("API_MAX_OBJECTS_PER_POSITION")}); '
                         'clamped to '
@@ -1693,7 +1883,7 @@ def _paths() -> dict[str, Any]:
                         'Opaque next_cursor from a prior page; pins ra, dec, '
                         'radius_arcsec, detail, and as_of. Filters are not '
                         'pinned: pass them on every page. Not allowed with '
-                        'response=count.',
+                        'response=count. ' + PAGING_CAVEAT,
                     ),
                     *_filter_query_params(),
                 ],
@@ -1820,7 +2010,10 @@ def _paths() -> dict[str, Any]:
                         'start',
                         {'type': 'string', 'format': 'date-time'},
                         'Window start (inclusive), ISO-8601; naive means UTC. '
-                        'Default: end minus 12 hours.',
+                        f'Default: end minus {DEFAULT_WINDOW_HOURS} hours. The '
+                        'window may span at most '
+                        f'{_int_setting("RECENT_CROSSMATCH_MAX_WINDOW_HOURS")} '
+                        'hours.',
                     ),
                     _query_param(
                         'end',
@@ -1839,9 +2032,11 @@ def _paths() -> dict[str, Any]:
                     ),
                     _query_param(
                         'page_size',
-                        {'type': 'integer', 'minimum': 1},
-                        'Maximum objects on the page; clamped to the operator '
-                        'maximum.',
+                        {'type': 'integer', 'x-unit': COUNT, 'minimum': 1},
+                        'Maximum objects on the page (default '
+                        f'{_int_setting("RECENT_CROSSMATCH_DEFAULT_PAGE_SIZE")}); '
+                        'clamped to the operator maximum of '
+                        f'{_int_setting("RECENT_CROSSMATCH_MAX_PAGE_SIZE")}.',
                     ),
                     _query_param(
                         'cursor',
@@ -1882,12 +2077,11 @@ def build_document() -> dict[str, Any]:
             'description': (
                 'Read-only queries over Rubin alert objects and their catalog '
                 f'crossmatches. Service version {version}; contract version '
-                f'{CONTRACT_VERSION}. Coordinates are RA/Dec in degrees; '
-                'separations and radii are in arcsec. A coincident source is '
-                'not a host association, and the absence of one is not '
-                'evidence of a hostless transient. Access is public and '
-                'unauthenticated; authentication may be required in a future '
-                'release.'
+                f'{CONTRACT_VERSION}. {position_conventions()}\n\n'
+                f'{NEAREST_SOURCE_RULE}\n\n{COINCIDENCE_CAVEAT}\n\n'
+                f'{NOT_IN_SERVICE_CAVEAT}\n\n{PAGING_CAVEAT}\n\n'
+                'Access is public and unauthenticated; authentication may be '
+                'required in a future release.'
             ),
         },
         'paths': _paths(),
