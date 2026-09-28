@@ -1,19 +1,30 @@
+import hashlib
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
 
+import astropy.units as u
 import lsdb
 import pandas as pd
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.utils import timezone
-from core.models import Alert, CatalogMatch, Notification, TnsAssociation, TnsSnapshotMeta
-from matching.catalog import crossmatch_alerts, is_transient_read_error
+from core.models import (
+    Alert, AlertDelivery, CatalogMatch, CatalogSearchOutcome, Notification,
+    ObjectCrossmatchRecord, ProvenanceSet, TnsAssociation, TnsSnapshotMeta,
+)
+from core.provenance import catalog_releases, crossmatch_radius_arcsec, reliability_cuts
+from matching.catalog import (
+    CatalogCoverageUnavailable, catalog_moc, crossmatch_alerts, is_transient_read_error,
+)
 from matching.payload import build_catalog_payload, build_published_payload
 from matching.tns_match import find_tns_match, tns_payload
 from core.log import get_logger
-from core.metrics import CATALOG_SKIPS, CROSSMATCH_BATCHES, CROSSMATCH_MATCHES
+from core.metrics import (
+    CATALOG_SKIPS, CROSSMATCH_BATCHES, CROSSMATCH_MATCHES, CROSSMATCH_RECORD_FAILURES,
+)
 logger = get_logger(__name__)
 
 
@@ -68,6 +79,11 @@ class CrossmatchResult:
         records: Every buildable match, in catalog then row order.
         catalog_outcomes: ``{catalog_name: CATALOG_*}`` in configured order.
         tns: The TNS enrichment state, or ``None`` when nothing was crossmatched.
+        search_outcomes: Per-object search outcomes (KTD6),
+            ``{catalog_name: {diaObjectId: CatalogSearchOutcome value}}`` for
+            every alert row, or ``None`` when some catalog's outcomes could not
+            be determined. Recorded by ``crossmatch_batch``; the replay snapshot
+            does not serialize it.
     """
 
     alert_count: int = 0
@@ -75,6 +91,7 @@ class CrossmatchResult:
     records: list = field(default_factory=list)
     catalog_outcomes: dict = field(default_factory=dict)
     tns: TnsResult | None = None
+    search_outcomes: dict | None = None
 
     @property
     def skipped_catalogs(self) -> list:
@@ -288,6 +305,289 @@ def _catalog_records(result_df, catalog_config, tns_enrichment) -> list:
     return records
 
 
+def _invalid_position_outcomes(dia_ids) -> dict:
+    """Search outcomes for alerts none of which has a valid position.
+
+    Args:
+        dia_ids: The batch's diaObjectIds.
+
+    Returns:
+        ``{catalog_name: {diaObjectId: not_searched_invalid_position}}`` for
+        every configured catalog.
+    """
+    invalid = CatalogSearchOutcome.NOT_SEARCHED_INVALID_POSITION.value
+    ids = [int(dia_id) for dia_id in dia_ids]
+    return {
+        cat['name']: {dia_id: invalid for dia_id in ids}
+        for cat in settings.CROSSMATCH_CATALOGS
+    }
+
+
+def _footprint_outcomes(alerts_df, catalog_config, outcome) -> dict:
+    """Classify every alert row's search outcome for one catalog (KTD6).
+
+    Uses the batch's full alert rows, not the NaN-filtered frame, so an alert
+    without a valid position is recorded as not searched rather than dropped. A
+    skipped read marks every other alert skipped and a whole-batch no-overlap
+    marks it outside the footprint; after a successful read each position is
+    tested against the catalog's HATS coverage map.
+
+    Args:
+        alerts_df: The batch alert DataFrame, including NaN-coordinate rows.
+        catalog_config: The catalog's ``CROSSMATCH_CATALOGS`` entry.
+        outcome: The catalog's ``CATALOG_*`` read outcome for the batch.
+
+    Returns:
+        ``{diaObjectId: CatalogSearchOutcome value}`` for every alert row.
+
+    Raises:
+        CatalogCoverageUnavailable: If the catalog has no coverage map.
+    """
+    ids = [int(dia_id) for dia_id in alerts_df['lsst_diaObject_diaObjectId']]
+    valid = (alerts_df['ra_deg'].notna() & alerts_df['dec_deg'].notna()).to_numpy()
+    if outcome == CATALOG_SKIPPED:
+        inside = None
+        batch_outcome = CatalogSearchOutcome.SKIPPED_READ_FAILURE.value
+    elif outcome == CATALOG_NO_OVERLAP:
+        inside = None
+        batch_outcome = CatalogSearchOutcome.OUTSIDE_FOOTPRINT.value
+    else:
+        moc = catalog_moc(catalog_config)
+        positions = alerts_df[valid]
+        inside = iter(moc.contains_lonlat(
+            lon=(positions['ra_deg'].to_numpy(dtype=float) % 360.0) * u.deg,
+            lat=positions['dec_deg'].to_numpy(dtype=float) * u.deg,
+        ))
+        batch_outcome = None
+
+    outcomes = {}
+    for dia_id, is_valid in zip(ids, valid):
+        if not is_valid:
+            outcomes[dia_id] = CatalogSearchOutcome.NOT_SEARCHED_INVALID_POSITION.value
+        elif inside is None:
+            outcomes[dia_id] = batch_outcome
+        elif next(inside):
+            outcomes[dia_id] = CatalogSearchOutcome.SEARCHED.value
+        else:
+            outcomes[dia_id] = CatalogSearchOutcome.OUTSIDE_FOOTPRINT.value
+    return outcomes
+
+
+# Chunk size for the per-batch ``__in`` lookups over diaObjectIds.
+_ID_CHUNK = 10000
+
+
+def _id_chunks(ids):
+    """Yield ``ids`` in slices of at most ``_ID_CHUNK``."""
+    for start in range(0, len(ids), _ID_CHUNK):
+        yield ids[start:start + _ID_CHUNK]
+
+
+def _provenance_content():
+    """The batch's provenance set content and its content hash (KTD5).
+
+    Returns:
+        ``(content, content_hash)``: the JSON-native radius, catalog releases,
+        and broker-cut table from the provenance builder, and the sha256 hex of
+        their canonical JSON. ``allow_nan=False`` rejects any value that is not
+        JSON-native rather than storing an invalid ``NaN`` token.
+    """
+    content = {
+        'crossmatch_radius_arcsec': crossmatch_radius_arcsec(),
+        'catalogs': catalog_releases(),
+        'reliability_cuts': reliability_cuts(),
+    }
+    canonical = json.dumps(content, sort_keys=True, separators=(',', ':'),
+                           allow_nan=False)
+    return json.loads(canonical), hashlib.sha256(canonical.encode()).hexdigest()
+
+
+@dataclass
+class PreparedRecords:
+    """Per-object record rows built before the MATCHED transaction (KTD5).
+
+    Attributes:
+        content: The provenance set content (JSON-native).
+        content_hash: The content's sha256 hex, the provenance set's key.
+        rows: ``{diaObjectId: {catalog_name: CatalogSearchOutcome value}}``.
+    """
+
+    content: dict
+    content_hash: str
+    rows: dict
+
+
+def _prepare_object_records(dia_ids, search_outcomes, match_version):
+    """Build per-object record rows in Python, one row at a time.
+
+    Runs before the final MATCHED transaction so a bad row is logged and
+    skipped instead of reaching it. A catalog that has current-version
+    ``CatalogMatch`` rows for the object is recorded ``searched`` whatever this
+    run's outcome, so a revert-and-rerun never contradicts stored matches.
+    Never raises (except ``SoftTimeLimitExceeded``): a failure here only means
+    the batch's objects read as provenance "not recorded".
+
+    Args:
+        dia_ids: The batch's diaObjectIds.
+        search_outcomes: ``CrossmatchResult.search_outcomes`` (may be ``None``).
+        match_version: The batch's match version.
+
+    Returns:
+        The :class:`PreparedRecords`, or ``None`` when nothing can be recorded.
+    """
+    if search_outcomes is None:
+        logger.warning('No search outcomes for batch; not recording crossmatch records',
+                       batch_size=len(dia_ids))
+        CROSSMATCH_RECORD_FAILURES.labels(reason='build_failed').inc()
+        return None
+    try:
+        content, content_hash = _provenance_content()
+        ids = [int(dia_id) for dia_id in dia_ids]
+        searched_by_matches = {}
+        for chunk in _id_chunks(ids):
+            for alert_id, catalog_name in (
+                CatalogMatch.objects.filter(alert_id__in=chunk,
+                                            match_version=match_version)
+                .values_list('alert_id', 'catalog_name').distinct()
+            ):
+                searched_by_matches.setdefault(alert_id, set()).add(catalog_name)
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception:
+        logger.exception('Building crossmatch provenance failed; not recording crossmatch records',
+                         batch_size=len(dia_ids))
+        CROSSMATCH_RECORD_FAILURES.labels(reason='build_failed').inc()
+        return None
+
+    searched = CatalogSearchOutcome.SEARCHED.value
+    rows = {}
+    for dia_id in ids:
+        # Per row: one unbuildable row is logged and skipped, never the batch.
+        try:
+            outcomes = {name: str(by_id[dia_id])
+                        for name, by_id in search_outcomes.items()}
+            for name in searched_by_matches.get(dia_id, ()):
+                if name in outcomes:
+                    outcomes[name] = searched
+            rows[dia_id] = outcomes
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception:
+            logger.exception('Skipping unbuildable crossmatch record', diaObjectId=dia_id)
+            CROSSMATCH_RECORD_FAILURES.labels(reason='build_failed').inc()
+    return PreparedRecords(content=content, content_hash=content_hash, rows=rows)
+
+
+def _is_missing_table(exc) -> bool:
+    """True if ``exc`` is Postgres "undefined table" (migration not applied)."""
+    cause = exc.__cause__
+    return (getattr(cause, 'sqlstate', None) or getattr(cause, 'pgcode', None)) == '42P01'
+
+
+def _write_object_records(prepared, match_version, crossmatched_at) -> None:
+    """Upsert the provenance set and per-object records in a savepoint (KTD5).
+
+    Called inside the batch's final MATCHED transaction. Reads the delivering
+    brokers there, so the record freezes the brokers as of the transition. A
+    database error rolls back only the savepoint and is logged and counted; the
+    MATCHED transition and notifications still commit. A missing table (this
+    pod started before migration 0011 was applied) is logged and skipped.
+
+    Args:
+        prepared: The rows from :func:`_prepare_object_records`, or ``None``.
+        match_version: The batch's match version.
+        crossmatched_at: The time of the MATCHED transition.
+    """
+    if prepared is None or not prepared.rows:
+        return
+    ids = list(prepared.rows)
+    try:
+        with transaction.atomic():
+            brokers = {}
+            for chunk in _id_chunks(ids):
+                for alert_id, broker in AlertDelivery.objects.filter(
+                    alert_id__in=chunk
+                ).values_list('alert_id', 'broker'):
+                    brokers.setdefault(alert_id, set()).add(broker)
+            provenance_set, _ = ProvenanceSet.objects.get_or_create(
+                content_hash=prepared.content_hash,
+                defaults={
+                    'crossmatch_radius_arcsec':
+                        prepared.content['crossmatch_radius_arcsec'],
+                    'catalogs': prepared.content['catalogs'],
+                    'reliability_cuts': prepared.content['reliability_cuts'],
+                },
+            )
+            ObjectCrossmatchRecord.objects.bulk_create(
+                [
+                    ObjectCrossmatchRecord(
+                        alert_id=dia_id,
+                        match_version=match_version,
+                        provenance_set=provenance_set,
+                        catalog_outcomes=outcomes,
+                        brokers=sorted(brokers.get(dia_id, ())),
+                        crossmatched_at=crossmatched_at,
+                    )
+                    for dia_id, outcomes in prepared.rows.items()
+                ],
+                update_conflicts=True,
+                unique_fields=['alert', 'match_version'],
+                update_fields=['provenance_set', 'catalog_outcomes', 'brokers',
+                               'crossmatched_at'],
+                batch_size=5000,
+            )
+    except SoftTimeLimitExceeded:
+        raise
+    except DatabaseError as exc:
+        if _is_missing_table(exc):
+            logger.warning('Crossmatch record tables missing (migration not applied); '
+                           'not recording crossmatch records', records=len(ids))
+            CROSSMATCH_RECORD_FAILURES.labels(reason='missing_table').inc()
+        else:
+            logger.exception('Writing crossmatch records failed; batch still commits',
+                             records=len(ids))
+            CROSSMATCH_RECORD_FAILURES.labels(reason='write_failed').inc()
+    except Exception:
+        logger.exception('Writing crossmatch records failed; batch still commits',
+                         records=len(ids))
+        CROSSMATCH_RECORD_FAILURES.labels(reason='write_failed').inc()
+
+
+def _classify_catalog(search_outcomes, alerts_df, catalog_config, outcome):
+    """Add one catalog's per-object search outcomes, or give up on the batch's.
+
+    The footprint test never affects the crossmatch or the published payload:
+    a failure only means the batch's objects get no crossmatch record (they
+    read as provenance "not recorded"). A catalog without a coverage map is
+    logged as an error rather than silently recorded as searched (KTD6).
+
+    Args:
+        search_outcomes: The outcomes gathered so far, keyed by catalog name.
+        alerts_df: The batch alert DataFrame, including NaN-coordinate rows.
+        catalog_config: The catalog's ``CROSSMATCH_CATALOGS`` entry.
+        outcome: The catalog's ``CATALOG_*`` read outcome for the batch.
+
+    Returns:
+        ``search_outcomes`` with this catalog added, or ``None`` on failure.
+    """
+    catalog_name = catalog_config['name']
+    try:
+        search_outcomes[catalog_name] = _footprint_outcomes(
+            alerts_df, catalog_config, outcome
+        )
+    except SoftTimeLimitExceeded:
+        raise
+    except CatalogCoverageUnavailable:
+        logger.error('Catalog has no coverage map; not recording crossmatch '
+                     'records for this batch', catalog=catalog_name)
+        return None
+    except Exception:
+        logger.exception('Footprint classification failed; not recording '
+                         'crossmatch records for this batch', catalog=catalog_name)
+        return None
+    return search_outcomes
+
+
 def compute_crossmatch(alert_rows, now=None, on_tns=None, on_catalog=None):
     """Crossmatch alerts against every configured catalog, in memory.
 
@@ -326,6 +626,9 @@ def compute_crossmatch(alert_rows, now=None, on_tns=None, on_catalog=None):
     clean_df = alerts_df.dropna(subset=['ra_deg', 'dec_deg'])
     result.crossmatched_count = len(clean_df)
     if clean_df.empty:
+        result.search_outcomes = _invalid_position_outcomes(
+            alerts_df['lsst_diaObject_diaObjectId']
+        )
         return result
 
     # Build LSDB alerts catalog once, reuse for all reference catalogs
@@ -346,6 +649,7 @@ def compute_crossmatch(alert_rows, now=None, on_tns=None, on_catalog=None):
     # The >=1-success guard (R3) below still fails the whole batch closed when
     # EVERY catalog errored, so a broad outage reverts instead of publishing empty
     # crossmatches.
+    search_outcomes = {}
     for catalog_config in settings.CROSSMATCH_CATALOGS:
         catalog_name = catalog_config['name']
         records = []
@@ -401,6 +705,10 @@ def compute_crossmatch(alert_rows, now=None, on_tns=None, on_catalog=None):
 
         result.catalog_outcomes[catalog_name] = outcome
         result.records.extend(records)
+        if search_outcomes is not None:
+            search_outcomes = _classify_catalog(
+                search_outcomes, alerts_df, catalog_config, outcome
+            )
         if on_catalog is not None:
             on_catalog(catalog_name, outcome, records)
 
@@ -427,6 +735,7 @@ def compute_crossmatch(alert_rows, now=None, on_tns=None, on_catalog=None):
             record.published_payload['catalogs_skipped'] = skipped
             record.published_payload['partial'] = True
 
+    result.search_outcomes = search_outcomes
     return result
 
 
@@ -500,11 +809,19 @@ def crossmatch_batch(batch_ids: list, match_version: int = 1) -> None:
         )
         if not crossmatched:
             logger.warning('No alerts with valid coordinates to crossmatch')
+            # Every catalog is recorded not searched for every object (KTD6).
+            dia_ids = [dia_id for _, dia_id, _, _ in alert_rows]
+            prepared = _prepare_object_records(
+                dia_ids, _invalid_position_outcomes(dia_ids), match_version
+            )
             # Terminal, zero-notification alerts: anchor their retention grace now
             # (they never reach the NOTIFIED transition).
-            Alert.objects.filter(pk__in=batch_ids).update(
-                status=Alert.Status.MATCHED, notified_at=timezone.now()
-            )
+            with transaction.atomic():
+                now = timezone.now()
+                Alert.objects.filter(pk__in=batch_ids).update(
+                    status=Alert.Status.MATCHED, notified_at=now
+                )
+                _write_object_records(prepared, match_version, now)
             return
 
         # 2. Compute: TNS association and per-catalog crossmatch. TNS rows are
@@ -529,6 +846,12 @@ def crossmatch_batch(batch_ids: list, match_version: int = 1) -> None:
             )
             for record in result.records
         ]
+        # Per-object crossmatch records (KTD5): built row by row here, before the
+        # transaction, so a bad row cannot reach it.
+        prepared = _prepare_object_records(
+            [dia_id for _, dia_id, _, _ in alert_rows],
+            result.search_outcomes, match_version,
+        )
 
         # 3. Create notifications and transition ALL alerts to MATCHED atomically,
         # so notifications become dispatchable exactly when (not before) their
@@ -547,6 +870,9 @@ def crossmatch_batch(batch_ids: list, match_version: int = 1) -> None:
             Alert.objects.filter(pk__in=batch_ids).exclude(
                 lsst_diaObject_diaObjectId__in=matched_keys
             ).update(notified_at=timezone.now())
+            # In a savepoint: a failed record write is logged and never reverts
+            # the MATCHED transition or the notifications.
+            _write_object_records(prepared, match_version, timezone.now())
         CROSSMATCH_BATCHES.labels(result='completed').inc()
         logger.info('Crossmatch batch complete',
                     batch_size=len(batch_ids),

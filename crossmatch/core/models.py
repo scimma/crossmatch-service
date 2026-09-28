@@ -340,3 +340,67 @@ class TnsAssociation(models.Model):
 
     class Meta:
         db_table = 'tns_associations'
+
+
+class ProvenanceSet(models.Model):
+    """One distinct combination of crossmatch conditions (KTD5, R18, R20).
+
+    Stored once and shared by every per-object record crossmatched under it,
+    keyed by a content hash of its JSON-native content: the radius, the catalog
+    releases in service, and the per-broker reliability-cut table, all as the
+    provenance builder (``core/provenance.py``) reported them at crossmatch
+    time. Dates are ISO strings and numbers JSON numbers.
+    """
+    id = models.BigAutoField(primary_key=True)
+    # TEXT UNIQUE NOT NULL    sha256 hex of the canonical JSON content
+    content_hash = models.TextField(unique=True, null=False)
+    # DOUBLE PRECISION NULL    crossmatch radius in arcsec (NULL if unset)
+    crossmatch_radius_arcsec = models.FloatField(null=True)
+    # JSONB NOT NULL    [{'name': ..., 'release': ...}, ...] in configured order
+    catalogs = models.JSONField(null=False)
+    # JSONB NOT NULL    per-broker cut entries from provenance.reliability_cuts()
+    reliability_cuts = models.JSONField(null=False)
+    created_at = models.DateTimeField(null=False, auto_now_add=True)
+
+    class Meta:
+        db_table = 'provenance_sets'
+
+
+class ObjectCrossmatchRecord(models.Model):
+    """What one crossmatch of one object searched, and under which conditions.
+
+    Written in the same transaction that moves the object to MATCHED (KTD5).
+    Keyed by ``(alert, match_version)`` -- not one-to-one like
+    ``TnsAssociation`` -- and upserted, so the last committed run wins.
+    ``catalog_outcomes`` maps every catalog in service at crossmatch time to a
+    ``CatalogSearchOutcome`` code. ``brokers`` is frozen at crossmatch time and
+    is distinct from the live broker list in ``AlertDelivery``.
+    """
+    id = models.BigAutoField(primary_key=True)
+    alert = models.ForeignKey(
+        Alert,
+        to_field='lsst_diaObject_diaObjectId',
+        on_delete=models.CASCADE,
+        db_column='lsst_diaobject_diaobjectid',
+    )
+    match_version = models.IntegerField(null=False, default=1)
+    provenance_set = models.ForeignKey(
+        ProvenanceSet,
+        on_delete=models.PROTECT,
+        db_column='provenance_set_id',
+    )
+    # JSONB NOT NULL    {catalog_name: CatalogSearchOutcome value}
+    catalog_outcomes = models.JSONField(null=False)
+    # JSONB NOT NULL    sorted broker names that had delivered the object
+    brokers = models.JSONField(null=False)
+    # TIMESTAMPTZ NOT NULL    when the batch's MATCHED transition was written
+    crossmatched_at = models.DateTimeField(null=False)
+
+    class Meta:
+        db_table = 'object_crossmatch_records'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['alert', 'match_version'],
+                name='unique_object_crossmatch_record',
+            )
+        ]

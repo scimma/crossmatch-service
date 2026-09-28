@@ -78,6 +78,15 @@ CATALOG_SKIPS = Counter(
     ["catalog"],
 )
 
+#: Per-object crossmatch record writes that did not happen, by ``reason``
+#: (build_failed|missing_table|write_failed). The batch still commits MATCHED;
+#: the affected objects read as provenance "not recorded".
+CROSSMATCH_RECORD_FAILURES = Counter(
+    "crossmatch_record_failures_total",
+    "Per-object crossmatch record writes skipped or failed, by reason.",
+    ["reason"],
+)
+
 #: Notifications published to a destination, by ``result`` (success|failure).
 NOTIFICATIONS_PUBLISHED = Counter(
     "crossmatch_notifications_published_total",

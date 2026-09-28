@@ -7,6 +7,23 @@ import pytest
 from tests.factories import make_alert_with_notifications
 
 
+@pytest.fixture(autouse=True)
+def _full_sky_catalog_coverage(monkeypatch):
+    """Stub the crossmatch task's coverage-map seam with a full-sky MOC.
+
+    The footprint test (KTD6) reads each catalog's HATS coverage map through
+    ``tasks.crossmatch.catalog_moc``, which would open the real catalog. Tests
+    that mock ``crossmatch_alerts`` get a whole-sky map so every valid position
+    is inside; tests of the footprint itself patch the seam again.
+    """
+    from mocpy import MOC
+
+    import tasks.crossmatch as crossmatch_mod
+
+    full_sky = MOC.from_string('0/0-11')
+    monkeypatch.setattr(crossmatch_mod, 'catalog_moc', lambda cfg: full_sky)
+
+
 @pytest.fixture
 def make_alert():
     """Builder fixture: make_alert(status, [Notification.State, ...]) -> (alert, notifications).
