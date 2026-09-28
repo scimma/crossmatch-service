@@ -138,7 +138,10 @@ COINCIDENCE_CAVEAT = (
 PAGING_CAVEAT = (
     "A cursor pins the object set of a paged walk, not the objects' state: an "
     "object's status and coincident sources can advance between pages as "
-    'crossmatching proceeds.'
+    'crossmatching proceeds. as_of bounds ingest time, it is not a snapshot: '
+    'ingest time is set before an ingest commits, so an object whose ingest '
+    'commits during the walk can still appear on a later page if its ingest '
+    'time is at or before as_of.'
 )
 
 #: What is known about each catalog's published position, keyed by catalog

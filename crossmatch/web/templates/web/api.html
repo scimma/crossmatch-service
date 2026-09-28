@@ -71,7 +71,9 @@
   <code>next_cursor</code> to page through the whole window; it is
   <code>null</code> when the window is exhausted. The first page sets
   <code>as_of</code> and its cursors carry it, so one walk lists only alerts
-  ingested at or before that time. The pin fixes which alerts are in the set,
+  ingested at or before that time. It bounds ingest time rather than taking a
+  snapshot: an alert whose ingest commits while you page can still appear on a
+  later page if its ingest time is at or before <code>as_of</code>. The pin fixes which alerts are in the set,
   not their crossmatch state: an alert that gains its first match while you
   page can appear on a later page. A walk never repeats an object.
 </p>

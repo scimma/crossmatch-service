@@ -8,6 +8,7 @@ Covers R1, R2, R7, R8, R10, R11, R12, R18, R19, R28 and AE1, AE4 against
 from datetime import timedelta
 
 import pytest
+from django.db import ProgrammingError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -15,7 +16,7 @@ from api.contract import InputStatus, ObjectStatus, ReadTimeCatalogOutcome
 from api.errors import InvalidQuery
 from api.lookup import BEST_GUESS_PROVENANCE_SET, get_object, lookup_objects
 from core import provenance
-from core.models import Alert, CatalogSearchOutcome
+from core.models import Alert, CatalogSearchOutcome, ObjectCrossmatchRecord
 from tests.factories import (
     AlertDeliveryFactory,
     AlertFactory,
@@ -486,7 +487,8 @@ def test_lookup_reaches_objects_whose_payload_was_reclaimed():
 @pytest.mark.django_db
 def test_ids_resolve_in_a_fixed_number_of_queries(django_assert_num_queries):
     # Set-based resolution: the query count does not grow with the batch
-    # (alerts, records, match existence, matches, TNS associations, deliveries).
+    # (alerts, records, match existence, matches, TNS associations, deliveries),
+    # plus the SAVEPOINT and RELEASE around the record read.
     def batch(n):
         alerts = []
         for _ in range(n):
@@ -497,7 +499,46 @@ def test_ids_resolve_in_a_fixed_number_of_queries(django_assert_num_queries):
         return alerts + [_id(UNKNOWN_ID), {'kind': 'bogus'}]
 
     small, large = batch(2), batch(25)
-    with django_assert_num_queries(6):
+    with django_assert_num_queries(8):
         lookup_objects(inputs=small, detail='full')
-    with django_assert_num_queries(6):
+    with django_assert_num_queries(8):
         lookup_objects(inputs=large, detail='full')
+
+
+class _PgError(Exception):
+    """Stands in for the driver error a Django DatabaseError wraps."""
+
+    def __init__(self, sqlstate):
+        super().__init__(sqlstate)
+        self.sqlstate = sqlstate
+
+
+def _break_record_reads(monkeypatch, sqlstate):
+    def fail(*args, **kwargs):
+        error = ProgrammingError(f'record read failed ({sqlstate})')
+        error.__cause__ = _PgError(sqlstate)
+        raise error
+
+    monkeypatch.setattr(ObjectCrossmatchRecord.objects, 'filter', fail)
+
+
+@pytest.mark.django_db
+def test_missing_record_table_reads_as_not_recorded(monkeypatch):
+    record = ObjectCrossmatchRecordFactory()
+    _break_record_reads(monkeypatch, '42P01')
+
+    body = get_object(dia_object_id=record.alert.lsst_diaObject_diaObjectId)
+
+    obj = _only_object(_only_result(body))
+    assert obj['status'] == ObjectStatus.NO_COINCIDENT_SOURCE
+    assert obj['crossmatch']['provenance'] == 'not_recorded'
+    assert obj['crossmatch']['best_guess_provenance_set'] == BEST_GUESS_PROVENANCE_SET
+
+
+@pytest.mark.django_db
+def test_other_record_read_errors_still_propagate(monkeypatch):
+    record = ObjectCrossmatchRecordFactory()
+    _break_record_reads(monkeypatch, '42501')  # insufficient_privilege
+
+    with pytest.raises(ProgrammingError):
+        get_object(dia_object_id=record.alert.lsst_diaObject_diaObjectId)

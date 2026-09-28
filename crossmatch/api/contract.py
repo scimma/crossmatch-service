@@ -250,7 +250,10 @@ def parse_dia_object_id(value: Any, param: str = 'diaObjectId') -> int:
     elif isinstance(value, int):
         parsed = value
     elif isinstance(value, str) and _DECIMAL.fullmatch(value):
-        parsed = int(value)
+        try:
+            parsed = int(value)
+        except ValueError:  # past Python's int-string digit limit
+            parsed = None
     else:
         parsed = None
     if parsed is None or not (0 <= parsed <= _INT64_MAX):

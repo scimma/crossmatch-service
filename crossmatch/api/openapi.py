@@ -1808,8 +1808,8 @@ def _paths() -> dict[str, Any]:
                     ),
                     '400': _json(
                         _ref('Error'),
-                        'Invalid diaObjectId, detail, filter, or response; or '
-                        'filters_span_catalogs.',
+                        'Invalid diaObjectId, detail, filter, or response; '
+                        'filters_span_catalogs; or query_too_expensive.',
                     ),
                     '405': _json(_ref('Error'), 'Method not allowed.'),
                     '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),

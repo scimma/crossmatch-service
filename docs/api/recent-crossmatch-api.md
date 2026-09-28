@@ -271,8 +271,11 @@ each `diaObjectId` appearing exactly once.
   may change from page to page.
 - **The cursor pins the object set (`as_of`).** The first page sets `as_of`
   to the time of that request, and its cursors carry it, so every page of one
-  walk lists only alerts ingested at or before `as_of` — an alert ingested while
-  you page never appears mid-walk, whichever `time_field` you walk by. A cursor
+  walk lists only alerts ingested at or before `as_of`, whichever `time_field`
+  you walk by. The pin is a bound on ingest time, not a snapshot: ingest time is
+  set before an alert's ingest commits, so an alert whose ingest commits while
+  you page can still appear on a later page if its ingest time is at or before
+  `as_of`. A cursor
   issued before `as_of` existed still works: it resumes from its position, and
   the rest of that walk is pinned from the request that presents it.
 - **Statuses can advance between pages.** The pin fixes which alerts are in the

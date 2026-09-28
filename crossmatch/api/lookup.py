@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from django.conf import settings
+from django.db import DatabaseError, transaction
 
 from api.contract import (
     InputStatus,
@@ -100,6 +101,18 @@ _BEST_GUESS_DESCRIPTION = (
 )
 
 _CROSSMATCHED = (Alert.Status.MATCHED, Alert.Status.NOTIFIED)
+
+#: SQLSTATE ``undefined_table``.
+_UNDEFINED_TABLE = '42P01'
+
+
+def _is_missing_table(exc: DatabaseError) -> bool:
+    """Whether a database error is Postgres "undefined table" (migration not
+    applied); mirrors ``tasks.crossmatch._is_missing_table``."""
+    cause = exc.__cause__
+    return (
+        getattr(cause, 'sqlstate', None) or getattr(cause, 'pgcode', None)
+    ) == _UNDEFINED_TABLE
 
 
 class InputError(Exception):
@@ -614,14 +627,26 @@ def build_objects(ids: Sequence[int], ctx: LookupContext) -> dict[int, dict[str,
     matches: dict[int, list[dict[str, Any]]] = {}
     if crossmatched:
         with sql_phase():
-            for record in (
-                ObjectCrossmatchRecord.objects.filter(alert_id__in=crossmatched)
-                .select_related('provenance_set')
-                .order_by('alert_id', 'match_version')
-            ):
-                oid = int(record.alert_id)
-                records[oid] = record  # ordered by version: the last is current
-                record_by_version[(oid, int(record.match_version))] = record
+            # A savepoint, so a missing record table (this pod is ahead of
+            # migration 0011) rolls back only this read and the request's
+            # transaction stays usable; every object then reads as not recorded.
+            try:
+                with transaction.atomic():
+                    for record in (
+                        ObjectCrossmatchRecord.objects.filter(alert_id__in=crossmatched)
+                        .select_related('provenance_set')
+                        .order_by('alert_id', 'match_version')
+                    ):
+                        oid = int(record.alert_id)
+                        records[oid] = record  # ordered by version: the last is current
+                        record_by_version[(oid, int(record.match_version))] = record
+            except DatabaseError as exc:
+                if not _is_missing_table(exc):
+                    raise
+                logger.warning('Crossmatch record tables missing (migration not applied); '
+                               'reading objects as not recorded', error=str(exc))
+                records.clear()
+                record_by_version.clear()
             has_matches = {
                 int(oid) for oid in CatalogMatch.objects.filter(alert_id__in=crossmatched)
                 .values_list('alert_id', flat=True).distinct()

@@ -532,8 +532,12 @@ def _parse_page_size(value: Any) -> int:
         parsed = None
     elif isinstance(value, int):
         parsed = value
-    elif isinstance(value, str) and value.strip().isdigit():
-        parsed = int(value.strip())
+    elif isinstance(value, str):
+        # Not str.isdigit(): it accepts digits int() rejects, such as '²'.
+        try:
+            parsed = int(value.strip())
+        except ValueError:
+            parsed = None
     else:
         parsed = None
     if parsed is None or parsed <= 0:
@@ -568,8 +572,11 @@ def cone_search(
 
     The first page pins the object set with ``as_of`` (now); following
     ``next_cursor`` pages the rest in ``(ingest_time, diaObjectId)`` order
-    without an object ingested mid-walk appearing. An object's status can
-    still advance between pages as crossmatching proceeds (KTD11).
+    without an object ingested after ``as_of`` appearing. The pin bounds
+    ``ingest_time``, which is set before the ingest commits, so an object whose
+    ingest commits during the walk can still appear on a later page if its
+    ``ingest_time`` is at or before ``as_of``. An object's status can still
+    advance between pages as crossmatching proceeds (KTD11).
 
     Args:
         ra: Center RA in degrees, a number or decimal string.

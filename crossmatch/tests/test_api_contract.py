@@ -185,7 +185,9 @@ def test_dia_object_id_accepts_int_or_decimal_string(raw):
 
 @pytest.mark.parametrize(
     'raw',
-    [True, 1.0, float(BIG_ID), '1e5', '0x10', '', ' 12', '+12', '-1', -1, 2**63, str(2**63), None, [1]],
+    [True, 1.0, float(BIG_ID), '1e5', '0x10', '', ' 12', '+12', '-1', -1, 2**63, str(2**63), None, [1],
+     # Past Python's int-string digit limit, where int() raises ValueError.
+     pytest.param('9' * 5000, id='5000-digits')],
 )
 def test_dia_object_id_rejects_non_int64_values(raw):
     with pytest.raises(InvalidQuery) as info:

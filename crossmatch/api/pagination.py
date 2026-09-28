@@ -9,7 +9,11 @@ other query is rejected naming ``cursor``.
 
 The cone cursor also pins its object set with ``as_of``, an upper bound on
 ``ingest_time`` (set once when an alert is ingested and never changed), so an
-object ingested while a caller walks the pages never appears mid-walk.
+object ingested after ``as_of`` never appears in the walk. It is a bound, not a
+snapshot: ``ingest_time`` is set in Python before the ingest transaction
+commits, and ``as_of`` comes from the web pod's clock, so an object whose ingest
+commits during the walk can still appear on a later page if its ``ingest_time``
+is at or before ``as_of``.
 
 The recent-crossmatches cursor is described below.
 

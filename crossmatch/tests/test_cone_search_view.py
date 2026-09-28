@@ -104,6 +104,8 @@ def test_cone_pages_over_http(client, openapi_validate):
     ({'ra': '10', 'dec': '2', 'radius_arcsec': '2', 'detail': 'bogus'}, 'detail'),
     ({'ra': '10', 'dec': '2', 'radius_arcsec': '2', 'page_size': 'x'}, 'page_size'),
     ({'ra': '10', 'dec': '2', 'radius_arcsec': '2', 'page_size': '0'}, 'page_size'),
+    # isdigit() is true for a superscript digit, but int() rejects it.
+    ({'ra': '10', 'dec': '2', 'radius_arcsec': '2', 'page_size': '\u00b2'}, 'page_size'),
     ({'cursor': 'garbage!!'}, 'cursor'),
 ])
 @pytest.mark.django_db

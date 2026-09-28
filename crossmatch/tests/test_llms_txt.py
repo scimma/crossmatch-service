@@ -16,7 +16,9 @@ import pytest
 from django.conf import settings
 from django.test import override_settings
 from django.urls import Resolver404, resolve
+from structlog.testing import capture_logs
 
+from api import docs
 from api.contract import CODE_DESCRIPTIONS, InputStatus, ObjectStatus
 from core import provenance
 from core.models import Alert
@@ -116,6 +118,31 @@ def test_markdown_docs_are_served_with_describedby_link(client):
     assert resp['Content-Type'].startswith('text/markdown')
     assert resp['Link'] == '</llms.txt>; rel="describedby"'
     assert resp.content.decode().startswith('# ')
+
+
+@pytest.mark.parametrize('url, content_type, event', [
+    (LLMS, 'text/plain', 'web_llms_txt_reference_unavailable'),
+    (MARKDOWN, 'text/markdown', 'web_api_markdown_reference_unavailable'),
+])
+def test_reference_failure_is_a_short_503_not_a_500(
+    client, monkeypatch, url, content_type, event,
+):
+    """Like the HTML /api-docs page, the agent docs degrade when the builder fails."""
+    def broken(*args, **kwargs):
+        raise RuntimeError('settings unreadable')
+
+    monkeypatch.setattr(docs, 'reference', broken)
+
+    with capture_logs() as logs:
+        resp = client.get(url)
+
+    assert resp.status_code == 503
+    assert resp['Content-Type'].startswith(content_type)
+    assert 'temporarily unavailable' in resp.content.decode()
+    assert 'settings unreadable' not in resp.content.decode()
+    assert any(
+        log['event'] == event and log['log_level'] == 'warning' for log in logs
+    )
 
 
 def test_markdown_docs_cover_every_operation_parameter_and_code(client):

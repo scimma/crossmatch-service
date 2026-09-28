@@ -11,9 +11,10 @@ import json
 import pytest
 from django.test import override_settings
 from django.urls import reverse
+from structlog.testing import capture_logs
 
 from api.contract import InputStatus, ObjectStatus
-from core.models import Alert
+from core.models import Alert, ObjectCrossmatchRecord
 from tests.factories import (
     AlertDeliveryFactory,
     AlertFactory,
@@ -86,7 +87,42 @@ def test_get_unrecorded_object_validates(client, openapi_validate):
     assert body['results'][0]['objects'][0]['crossmatch']['provenance'] == 'not_recorded'
 
 
-@pytest.mark.parametrize('raw', ['12x', '-5', '99999999999999999999'])
+@pytest.mark.django_db
+def test_get_object_with_record_table_missing_is_not_recorded(
+    client, openapi_validate, monkeypatch,
+):
+    """A pod ahead of migration 0011 reads objects as not recorded, not a 500.
+
+    Pointing the model at a table that does not exist makes Postgres raise a
+    real undefined-table error (42P01), which aborts the enclosing transaction
+    unless the read ran in a savepoint; the match query after it must still work.
+    """
+    record = ObjectCrossmatchRecordFactory()
+    CatalogMatchFactory(alert=record.alert, catalog_name='gaia_dr3')
+    monkeypatch.setattr(ObjectCrossmatchRecord._meta, 'db_table', 'no_such_record_table')
+
+    with capture_logs() as logs:
+        resp = client.get(
+            _object_url(record.alert.lsst_diaObject_diaObjectId), {'detail': 'full'}
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    openapi_validate('get_object', 200, body)
+    result = body['results'][0]
+    assert result['status'] == ObjectStatus.COINCIDENT_SOURCES
+    obj = result['objects'][0]
+    assert obj['crossmatch']['provenance'] == 'not_recorded'
+    assert set(obj['crossmatch']['catalog_outcomes'].values()) == {'not_recorded'}
+    assert [m['provenance_set'] for m in obj['matches']] == [None]
+    assert any(
+        log['log_level'] == 'warning' and 'missing' in log['event'] for log in logs
+    )
+
+
+@pytest.mark.parametrize('raw', [
+    '12x', '-5', '99999999999999999999', pytest.param('9' * 5000, id='5000-digits'),
+])
 @pytest.mark.django_db
 def test_get_malformed_id_is_400_naming_the_param(client, openapi_validate, raw):
     resp = client.get(_object_url(raw))
@@ -168,6 +204,23 @@ def test_lookup_mixed_batch_with_malformed_and_duplicate_entries(client, openapi
         InputStatus.INVALID_INPUT,
         ObjectStatus.COINCIDENT_SOURCES,
         ObjectStatus.COINCIDENT_SOURCES,
+    ]
+
+
+@pytest.mark.django_db
+def test_lookup_over_long_digit_string_is_invalid_input_not_a_500(client, openapi_validate):
+    """A decimal string past Python's int-string digit limit fails only its entry."""
+    alert = ObjectCrossmatchRecordFactory().alert
+    huge = '9' * 5000
+
+    resp = _post(client, {'inputs': [_id(huge), _id(alert.lsst_diaObject_diaObjectId)]})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    openapi_validate('lookup_objects', 200, body)
+    assert [r['status'] for r in body['results']] == [
+        InputStatus.INVALID_INPUT,
+        ObjectStatus.NO_COINCIDENT_SOURCE,
     ]
 
 

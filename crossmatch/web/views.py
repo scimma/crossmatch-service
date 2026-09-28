@@ -20,10 +20,16 @@ from django.shortcuts import render
 from django.urls import reverse
 
 from api import docs
+from core.log import get_logger
 from web import config
+
+logger = get_logger(__name__)
 
 #: ``Link`` header of the Markdown docs (KTD15).
 _DESCRIBED_BY = '<{}>; rel="describedby"'
+
+#: Body of ``/llms.txt`` and ``/api-docs.md`` when the reference cannot be built.
+_REFERENCE_UNAVAILABLE = 'The API reference is temporarily unavailable; retry later.\n'
 
 
 def _base_context(active: str, **extra: Any) -> dict[str, Any]:
@@ -101,22 +107,30 @@ def _base_url(request: HttpRequest) -> str:
 
 
 def llms_txt(request: HttpRequest) -> HttpResponse:
-    """``/llms.txt`` (llmstxt.org): where agents find the OpenAPI and Markdown docs (R25)."""
-    return render(
-        request,
-        'web/llms.txt',
-        {'ref': docs.reference(_base_url(request))},
-        content_type='text/plain; charset=utf-8',
-    )
+    """``/llms.txt`` (llmstxt.org): where agents find the OpenAPI and Markdown docs (R25).
+
+    A reference that cannot be built is a short 503, as the HTML page degrades.
+    """
+    content_type = 'text/plain; charset=utf-8'
+    try:
+        ref = docs.reference(_base_url(request))
+    except Exception as exc:  # noqa: BLE001 -- degrade to a 503, never 500
+        logger.warning('web_llms_txt_reference_unavailable', error=str(exc))
+        return HttpResponse(_REFERENCE_UNAVAILABLE, status=503, content_type=content_type)
+    return render(request, 'web/llms.txt', {'ref': ref}, content_type=content_type)
 
 
 def api_markdown(request: HttpRequest) -> HttpResponse:
-    """The API reference as Markdown (R26), described by ``/llms.txt``."""
-    response = render(
-        request,
-        'web/api.md',
-        {'ref': docs.reference(_base_url(request))},
-        content_type='text/markdown; charset=utf-8',
-    )
+    """The API reference as Markdown (R26), described by ``/llms.txt``.
+
+    A reference that cannot be built is a short 503, as the HTML page degrades.
+    """
+    content_type = 'text/markdown; charset=utf-8'
+    try:
+        ref = docs.reference(_base_url(request))
+    except Exception as exc:  # noqa: BLE001 -- degrade to a 503, never 500
+        logger.warning('web_api_markdown_reference_unavailable', error=str(exc))
+        return HttpResponse(_REFERENCE_UNAVAILABLE, status=503, content_type=content_type)
+    response = render(request, 'web/api.md', {'ref': ref}, content_type=content_type)
     response['Link'] = _DESCRIBED_BY.format(reverse('web:llms-txt'))
     return response

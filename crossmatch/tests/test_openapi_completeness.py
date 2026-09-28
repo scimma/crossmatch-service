@@ -11,14 +11,18 @@ nearest-source-per-catalog rule, frames and epochs, and the R9 and R24 caveats.
 
 from typing import Any, Iterator
 
+import re
+
 import pytest
 from django.conf import settings
 from django.test import override_settings
+from django.urls import resolve
 
 from api import contract
 from api.discovery import DATABASE_STATES, TNS_RESOLUTION_STATES
 from api.errors import ERROR_CODES
 from api.filters import RESPONSE_MODES, filter_parameters
+from api.guard import api_guard
 from api.lookup import (
     BASIS_BEST_GUESS,
     BASIS_RECORDED,
@@ -137,6 +141,32 @@ def test_every_filter_parameter_is_documented_on_every_filtered_operation(client
         if op['operationId'] in ('get_object', 'cone_search', 'resolve_tns'):
             params = {p['name'] for p in op.get('parameters', [])}
             assert names <= params, (path, names - params)
+
+
+def _is_guarded(path: str) -> bool:
+    """Whether the view routed at an OpenAPI path is wrapped by ``api_guard``.
+
+    Every ``api_guard`` wrapper shares one code object, so the routed view is
+    guarded exactly when its code is the wrapper's.
+    """
+    view = resolve(re.sub(r'\{[^}]+\}', '1', path)).func
+    return view.__code__ is api_guard(lambda request: None).__code__
+
+
+def test_every_guarded_operation_documents_query_too_expensive(client):
+    """The guard answers an over-budget request with 400 query_too_expensive."""
+    guarded = []
+    for path, method, op in _operations(_document(client)):
+        if _is_guarded(path):
+            guarded.append(op['operationId'])
+            assert 'query_too_expensive' in op['responses']['400']['description'], (
+                op['operationId']
+            )
+    # Guard against a vacuous pass if route resolution stops finding the guard.
+    assert {
+        'get_object', 'lookup_objects', 'cone_search', 'resolve_tns',
+        'recent_crossmatches',
+    } <= set(guarded)
 
 
 # --- descriptions and units ---------------------------------------------------

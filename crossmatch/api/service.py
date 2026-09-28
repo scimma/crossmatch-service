@@ -70,8 +70,10 @@ def recent_crossmatches(
     per-page size and window span are bounded.
 
     The first page pins the walk with ``as_of`` (now), an upper bound on
-    ``ingest_time`` that its cursors carry, so an alert ingested mid-walk never
-    joins it. A cursor minted before the pin existed continues from its
+    ``ingest_time`` that its cursors carry, so an alert ingested after
+    ``as_of`` never joins it. ``ingest_time`` is set before the ingest commits,
+    so an alert whose ingest commits during the walk can still join it if its
+    ``ingest_time`` is at or before ``as_of``. A cursor minted before the pin existed continues from its
     position and pins the rest of the walk at that request. The pin fixes which
     alerts are in the set, not their matches: an object in the pinned set whose
     first match lands mid-walk can still appear on a later page (R6).
