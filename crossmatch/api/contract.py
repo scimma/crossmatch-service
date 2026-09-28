@@ -123,7 +123,13 @@ CODE_DESCRIPTIONS: dict[str, str] = {
         'other inputs.'
     ),
     # CatalogSearchOutcome (stored)
-    'searched': 'The catalog was searched at this position.',
+    'searched': (
+        'The catalog was searched at this position: the position was inside the '
+        'catalog footprint at the resolution of its HATS coverage map (see '
+        'coverage_map in api/describe), so an object in a footprint hole or near '
+        'an edge may be recorded as searched even though the catalog has no data '
+        'there.'
+    ),
     'outside_footprint': 'The position is outside the catalog footprint.',
     'skipped_read_failure': 'The catalog was skipped after a read failure.',
     'not_searched_invalid_position': (

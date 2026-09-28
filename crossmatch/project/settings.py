@@ -34,6 +34,47 @@ GAIA_RELEASE = os.getenv('GAIA_RELEASE', 'Gaia DR3')
 DES_RELEASE = os.getenv('DES_RELEASE', 'DES Y6 Gold')
 DELVE_RELEASE = os.getenv('DELVE_RELEASE', 'DELVE DR3 Gold')
 SKYMAPPER_RELEASE = os.getenv('SKYMAPPER_RELEASE', 'SkyMapper DR4')
+
+
+def _env_moc_order(name, default):
+    """Read an optional HEALPix order from the environment.
+
+    Args:
+        name: The environment variable.
+        default: The order when the variable is unset.
+
+    Returns:
+        The order as an int, ``default`` when unset, or ``None`` when set to an
+        empty string (not configured).
+
+    Raises:
+        ImproperlyConfigured: If the value is not an integer.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    if raw.strip() == '':
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise ImproperlyConfigured(
+            f'{name} must be an integer HEALPix order 0..29 (got {raw!r})'
+        ) from None
+
+
+# Max HEALPix order of each served catalog's HATS coverage map
+# (hc_structure.moc), reported by api/describe so users know the resolution at
+# which a catalog outcome of "searched" was decided: the crossmatch footprint
+# test uses that coverage map, so an object in a footprint hole or near an edge
+# can be recorded as searched. Configured, like the release labels, so the web
+# tier and API never open LSDB/HATS to report it; change it together with the
+# HATS URL. Order 8 is about 14 arcmin pixels, 6 about 55, 10 about 3.4. An
+# empty value reports the order as not configured.
+GAIA_FOOTPRINT_MOC_ORDER = _env_moc_order('GAIA_FOOTPRINT_MOC_ORDER', 8)
+DES_FOOTPRINT_MOC_ORDER = _env_moc_order('DES_FOOTPRINT_MOC_ORDER', 6)
+DELVE_FOOTPRINT_MOC_ORDER = _env_moc_order('DELVE_FOOTPRINT_MOC_ORDER', 10)
+SKYMAPPER_FOOTPRINT_MOC_ORDER = _env_moc_order('SKYMAPPER_FOOTPRINT_MOC_ORDER', 8)
 CROSSMATCH_RADIUS_ARCSEC = float(os.getenv('CROSSMATCH_RADIUS_ARCSEC', '1.0'))
 
 CROSSMATCH_CATALOGS = [
@@ -41,6 +82,7 @@ CROSSMATCH_CATALOGS = [
         'name': 'gaia_dr3',
         'hats_url': GAIA_HATS_URL,
         'release': GAIA_RELEASE,
+        'footprint_moc_order': GAIA_FOOTPRINT_MOC_ORDER,
         'source_id_column': 'source_id',
         'ra_column': 'ra',
         'dec_column': 'dec',
@@ -88,6 +130,7 @@ CROSSMATCH_CATALOGS = [
         'name': 'des_y6_gold',
         'hats_url': DES_HATS_URL,
         'release': DES_RELEASE,
+        'footprint_moc_order': DES_FOOTPRINT_MOC_ORDER,
         'source_id_column': 'COADD_OBJECT_ID',
         'ra_column': 'RA',
         'dec_column': 'DEC',
@@ -122,6 +165,7 @@ CROSSMATCH_CATALOGS = [
         'name': 'delve_dr3_gold',
         'hats_url': DELVE_HATS_URL,
         'release': DELVE_RELEASE,
+        'footprint_moc_order': DELVE_FOOTPRINT_MOC_ORDER,
         'source_id_column': 'COADD_OBJECT_ID',
         'ra_column': 'RA',
         'dec_column': 'DEC',
@@ -155,6 +199,7 @@ CROSSMATCH_CATALOGS = [
         'name': 'skymapper_dr4',
         'hats_url': SKYMAPPER_HATS_URL,
         'release': SKYMAPPER_RELEASE,
+        'footprint_moc_order': SKYMAPPER_FOOTPRINT_MOC_ORDER,
         'source_id_column': 'object_id',
         'ra_column': 'raj2000',
         'dec_column': 'dej2000',
@@ -197,6 +242,32 @@ def _validate_catalog_releases(catalogs):
 
 
 _validate_catalog_releases(CROSSMATCH_CATALOGS)
+
+
+def _validate_footprint_moc_orders(catalogs):
+    """Require any configured ``footprint_moc_order`` to be a HEALPix order.
+
+    The key is optional; ``None`` means not configured.
+
+    Args:
+        catalogs: The ``CROSSMATCH_CATALOGS`` list.
+
+    Raises:
+        ImproperlyConfigured: If a configured order is not an int in 0..29.
+    """
+    for cat in catalogs:
+        order = cat.get('footprint_moc_order')
+        if order is None:
+            continue
+        if isinstance(order, bool) or not isinstance(order, int) or not 0 <= order <= 29:
+            raise ImproperlyConfigured(
+                f"CROSSMATCH_CATALOGS entry {cat.get('name')!r}: "
+                f"footprint_moc_order must be an int HEALPix order 0..29 "
+                f"(got {order!r})"
+            )
+
+
+_validate_footprint_moc_orders(CROSSMATCH_CATALOGS)
 
 
 def _validate_filter_columns(catalogs):

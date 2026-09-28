@@ -15,4 +15,6 @@ urlpatterns = [
     path('lookup', views.lookup_objects_view, name='lookup-objects'),
     path('cone', views.cone_search_view, name='cone-search'),
     path('tns/<str:name>', views.resolve_tns_view, name='resolve-tns'),
+    path('status', views.service_status_view, name='service-status'),
+    path('describe', views.describe_service_view, name='describe-service'),
 ]

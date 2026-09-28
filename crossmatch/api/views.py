@@ -12,12 +12,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from django.core.exceptions import RequestDataTooBig
+from django.db import DatabaseError
 from django.http import HttpRequest, JsonResponse
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import is_naive, make_aware
 
 from core.log import get_logger
 from api.contract import ErrorCode, error_response
+from api.discovery import check_database, describe_service, service_status
 from api.errors import ApiError
 from api.filters import filter_query_params, is_filter_param
 from api.guard import api_guard
@@ -279,3 +281,52 @@ def resolve_tns_view(request: HttpRequest, name: str) -> JsonResponse:
         response=request.GET.get('response'),
     )
     return JsonResponse(result)
+
+
+@api_guard(map_unavailable=False)
+def _checked_status(request: HttpRequest) -> JsonResponse:
+    """The status body after the database checks pass, under the request guard."""
+    epoch = check_database()
+    return JsonResponse(service_status(database_ok=True, snapshot_epoch=epoch))
+
+
+def service_status_view(request: HttpRequest) -> JsonResponse:
+    """GET service availability, version, and TNS-resolution availability (R30).
+
+    Always 200 for a GET (KTD16): a database that cannot be reached, fails, or
+    does not answer the short status check in time is reported as ``database:
+    unavailable`` (with ``tns_resolution: unavailable``), never as a 503, so
+    this endpoint is exempt from the guard's outage mapping (KTD12 step 6).
+    ``/healthz``, the pod probe, is separate and unchanged.
+
+    Returns:
+        A ``JsonResponse``: 200 with the status body, or a structured 405 error
+        for a non-GET method.
+    """
+    if request.method != 'GET':
+        return error_response(_method_not_allowed())
+    try:
+        response = _checked_status(request)
+    except DatabaseError as exc:
+        logger.warning('service_status database unavailable', error=str(exc))
+        response = None
+    if response is None or response.status_code != 200:
+        # The guard answers an over-budget check with a 400; for status, a
+        # database too slow to answer a trivial query is unavailable.
+        response = JsonResponse(service_status(database_ok=False, snapshot_epoch=None))
+    return response
+
+
+def describe_service_view(request: HttpRequest) -> JsonResponse:
+    """GET the catalogs, vocabulary, and per-request limits of the service (KTD16).
+
+    Built from live settings with no database access, so it answers even when
+    the database is down, and it never opens a LSDB/HATS catalog.
+
+    Returns:
+        A ``JsonResponse``: 200 with the description, or a structured 405 error
+        for a non-GET method.
+    """
+    if request.method != 'GET':
+        return error_response(_method_not_allowed())
+    return JsonResponse(describe_service())

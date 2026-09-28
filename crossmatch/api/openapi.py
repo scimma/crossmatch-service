@@ -30,6 +30,13 @@ from api.contract import (
     ObjectStatus,
     QualifiesReason,
 )
+from api.discovery import (
+    DATABASE_STATES,
+    DETAIL_LEVEL_DESCRIPTIONS,
+    RESPONSE_MODE_DESCRIPTIONS,
+    STATUS_CHECK_TIMEOUT_SECONDS,
+    TNS_RESOLUTION_STATES,
+)
 from api.filters import (
     KIND_CATALOG,
     OBJECT_QUALIFIES_REASONS,
@@ -280,6 +287,7 @@ def _components(current: dict[str, Any]) -> dict[str, Any]:
             **_recent_crossmatches_schemas(),
             **_lookup_schemas(),
             **_filter_schemas(),
+            **_discovery_schemas(),
         },
     }
 
@@ -1183,6 +1191,321 @@ def _filter_schemas() -> dict[str, Any]:
     }
 
 
+def _discovery_schemas() -> dict[str, Any]:
+    """Schemas of the status and describe bodies (U7, KTD16)."""
+    nullable_order = {
+        'type': ['integer', 'null'],
+        'minimum': 0,
+        'maximum': 29,
+    }
+    detail_lines = '; '.join(
+        f'{name}: {text}' for name, text in DETAIL_LEVEL_DESCRIPTIONS.items()
+    )
+    mode_lines = '; '.join(
+        f'{name}: {text}' for name, text in RESPONSE_MODE_DESCRIPTIONS.items()
+    )
+    named = {
+        'type': 'object',
+        'required': ['name', 'description'],
+        'additionalProperties': False,
+        'properties': {
+            'name': {'type': 'string'},
+            'description': {'type': 'string'},
+        },
+    }
+    return {
+        'ServiceStatus': {
+            'type': 'object',
+            'description': (
+                'Service availability (R30). Always returned with 200: a '
+                'database that cannot be reached, or does not answer a trivial '
+                f'query within {STATUS_CHECK_TIMEOUT_SECONDS:g} s, is reported '
+                'as database: unavailable, not as an error.'
+            ),
+            'required': [
+                'provenance', 'database', 'service_version', 'contract_version',
+                'tns_resolution', 'tns_snapshot_epoch',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'provenance': _ref('Provenance'),
+                'database': {
+                    'type': 'string',
+                    'enum': list(DATABASE_STATES),
+                    'description': (
+                        'ok: the database answered. unavailable: it did not; '
+                        'queries will fail with 503 service_unavailable until '
+                        'it recovers.'
+                    ),
+                },
+                'service_version': {
+                    'type': ['string', 'null'],
+                    'description': 'Deployed service version; null if unset.',
+                },
+                'contract_version': {
+                    'type': 'string',
+                    'description': 'Version of the response contract.',
+                },
+                'tns_resolution': {
+                    'type': 'string',
+                    'enum': list(TNS_RESOLUTION_STATES),
+                    'description': (
+                        'available: the TNS snapshot is current, so TNS-name '
+                        'inputs resolve. unavailable: the snapshot is stale or '
+                        'absent, or the database is unavailable; TNS-name inputs '
+                        'report resolver_unavailable.'
+                    ),
+                },
+                'tns_snapshot_epoch': {
+                    'type': ['string', 'null'],
+                    'format': 'date-time',
+                    'description': (
+                        'When the current TNS snapshot was last refreshed; null '
+                        'unless tns_resolution is available.'
+                    ),
+                },
+            },
+        },
+        'FilterableField': {
+            'type': 'object',
+            'description': 'One filterable catalog property.',
+            'required': [
+                'name', 'unit', 'description', 'column', 'derived_from', 'parameters',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'name': {
+                    'type': 'string',
+                    'description': 'Public property name (lowercased).',
+                },
+                'unit': {'type': 'string', 'description': 'Unit of the value.'},
+                'description': {'type': 'string'},
+                'column': {
+                    'type': ['string', 'null'],
+                    'description': (
+                        'The stored catalog column (upstream-native case); null '
+                        'for a derived property.'
+                    ),
+                },
+                'derived_from': {
+                    'type': ['object', 'null'],
+                    'description': (
+                        'For a derived property, the numerator / denominator '
+                        'columns it is computed from; null otherwise.'
+                    ),
+                    'required': ['numerator', 'denominator'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'numerator': {'type': 'string'},
+                        'denominator': {'type': 'string'},
+                    },
+                },
+                'parameters': {
+                    'type': 'array',
+                    'items': {'type': 'string'},
+                    'description': 'The filter parameters (_min, _max) on this property.',
+                },
+            },
+        },
+        'CatalogDescription': {
+            'type': 'object',
+            'description': 'One catalog in service.',
+            'required': [
+                'name', 'release', 'catalog_source_id', 'filterable_fields',
+                'coverage_map',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'name': {
+                    'type': 'string',
+                    'description': 'Catalog name as used in catalog_name.',
+                },
+                'release': {'type': 'string', 'description': 'Release in service.'},
+                'catalog_source_id': {
+                    'type': 'object',
+                    'description': 'What catalog_source_id means for this catalog.',
+                    'required': ['column', 'description'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'column': {
+                            'type': 'string',
+                            'description': 'The catalog column it is read from.',
+                        },
+                        'description': {'type': 'string'},
+                    },
+                },
+                'filterable_fields': {
+                    'type': 'array',
+                    'items': _ref('FilterableField'),
+                },
+                'coverage_map': {
+                    'type': 'object',
+                    'description': (
+                        'The resolution at which catalog outcome searched is '
+                        'decided: the configured max HEALPix order of the '
+                        "catalog's HATS coverage map. Objects in footprint holes "
+                        'or near edges smaller than a pixel may be recorded as '
+                        'searched.'
+                    ),
+                    'required': ['footprint_moc_order', 'resolution_arcmin', 'note'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'footprint_moc_order': {
+                            **nullable_order,
+                            'description': 'HEALPix order; null if not configured.',
+                        },
+                        'resolution_arcmin': {
+                            'type': ['number', 'null'],
+                            'description': (
+                                'Mean pixel side at that order, arcmin; null if '
+                                'not configured.'
+                            ),
+                        },
+                        'note': {'type': 'string'},
+                    },
+                },
+            },
+        },
+        'ServiceDescription': {
+            'type': 'object',
+            'description': (
+                'The catalogs, vocabulary, and per-request limits of the '
+                'service (KTD16), read from the live configuration.'
+            ),
+            'required': [
+                'provenance', 'catalogs', 'crossmatch', 'tns', 'limits',
+                'detail_levels', 'default_detail', 'response_modes',
+                'generic_filters', 'reliability_cuts',
+                'provenance_recording_release',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'provenance': _ref('Provenance'),
+                'catalogs': {'type': 'array', 'items': _ref('CatalogDescription')},
+                'crossmatch': {
+                    'type': 'object',
+                    'required': [
+                        'radius_arcsec', 'nearest_source_per_catalog', 'description',
+                    ],
+                    'additionalProperties': False,
+                    'properties': {
+                        'radius_arcsec': {
+                            'type': ['number', 'null'],
+                            'description': 'Crossmatch radius, arcsec.',
+                        },
+                        'nearest_source_per_catalog': {
+                            'type': 'boolean',
+                            'description': (
+                                'True: only the nearest source per catalog '
+                                'within the radius is kept.'
+                            ),
+                        },
+                        'description': {'type': 'string'},
+                    },
+                },
+                'tns': {
+                    'type': 'object',
+                    'required': ['default_radius_arcsec', 'max_radius_arcsec'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'default_radius_arcsec': {
+                            'type': 'number',
+                            'description': (
+                                'Default radius around a TNS position, arcsec.'
+                            ),
+                        },
+                        'max_radius_arcsec': {
+                            'type': 'number',
+                            'description': 'Largest radius a request may set, arcsec.',
+                        },
+                    },
+                },
+                'limits': {
+                    'type': 'object',
+                    'description': (
+                        'Per-request maximums and the request budget (KTD12). A '
+                        'request over a maximum is a 400 naming the parameter; '
+                        'one over the budget is a 400 query_too_expensive.'
+                    ),
+                    'required': [
+                        'request_budget_seconds', 'max_ids', 'max_positions',
+                        'max_cone_radius_arcsec', 'max_objects_per_position',
+                        'max_objects_per_request', 'recent_crossmatches',
+                    ],
+                    'additionalProperties': False,
+                    'properties': {
+                        'request_budget_seconds': {'type': 'number'},
+                        'max_ids': {'type': 'integer', 'minimum': 0},
+                        'max_positions': {'type': 'integer', 'minimum': 0},
+                        'max_cone_radius_arcsec': {'type': 'number'},
+                        'max_objects_per_position': {'type': 'integer', 'minimum': 0},
+                        'max_objects_per_request': {'type': 'integer', 'minimum': 0},
+                        'recent_crossmatches': {
+                            'type': 'object',
+                            'required': [
+                                'default_page_size', 'max_page_size',
+                                'max_window_hours',
+                            ],
+                            'additionalProperties': False,
+                            'properties': {
+                                'default_page_size': {'type': 'integer', 'minimum': 0},
+                                'max_page_size': {'type': 'integer', 'minimum': 0},
+                                'max_window_hours': {'type': 'integer', 'minimum': 0},
+                            },
+                        },
+                    },
+                },
+                'detail_levels': {
+                    'type': 'array',
+                    'description': f'Cumulative detail levels. {detail_lines}',
+                    'items': named,
+                },
+                'default_detail': {'type': 'string'},
+                'response_modes': {
+                    'type': 'array',
+                    'description': f'Values of response. {mode_lines}',
+                    'items': named,
+                },
+                'generic_filters': {
+                    'type': 'array',
+                    'description': (
+                        'Filters not tied to a catalog property; catalog '
+                        'property filters are listed per catalog.'
+                    ),
+                    'items': {
+                        'type': 'object',
+                        'required': [
+                            'name', 'kind', 'bound', 'unit', 'is_match_filter',
+                            'description',
+                        ],
+                        'additionalProperties': False,
+                        'properties': {
+                            'name': {'type': 'string'},
+                            'kind': {'type': 'string'},
+                            'bound': {'type': ['string', 'null'], 'enum': ['min', 'max', None]},
+                            'unit': {'type': ['string', 'null']},
+                            'is_match_filter': {'type': 'boolean'},
+                            'description': {'type': 'string'},
+                        },
+                    },
+                },
+                'reliability_cuts': {
+                    'type': 'array',
+                    'items': _ref('ReliabilityCut'),
+                },
+                'provenance_recording_release': {
+                    'type': 'string',
+                    'description': (
+                        'The service release that started recording per-object '
+                        'crossmatch provenance; objects crossmatched earlier '
+                        'report it as not recorded.'
+                    ),
+                },
+            },
+        },
+    }
+
+
 def _response_mode_schema() -> dict[str, Any]:
     """The ``response`` parameter's schema (KTD10)."""
     return {
@@ -1439,6 +1762,41 @@ def _paths() -> dict[str, Any]:
                     ),
                     '405': _json(_ref('Error'), 'Method not allowed.'),
                     '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),
+                },
+            },
+        },
+        '/api/status': {
+            'get': {
+                'operationId': 'service_status',
+                'summary': 'Service availability, version, and TNS-resolution availability.',
+                'description': (
+                    'Always 200 for a GET: an unreachable or unresponsive '
+                    'database is reported as database: unavailable rather than '
+                    'as an error. tns_resolution reports whether TNS-name inputs '
+                    'can be resolved now (the TNS snapshot is current).'
+                ),
+                'responses': {
+                    '200': _json(_ref('ServiceStatus'), 'The service status.'),
+                    '405': _json(_ref('Error'), 'Method not allowed.'),
+                },
+            },
+        },
+        '/api/describe': {
+            'get': {
+                'operationId': 'describe_service',
+                'summary': 'Catalogs, vocabulary, and per-request limits.',
+                'description': (
+                    'The catalogs in service (release, what catalog_source_id '
+                    'means, filterable fields with units, coverage-map '
+                    'resolution), the crossmatch and TNS radii, per-request '
+                    'maximums and budget, detail levels, response modes, '
+                    'generic filters, the broker reliability cut table, and '
+                    'the provenance recording release. Read from the live '
+                    'configuration; needs no database.'
+                ),
+                'responses': {
+                    '200': _json(_ref('ServiceDescription'), 'The description.'),
+                    '405': _json(_ref('Error'), 'Method not allowed.'),
                 },
             },
         },
