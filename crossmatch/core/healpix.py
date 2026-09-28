@@ -194,10 +194,16 @@ def cone_cover_ranges(
     """
     depth = cone_cover_depth(ra_deg, dec_deg, radius_arcsec)
     shift = 2 * (HEALPIX_ORDER - depth)
+    return _merge_ranges(
+        (int(pixel) << shift, ((int(pixel) + 1) << shift) - 1)
+        for pixel in _cone_pixels(ra_deg, dec_deg, radius_arcsec, depth)
+    )
+
+
+def _merge_ranges(pairs) -> list[tuple[int, int]]:
+    """Merge sorted, non-overlapping inclusive ``(lo, hi)`` ranges that touch."""
     ranges: list[tuple[int, int]] = []
-    for pixel in _cone_pixels(ra_deg, dec_deg, radius_arcsec, depth):
-        lo = int(pixel) << shift
-        hi = ((int(pixel) + 1) << shift) - 1
+    for lo, hi in pairs:
         if ranges and lo == ranges[-1][1] + 1:
             ranges[-1] = (ranges[-1][0], hi)
         else:
@@ -207,14 +213,7 @@ def cone_cover_ranges(
 
 def _merge_contiguous(pixels) -> list[tuple[int, int]]:
     """Merge a sorted iterable of pixel indices into contiguous ``[lo, hi]`` ranges."""
-    ranges: list[tuple[int, int]] = []
-    for value in pixels:
-        pix = int(value)
-        if ranges and pix == ranges[-1][1] + 1:
-            ranges[-1] = (ranges[-1][0], pix)
-        else:
-            ranges.append((pix, pix))
-    return ranges
+    return _merge_ranges((int(value), int(value)) for value in pixels)
 
 
 def angular_separation_arcsec(

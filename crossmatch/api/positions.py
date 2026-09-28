@@ -66,6 +66,7 @@ from api.lookup import (
     _answer,
     _check_detail,
     _context,
+    _iso,
     build_objects,
     finish_response,
 )
@@ -373,11 +374,6 @@ class TnsInput(_ConeKind):
 
 INPUT_KINDS[PositionInput.name] = PositionInput()
 INPUT_KINDS[TnsInput.name] = TnsInput()
-
-
-def _iso(value: datetime | None) -> str | None:
-    """An aware datetime as ISO-8601, or ``None``."""
-    return value.isoformat() if value is not None else None
 
 
 def _tns_record(obj: TnsObject) -> dict[str, Any]:

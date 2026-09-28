@@ -1,4 +1,5 @@
 import hashlib
+import itertools
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -371,12 +372,6 @@ def _footprint_outcomes(alerts_df, catalog_config, outcome) -> dict:
 _ID_CHUNK = 10000
 
 
-def _id_chunks(ids):
-    """Yield ``ids`` in slices of at most ``_ID_CHUNK``."""
-    for start in range(0, len(ids), _ID_CHUNK):
-        yield ids[start:start + _ID_CHUNK]
-
-
 def _provenance_content():
     """The batch's provenance set content and its content hash (KTD5).
 
@@ -438,7 +433,7 @@ def _prepare_object_records(dia_ids, search_outcomes, match_version):
         content, content_hash = _provenance_content()
         ids = [int(dia_id) for dia_id in dia_ids]
         searched_by_matches = {}
-        for chunk in _id_chunks(ids):
+        for chunk in itertools.batched(ids, _ID_CHUNK):
             for alert_id, catalog_name in (
                 CatalogMatch.objects.filter(alert_id__in=chunk,
                                             match_version=match_version)
@@ -498,7 +493,7 @@ def _write_object_records(prepared, match_version, crossmatched_at) -> None:
     try:
         with transaction.atomic():
             brokers = {}
-            for chunk in _id_chunks(ids):
+            for chunk in itertools.batched(ids, _ID_CHUNK):
                 for alert_id, broker in AlertDelivery.objects.filter(
                     alert_id__in=chunk
                 ).values_list('alert_id', 'broker'):
