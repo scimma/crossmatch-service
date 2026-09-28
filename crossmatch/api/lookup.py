@@ -25,6 +25,12 @@ rest:
   object fields, per-catalog search outcomes, matches, and provenance are the
   same whichever input found the object.
 
+Every entry point also takes filters and ``response`` (``api.filters``,
+KTD9, KTD10): with filters, every result and object is marked ``qualifies``
+with a reason and nothing is dropped; ``response=count`` answers the same
+inputs and filters with counts instead of objects, uncapped by the listing
+limits.
+
 Matches are read only for MATCHED and NOTIFIED objects, so partial rows left by
 a reverted batch never surface on a pending object (KTD9.5). Queries run in
 ``api.guard.sql_phase`` blocks and long loops call ``check_deadline``, so a
@@ -49,6 +55,14 @@ from api.contract import (
     parse_radius_arcsec,
 )
 from api.errors import InvalidQuery
+from api.filters import (
+    RESPONSE_COUNT,
+    FilterSpec,
+    apply_filters,
+    count_body,
+    parse_filters,
+    parse_response_mode,
+)
 from api.guard import check_deadline, sql_phase
 from api.service import DEFAULT_DETAIL, DETAIL_LEVELS, _load_matches
 from core import provenance
@@ -77,7 +91,7 @@ PROVENANCE_RECORDED = 'recorded'
 PROVENANCE_NOT_RECORDED = 'not_recorded'
 
 #: Top-level fields of a ``POST api/lookup`` body.
-LOOKUP_BODY_FIELDS = ('inputs', 'detail', 'radius_arcsec')
+LOOKUP_BODY_FIELDS = ('inputs', 'detail', 'radius_arcsec', 'filters', 'response')
 
 _BEST_GUESS_DESCRIPTION = (
     'A best guess, not a record: the current service settings, offered for '
@@ -143,6 +157,12 @@ class LookupContext:
             total, KTD12); kinds whose inputs list a variable number of
             objects spend it in input order.
         truncated: Set when the per-request total cut any input's objects.
+        filters: The request's filters, if any.
+        count_only: ``response=count``: kinds list every object of each input,
+            uncapped, and the response carries counts instead of results.
+        candidates: ``{input index: every object ID within the radius}``,
+            recorded by the cone kinds when filters or counts need objects
+            beyond the listed ones.
     """
 
     detail: str
@@ -150,6 +170,14 @@ class LookupContext:
     provenance_sets: dict[str, dict[str, Any]] = field(default_factory=dict)
     object_budget: int = 0
     truncated: bool = False
+    filters: FilterSpec | None = None
+    count_only: bool = False
+    candidates: dict[int, list[int]] = field(default_factory=dict)
+
+    @property
+    def needs_candidates(self) -> bool:
+        """Whether kinds must find every object of an input, not only the listed."""
+        return self.count_only or self.filters is not None
 
 
 class InputKind:
@@ -253,7 +281,12 @@ INPUT_KINDS: dict[str, InputKind] = {IdInput.name: IdInput()}
 
 
 def lookup_objects(
-    *, inputs: Any, detail: str | None = None, radius_arcsec: Any = None,
+    *,
+    inputs: Any,
+    detail: str | None = None,
+    radius_arcsec: Any = None,
+    filters: Any = None,
+    response: Any = None,
 ) -> dict[str, Any]:
     """Answer an ordered list of tagged inputs, one result per input (R2, R5, R7).
 
@@ -263,34 +296,46 @@ def lookup_objects(
         detail: ``ids`` | ``position`` | ``matches`` (default) | ``full``.
         radius_arcsec: Shared search radius in arcsec for position and TNS
             inputs that carry none; at most ``API_MAX_CONE_RADIUS_ARCSEC``.
+        filters: ``{filter name: value}`` (``api.filters``); JSON numbers.
+        response: ``objects`` (default) or ``count``.
 
     Returns:
         The enveloped response: ``provenance``, ``detail``, ``count`` (number
         of results), ``provenance_sets``, ``truncated`` (whether the
-        per-request object total cut any result), and ``results``, one per
-        input in input order.
+        per-request object total cut any result), ``filters`` when filtered,
+        and ``results``, one per input in input order; or, for
+        ``response=count``, the counts body of ``api.filters.count_body``.
 
     Raises:
         InvalidQuery: If ``inputs`` is not a non-empty list, exceeds a
-            per-request maximum, or ``detail`` or ``radius_arcsec`` is
-            invalid.
+            per-request maximum, or ``detail``, ``radius_arcsec``, a filter,
+            or ``response`` is invalid.
+        ApiError: ``filters_span_catalogs`` (see ``api.filters``).
     """
     detail = _check_detail(detail)
     radius = (
         parse_radius_arcsec(radius_arcsec, param='radius_arcsec')
         if radius_arcsec is not None else None
     )
+    spec = parse_filters(filters, allow_string=False)
+    mode = parse_response_mode(response)
     if not isinstance(inputs, list):
         raise InvalidQuery('inputs must be a JSON array of input objects', param='inputs')
     if not inputs:
         raise InvalidQuery('inputs must contain at least one input', param='inputs')
     _check_request_size(inputs)
-    ctx = LookupContext(detail=detail, radius_arcsec=radius)
+    ctx = _context(detail, spec, mode, radius_arcsec=radius)
     parsed = [_parse_input(index, raw, ctx) for index, raw in enumerate(inputs)]
     return _answer(parsed, ctx)
 
 
-def get_object(*, dia_object_id: Any, detail: str | None = None) -> dict[str, Any]:
+def get_object(
+    *,
+    dia_object_id: Any,
+    detail: str | None = None,
+    filters: Any = None,
+    response: Any = None,
+) -> dict[str, Any]:
     """Look up one object by ``diaObjectId`` (R1).
 
     The response has the same shape as ``lookup_objects`` with one result,
@@ -299,15 +344,20 @@ def get_object(*, dia_object_id: Any, detail: str | None = None) -> dict[str, An
     Args:
         dia_object_id: The ID, as an int or decimal string.
         detail: As for ``lookup_objects``.
+        filters: ``{filter name: value}`` from the query string.
+        response: ``objects`` (default) or ``count``.
 
     Returns:
-        The enveloped response with one result.
+        The enveloped response with one result, or the counts body.
 
     Raises:
         InvalidQuery: If the ID is malformed (``param`` ``diaObjectId``) or
-            ``detail`` is unknown.
+            ``detail``, a filter, or ``response`` is invalid.
+        ApiError: ``filters_span_catalogs``.
     """
     detail = _check_detail(detail)
+    spec = parse_filters(filters, allow_string=True)
+    mode = parse_response_mode(response)
     object_id = parse_dia_object_id(dia_object_id, param='diaObjectId')
     kind = INPUT_KINDS[IdInput.name]
     entry = ParsedInput(
@@ -317,7 +367,24 @@ def get_object(*, dia_object_id: Any, detail: str | None = None) -> dict[str, An
         value=object_id,
         normalized={'kind': kind.name, **dia_object_id_fields(object_id)},
     )
-    return _answer([entry], LookupContext(detail=detail))
+    return _answer([entry], _context(detail, spec, mode))
+
+
+def _context(
+    detail: str,
+    spec: FilterSpec | None,
+    mode: str,
+    *,
+    radius_arcsec: float | None = None,
+) -> LookupContext:
+    """The request context; a count lists objects at detail ``ids`` only."""
+    count_only = mode == RESPONSE_COUNT
+    return LookupContext(
+        detail='ids' if count_only else detail,
+        radius_arcsec=radius_arcsec,
+        filters=spec,
+        count_only=count_only,
+    )
 
 
 def parse_lookup_body(body: Any) -> dict[str, Any]:
@@ -474,13 +541,36 @@ def _answer(parsed: list[ParsedInput], ctx: LookupContext) -> dict[str, Any]:
             result.update(resolved[entry.index])
         results.append(result)
 
-    return envelope({
+    return finish_response(results, ctx, {
         'detail': ctx.detail,
         'count': len(results),
         'provenance_sets': ctx.provenance_sets,
         'truncated': ctx.truncated,
         'results': results,
     })
+
+
+def finish_response(
+    results: list[dict[str, Any]], ctx: LookupContext, body: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply the request's filters and response mode, and envelope the body.
+
+    Args:
+        results: The resolved results (also inside ``body``).
+        ctx: The request context.
+        body: The listing body.
+
+    Returns:
+        The enveloped listing, with ``filters`` when filtered, or the counts
+        body for ``response=count``.
+    """
+    if ctx.filters is not None:
+        apply_filters(results, ctx.candidates, ctx.filters)
+    if ctx.count_only:
+        return envelope(count_body(results, ctx.filters))
+    if ctx.filters is not None:
+        body['filters'] = ctx.filters.echo
+    return envelope(body)
 
 
 def _iso(value: Any) -> str | None:

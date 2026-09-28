@@ -60,6 +60,29 @@ CROSSMATCH_CATALOGS = [
             # quality
             'ruwe', 'astrometric_excess_noise', 'astrometric_excess_noise_sig',
         ],
+        # Columns the API can filter on (R13; KTD9): a subset of payload_columns
+        # (upstream-native case) with their units, served as
+        # gaia_dr3.<column>_min/_max over the stored (lowercased) payload keys.
+        'filter_columns': {
+            'parallax': 'mas',
+            'parallax_error': 'mas',
+            'pmra': 'mas/yr',
+            'pmdec': 'mas/yr',
+            'ruwe': 'dimensionless',
+            'classprob_dsc_combmod_star': 'probability',
+            'classprob_dsc_combmod_galaxy': 'probability',
+            'classprob_dsc_combmod_quasar': 'probability',
+        },
+        # Filterable values computed from stored payload values as
+        # numerator / denominator (signed; null when either is missing or the
+        # denominator is 0). Gaia's own parallax_over_error is not stored.
+        'derived_filter_columns': {
+            'parallax_over_error': {
+                'numerator': 'parallax',
+                'denominator': 'parallax_error',
+                'unit': 'dimensionless',
+            },
+        },
     },
     {
         'name': 'des_y6_gold',
@@ -88,6 +111,12 @@ CROSSMATCH_CATALOGS = [
             # quality
             'FLAGS_GOLD', 'FLAGS_FOREGROUND', 'FLAGS_FOOTPRINT', 'BDF_FLAGS',
         ],
+        # Filterable columns with units (see gaia_dr3).
+        'filter_columns': {
+            'DNF_Z': 'dimensionless',
+            'DNF_ZSIGMA': 'dimensionless',
+            'EXT_MASH': 'class code (0-4)',
+        },
     },
     {
         'name': 'delve_dr3_gold',
@@ -115,6 +144,12 @@ CROSSMATCH_CATALOGS = [
             # quality
             'FLAGS_GOLD', 'FLAGS_FOREGROUND', 'FLAGS_FOOTPRINT', 'BDF_FLAGS',
         ],
+        # Filterable columns with units (see gaia_dr3).
+        'filter_columns': {
+            'DNF_Z': 'dimensionless',
+            'DNF_ZSIGMA': 'dimensionless',
+            'EXT_MASH': 'class code (0-4)',
+        },
     },
     {
         'name': 'skymapper_dr4',
@@ -137,6 +172,8 @@ CROSSMATCH_CATALOGS = [
             # quality
             'flags', 'nimaflags', 'ngood',
         ],
+        # No filterable columns (R13 names none for SkyMapper).
+        'filter_columns': {},
     },
 ]
 
@@ -160,6 +197,65 @@ def _validate_catalog_releases(catalogs):
 
 
 _validate_catalog_releases(CROSSMATCH_CATALOGS)
+
+
+def _validate_filter_columns(catalogs):
+    """Require every filterable column to be a payload column with a unit (KTD9).
+
+    ``filter_columns`` maps upstream-native column names (exact case) to units;
+    ``derived_filter_columns`` maps a name to ``numerator``/``denominator``
+    payload columns and a unit. Public filter names are lowercased, so no two
+    names of one catalog may collide once lowercased.
+
+    Args:
+        catalogs: The ``CROSSMATCH_CATALOGS`` list.
+
+    Raises:
+        ImproperlyConfigured: If a filter column (or a derived filter's operand)
+            is not in the catalog's ``payload_columns``, a unit is missing or
+            blank, or two filter names collide.
+    """
+    for cat in catalogs:
+        name = cat.get('name')
+        payload = set(cat.get('payload_columns') or [])
+        seen = set()
+
+        def _check_name(filter_name):
+            if filter_name.lower() in seen:
+                raise ImproperlyConfigured(
+                    f"CROSSMATCH_CATALOGS entry {name!r}: filter name "
+                    f"{filter_name!r} collides with another once lowercased"
+                )
+            seen.add(filter_name.lower())
+
+        def _check_unit(filter_name, unit):
+            if not isinstance(unit, str) or not unit.strip():
+                raise ImproperlyConfigured(
+                    f"CROSSMATCH_CATALOGS entry {name!r}: filter {filter_name!r} "
+                    f"needs a non-empty unit (got {unit!r})"
+                )
+
+        for column, unit in (cat.get('filter_columns') or {}).items():
+            if column not in payload:
+                raise ImproperlyConfigured(
+                    f"CROSSMATCH_CATALOGS entry {name!r}: filter column {column!r} "
+                    f"is not in payload_columns (names are case-sensitive)"
+                )
+            _check_unit(column, unit)
+            _check_name(column)
+        for derived, spec in (cat.get('derived_filter_columns') or {}).items():
+            for operand in ('numerator', 'denominator'):
+                column = (spec or {}).get(operand)
+                if column not in payload:
+                    raise ImproperlyConfigured(
+                        f"CROSSMATCH_CATALOGS entry {name!r}: derived filter "
+                        f"{derived!r} {operand} {column!r} is not in payload_columns"
+                    )
+            _check_unit(derived, spec.get('unit'))
+            _check_name(derived)
+
+
+_validate_filter_columns(CROSSMATCH_CATALOGS)
 
 # Batch crossmatch thresholds
 CROSSMATCH_BATCH_MAX_WAIT_SECONDS = int(

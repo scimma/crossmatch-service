@@ -19,6 +19,7 @@ from django.utils.timezone import is_naive, make_aware
 from core.log import get_logger
 from api.contract import ErrorCode, error_response
 from api.errors import ApiError
+from api.filters import filter_query_params, is_filter_param
 from api.guard import api_guard
 from api.lookup import get_object, lookup_objects, parse_lookup_body
 from api.openapi import build_document
@@ -74,6 +75,11 @@ def recent_crossmatches_view(request: HttpRequest) -> JsonResponse:
     conflicting value is a 400. Results carry a top-level ``next_cursor`` (null
     when the window is exhausted); follow it to page the whole window.
 
+    This endpoint does not filter or count (KTD9 step 6): a filter-named
+    parameter or ``response`` is a structured ``400 unsupported_parameter``, so
+    unfiltered results are never mistaken for filtered ones. Every other
+    unknown parameter is ignored, as before.
+
     Returns:
         A ``JsonResponse``: 200 with the page, 400 with a JSON error body on any
         invalid parameter or cursor conflict, or 405 for a non-GET method.
@@ -82,6 +88,20 @@ def recent_crossmatches_view(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'error': 'method not allowed'}, status=405)
 
     params = request.GET
+    unsupported = [
+        name for name in params if name == 'response' or is_filter_param(name)
+    ]
+    if unsupported:
+        logger.info('recent_crossmatches unsupported parameter', params=unsupported)
+        return error_response(ApiError(
+            'recent-crossmatches does not support filters or response; use '
+            'POST api/lookup, GET api/cone, or GET api/tns/<name> to filter or '
+            f'count. Unsupported: {", ".join(unsupported)}',
+            code=ErrorCode.UNSUPPORTED_PARAMETER,
+            status=400,
+            param=unsupported[0] if len(unsupported) == 1 else None,
+            params=unsupported if len(unsupported) > 1 else None,
+        ))
     try:
         kwargs: dict = {}
         if 'start' in params:
@@ -170,6 +190,7 @@ def get_object_view(request: HttpRequest, object_id: str) -> JsonResponse:
 
     The path segment is the ID as a decimal string; the optional ``detail``
     query param is ``ids`` | ``position`` | ``matches`` (default) | ``full``.
+    Filter query params and ``response`` as in ``api.filters``.
 
     Returns:
         A ``JsonResponse``: 200 with one result, 400 naming ``diaObjectId`` or
@@ -177,7 +198,12 @@ def get_object_view(request: HttpRequest, object_id: str) -> JsonResponse:
     """
     if request.method != 'GET':
         raise _method_not_allowed()
-    result = get_object(dia_object_id=object_id, detail=request.GET.get('detail'))
+    result = get_object(
+        dia_object_id=object_id,
+        detail=request.GET.get('detail'),
+        filters=filter_query_params(request.GET),
+        response=request.GET.get('response'),
+    )
     return JsonResponse(result)
 
 
@@ -187,7 +213,8 @@ def lookup_objects_view(request: HttpRequest) -> JsonResponse:
 
     Read-only and idempotent despite the method: the body carries the input
     list, which can be too long for a query string. The body is a JSON object
-    with ``inputs`` and optional ``detail``. A malformed input is reported in
+    with ``inputs`` and optional ``detail``, ``radius_arcsec``, ``filters``,
+    and ``response``. A malformed input is reported in
     its own result; request-level problems are a 400 naming the parameter.
 
     Returns:
@@ -206,8 +233,9 @@ def cone_search_view(request: HttpRequest) -> JsonResponse:
 
     Query params: ``ra`` and ``dec`` (degrees) and ``radius_arcsec`` (arcsec,
     at most ``API_MAX_CONE_RADIUS_ARCSEC``), required unless ``cursor`` is
-    given; optional ``detail``, ``page_size``, and ``cursor`` (a prior page's
-    ``next_cursor``, which pins the query and its ``as_of``).
+    given; optional ``detail``, ``page_size``, ``cursor`` (a prior page's
+    ``next_cursor``, which pins the query and its ``as_of``), filter params,
+    and ``response``.
 
     Returns:
         A ``JsonResponse``: 200 with the page, 400 naming the parameter, 405
@@ -223,6 +251,8 @@ def cone_search_view(request: HttpRequest) -> JsonResponse:
         detail=params.get('detail'),
         page_size=params.get('page_size'),
         cursor=params.get('cursor'),
+        filters=filter_query_params(params),
+        response=params.get('response'),
     )
     return JsonResponse(result)
 
@@ -232,7 +262,7 @@ def resolve_tns_view(request: HttpRequest, name: str) -> JsonResponse:
     """GET the Rubin objects around a TNS object, by TNS name (R3, R21, R31).
 
     The path segment is the name (``2026abc``, ``SN 2026abc``, ...); optional
-    query params ``radius_arcsec`` and ``detail``.
+    query params ``radius_arcsec``, ``detail``, filter params, and ``response``.
 
     Returns:
         A ``JsonResponse``: 200 with one result (including
@@ -245,5 +275,7 @@ def resolve_tns_view(request: HttpRequest, name: str) -> JsonResponse:
         name=name,
         radius_arcsec=request.GET.get('radius_arcsec'),
         detail=request.GET.get('detail'),
+        filters=filter_query_params(request.GET),
+        response=request.GET.get('response'),
     )
     return JsonResponse(result)

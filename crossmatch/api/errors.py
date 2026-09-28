@@ -24,6 +24,8 @@ ERROR_CODES = (
     'method_not_allowed',
     'query_too_expensive',
     'service_unavailable',
+    'filters_span_catalogs',
+    'unsupported_parameter',
 )
 
 

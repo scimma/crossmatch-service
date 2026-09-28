@@ -57,6 +57,27 @@ class ErrorCode(models.TextChoices):
     METHOD_NOT_ALLOWED = 'method_not_allowed'
     QUERY_TOO_EXPENSIVE = 'query_too_expensive'
     SERVICE_UNAVAILABLE = 'service_unavailable'
+    FILTERS_SPAN_CATALOGS = 'filters_span_catalogs'
+    UNSUPPORTED_PARAMETER = 'unsupported_parameter'
+
+
+class QualifiesReason(models.TextChoices):
+    """Why an object or input does or does not qualify under filters (R14; KTD9).
+
+    Reasons that restate a status reuse that status's code.
+    """
+    MEETS_FILTERS = 'meets_filters'
+    OBJECT_FILTERS_NOT_MET = 'object_filters_not_met'
+    NO_SOURCE_MEETS_FILTERS = 'no_source_meets_filters'
+    NO_OBJECT_MEETS_FILTERS = 'no_object_meets_filters'
+    NOT_IN_SERVICE = 'not_in_service'
+    CROSSMATCH_PENDING = 'crossmatch_pending'
+    NO_COINCIDENT_SOURCE = 'no_coincident_source'
+    NOT_SEARCHED = 'not_searched'
+    NO_RUBIN_OBJECT = 'no_rubin_object'
+    TNS_NAME_NOT_FOUND = 'tns_name_not_found'
+    RESOLVER_UNAVAILABLE = 'resolver_unavailable'
+    INVALID_INPUT = 'invalid_input'
 
 
 # Every per-catalog outcome a response can carry: the stored ones first, then
@@ -126,6 +147,30 @@ CODE_DESCRIPTIONS: dict[str, str] = {
     'service_unavailable': (
         'The service or its database is unavailable. Retry after the '
         'Retry-After interval.'
+    ),
+    'filters_span_catalogs': (
+        'The match filters name more than one catalog. Match filters apply '
+        "within one catalog's source; params lists the conflicting parameters."
+    ),
+    'unsupported_parameter': (
+        'This operation does not support the named parameter (for example a '
+        'filter or response on recent-crossmatches); the request was not run, '
+        'so unfiltered results are never mistaken for filtered ones.'
+    ),
+    # QualifiesReason (only the codes that are not also a status)
+    'meets_filters': 'Qualifies: meets every filter in the request.',
+    'object_filters_not_met': (
+        'Does not qualify: the object fails an object filter (reliability); an '
+        'object with no stored reliability never meets one.'
+    ),
+    'no_source_meets_filters': (
+        'Does not qualify: the object has coincident sources, but no single '
+        'current source satisfies every match filter. A null or non-numeric '
+        'stored value never satisfies a filter.'
+    ),
+    'no_object_meets_filters': (
+        'Does not qualify: Rubin objects lie within the radius, but none '
+        'qualifies.'
     ),
     # CutEnforcedBy (stored)
     'service': 'Enforced by this service.',
@@ -333,6 +378,7 @@ __all__ = [
     'InputStatus',
     'InvalidQuery',
     'ObjectStatus',
+    'QualifiesReason',
     'ReadTimeCatalogOutcome',
     'dia_object_id_fields',
     'envelope',

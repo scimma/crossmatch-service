@@ -24,6 +24,11 @@ haversine separation filter in SQL, so totals and caps count objects inside the
 radius, not cover candidates (KTD12 step 5). A batched position or a TNS
 lookup lists at most ``API_MAX_OBJECTS_PER_POSITION`` objects, with
 ``truncated`` and the ``total`` when capped; a single cone pages instead.
+
+With filters or ``response=count`` (``api.filters``) every object within the
+radius is found, not only the listed ones: filters mark the listed objects and
+report ``qualifying_total`` over all of them, and a count covers all of them,
+uncapped by the listing limits.
 """
 
 from __future__ import annotations
@@ -41,11 +46,16 @@ from django.utils import timezone
 
 from api.contract import (
     InputStatus,
-    envelope,
     parse_position,
     parse_radius_arcsec,
 )
 from api.errors import InvalidQuery
+from api.filters import (
+    RESPONSE_COUNT,
+    FilterSpec,
+    parse_filters,
+    parse_response_mode,
+)
 from api.guard import check_deadline, sql_phase
 from api.lookup import (
     INPUT_KINDS,
@@ -55,7 +65,9 @@ from api.lookup import (
     ParsedInput,
     _answer,
     _check_detail,
+    _context,
     build_objects,
+    finish_response,
 )
 from api.pagination import ConeCursor, decode_cone_cursor, encode_cone_cursor
 from core.healpix import cone_cover_ranges
@@ -425,6 +437,10 @@ def _resolve_cone_inputs(
     statement, each capped at ``API_MAX_OBJECTS_PER_POSITION``. The remaining
     per-request object budget is spent in input order: an input past it keeps
     its status and total and lists what fits, marked ``per_request_limit``.
+
+    When the context needs candidates (filters or a count), the statement is
+    not capped: every object ID within each radius is recorded in
+    ``ctx.candidates``, and a count lists every object, ignoring the caps.
     """
     results: dict[int, dict[str, Any]] = {}
     extra: dict[int, dict[str, Any]] = {}
@@ -463,8 +479,9 @@ def _resolve_cone_inputs(
             cones.append(Cone(entry.index, *entry.value))
     cones.sort(key=lambda cone: cone.key)
 
+    per_input = int(settings.API_MAX_OBJECTS_PER_POSITION)
     hits = search_cones(
-        cones, per_cone_limit=int(settings.API_MAX_OBJECTS_PER_POSITION)
+        cones, per_cone_limit=None if ctx.needs_candidates else per_input
     )
 
     kept: dict[int, tuple[ConeHits, list[tuple[int, datetime, float]], str | None]] = {}
@@ -472,6 +489,12 @@ def _resolve_cone_inputs(
         check_deadline()
         cone_hits = hits.get(cone.key, ConeHits())
         rows = cone_hits.rows
+        if ctx.needs_candidates:
+            ctx.candidates[cone.key] = [row[0] for row in rows]
+        if ctx.count_only:
+            kept[cone.key] = (cone_hits, rows, None)
+            continue
+        rows = rows[:per_input]
         truncation = TRUNCATION_PER_INPUT if cone_hits.total > len(rows) else None
         if len(rows) > ctx.object_budget:
             rows = rows[:ctx.object_budget]
@@ -542,6 +565,8 @@ def cone_search(
     detail: str | None = None,
     page_size: Any = None,
     cursor: str | None = None,
+    filters: Any = None,
+    response: Any = None,
 ) -> dict[str, Any]:
     """Search one position for every Rubin object within the radius (R4, R16).
 
@@ -560,15 +585,32 @@ def cone_search(
         cursor: ``next_cursor`` of a prior page. It pins ``ra``, ``dec``,
             ``radius_arcsec``, ``detail``, and ``as_of``; an explicit
             conflicting value is an error.
+        filters: ``{filter name: value}`` from the query string. Not pinned by
+            the cursor (the listed set does not depend on them): pass them on
+            every page.
+        response: ``objects`` (default) or ``count``. A count covers every
+            object within the radius now and takes no ``cursor``.
 
     Returns:
         The lookup-shaped response with one position result, plus ``as_of``,
-        ``page_size``, and ``next_cursor`` (null on the last page).
+        ``page_size``, ``next_cursor`` (null on the last page), and
+        ``filters`` when filtered; or the counts body for ``response=count``.
 
     Raises:
         InvalidQuery: If a parameter or the cursor is invalid or conflicts with
             the cursor; ``param`` names it.
+        ApiError: ``filters_span_catalogs``.
     """
+    spec = parse_filters(filters, allow_string=True)
+    mode = parse_response_mode(response)
+    if mode == RESPONSE_COUNT:
+        if cursor is not None:
+            raise InvalidQuery(
+                'cursor pages a listing; response=count counts the whole set and '
+                'takes no cursor',
+                param='cursor',
+            )
+        return _count_cone(ra, dec, radius_arcsec, detail, spec, mode)
     decoded: ConeCursor | None = None
     if cursor is not None:
         decoded = decode_cone_cursor(cursor)
@@ -605,7 +647,11 @@ def cone_search(
     else:
         total = 0
 
-    ctx = LookupContext(detail=detail)
+    ctx = _context(detail, spec, mode)
+    if spec is not None:
+        # qualifying_total covers the whole pinned set, not only this page.
+        whole = search_cones([cone], as_of=as_of).get(0)
+        ctx.candidates[0] = [row[0] for row in whole.rows] if whole is not None else []
     objects = build_objects([row[0] for row in rows], ctx)
 
     next_cursor = None
@@ -622,23 +668,8 @@ def cone_search(
             ('cursor', cursor),
         ) if value is not None
     }
-    result = {
-        'index': 0,
-        'kind': PositionInput.name,
-        'input': echoed,
-        'normalized': {
-            'kind': PositionInput.name, 'ra': center[0], 'dec': center[1],
-            'radius_arcsec': radius,
-        },
-        'status': (
-            InputStatus.OBJECTS_FOUND if total else InputStatus.NO_RUBIN_OBJECT
-        ).value,
-        'objects': _object_entries(rows, objects),
-        'total': total,
-        'truncated': False,
-        'truncation': None,
-    }
-    return envelope({
+    result = _cone_result(echoed, center, radius, total, _object_entries(rows, objects))
+    return finish_response([result], ctx, {
         'detail': detail,
         'count': 1,
         'provenance_sets': ctx.provenance_sets,
@@ -650,8 +681,67 @@ def cone_search(
     })
 
 
+def _cone_result(
+    echoed: dict[str, Any],
+    center: tuple[float, float],
+    radius: float,
+    total: int,
+    objects: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """The one position result of a single cone search."""
+    return {
+        'index': 0,
+        'kind': PositionInput.name,
+        'input': echoed,
+        'normalized': {
+            'kind': PositionInput.name, 'ra': center[0], 'dec': center[1],
+            'radius_arcsec': radius,
+        },
+        'status': (
+            InputStatus.OBJECTS_FOUND if total else InputStatus.NO_RUBIN_OBJECT
+        ).value,
+        'objects': objects,
+        'total': total,
+        'truncated': False,
+        'truncation': None,
+    }
+
+
+def _count_cone(
+    ra: Any,
+    dec: Any,
+    radius_arcsec: Any,
+    detail: Any,
+    spec: FilterSpec | None,
+    mode: str,
+) -> dict[str, Any]:
+    """``response=count`` of a single cone: every object within the radius now.
+
+    ``page_size`` does not apply to a count and is ignored.
+    """
+    center = parse_position(ra, dec, allow_string=True)
+    radius = parse_radius_arcsec(radius_arcsec, allow_string=True)
+    _check_detail(detail)
+    cone_hits = search_cones([Cone(0, center[0], center[1], radius)]).get(0)
+    rows = cone_hits.rows if cone_hits is not None else []
+    ctx = _context('ids', spec, mode)
+    objects = build_objects([row[0] for row in rows], ctx)
+    echoed = {
+        name: value for name, value in (
+            ('ra', ra), ('dec', dec), ('radius_arcsec', radius_arcsec),
+        ) if value is not None
+    }
+    result = _cone_result(echoed, center, radius, len(rows), _object_entries(rows, objects))
+    return finish_response([result], ctx, {})
+
+
 def resolve_tns(
-    *, name: Any, radius_arcsec: Any = None, detail: str | None = None,
+    *,
+    name: Any,
+    radius_arcsec: Any = None,
+    detail: str | None = None,
+    filters: Any = None,
+    response: Any = None,
 ) -> dict[str, Any]:
     """Look up a TNS name and answer as a position search around it (R3, R21, R31).
 
@@ -664,17 +754,22 @@ def resolve_tns(
         radius_arcsec: Radius in arcsec (number or decimal string); default
             ``TNS_MATCH_RADIUS_ARCSEC``, at most ``API_MAX_CONE_RADIUS_ARCSEC``.
         detail: As for ``lookup_objects``.
+        filters: ``{filter name: value}`` from the query string.
+        response: ``objects`` (default) or ``count``.
 
     Returns:
         The lookup-shaped response with one TNS result, whose ``input`` echoes
-        ``name`` as given.
+        ``name`` as given; or the counts body for ``response=count``.
 
     Raises:
-        InvalidQuery: If the name, radius, or detail is invalid (``param``
-            ``name``, ``radius_arcsec``, or ``detail``).
+        InvalidQuery: If the name, radius, detail, a filter, or ``response``
+            is invalid; ``param`` names it.
+        ApiError: ``filters_span_catalogs``.
     """
     detail = _check_detail(detail)
-    ctx = LookupContext(detail=detail)
+    ctx = _context(
+        detail, parse_filters(filters, allow_string=True), parse_response_mode(response),
+    )
     value, normalized = _parse_tns(
         name, radius_arcsec, ctx,
         name_param='name', radius_param='radius_arcsec', allow_string=True,

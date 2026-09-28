@@ -28,6 +28,15 @@ from api.contract import (
     ErrorCode,
     InputStatus,
     ObjectStatus,
+    QualifiesReason,
+)
+from api.filters import (
+    KIND_CATALOG,
+    OBJECT_QUALIFIES_REASONS,
+    RESPONSE_COUNT,
+    RESPONSE_MODES,
+    FilterParam,
+    filter_parameters,
 )
 from api.lookup import (
     BASIS_BEST_GUESS,
@@ -169,6 +178,11 @@ def _components(current: dict[str, Any]) -> dict[str, Any]:
                 '`searched`.',
             ),
             'ErrorCode': _code_enum(ErrorCode.values, 'Request-level error code.'),
+            'QualifiesReason': _code_enum(
+                QualifiesReason.values,
+                'Why an object or input does or does not qualify under the '
+                "request's filters. Reasons that restate a status reuse its code.",
+            ),
             'CutEnforcedBy': _code_enum(
                 CutEnforcedBy.values, "Where a broker's reliability cut is enforced."
             ),
@@ -265,6 +279,7 @@ def _components(current: dict[str, Any]) -> dict[str, Any]:
             },
             **_recent_crossmatches_schemas(),
             **_lookup_schemas(),
+            **_filter_schemas(),
         },
     }
 
@@ -450,6 +465,37 @@ def _lookup_schemas() -> dict[str, Any]:
             ],
         },
     }
+    qualification = {
+        'qualifies': {
+            'type': 'boolean',
+            'description': (
+                'Present only when the request has filters: whether this '
+                'qualifies. Nothing is dropped for not qualifying.'
+            ),
+        },
+        'qualifies_reason': {
+            **_ref('QualifiesReason'),
+            'description': 'Present only when the request has filters.',
+        },
+    }
+    qualifying_total = {
+        'qualifying_total': {
+            'type': ['integer', 'null'],
+            'minimum': 0,
+            'description': (
+                'Present only when the request has filters: qualifying Rubin '
+                'objects among all objects within the radius (listed or not); '
+                'null when no search ran.'
+            ),
+        },
+    }
+    filters_echo = {
+        'filters': {
+            **_ref('Filters'),
+            'description': 'Present only when the request has filters: the '
+            'filters applied, normalized.',
+        },
+    }
     truncated_top = {
         'type': 'boolean',
         'description': (
@@ -565,6 +611,15 @@ def _lookup_schemas() -> dict[str, Any]:
                     'enum': ['ids', 'position', 'matches', 'full'],
                     'description': 'Cumulative detail level (default matches).',
                 },
+                'filters': {
+                    **_ref('Filters'),
+                    'description': (
+                        'Filters, as {name: value}. With filters every result '
+                        'and object is marked qualifies with a '
+                        'qualifies_reason; nothing is dropped.'
+                    ),
+                },
+                'response': _response_mode_schema(),
             },
         },
         'ProvenanceSet': {
@@ -722,6 +777,7 @@ def _lookup_schemas() -> dict[str, Any]:
                         'position, arcsec.'
                     ),
                 },
+                **qualification,
             },
         },
         'IdResult': {
@@ -750,6 +806,7 @@ def _lookup_schemas() -> dict[str, Any]:
                     'maxItems': 1,
                     'items': _ref('LookupObject'),
                 },
+                **qualification,
             },
         },
         'TnsRecord': {
@@ -817,6 +874,8 @@ def _lookup_schemas() -> dict[str, Any]:
                 ),
                 'objects': {'type': 'array', 'items': _ref('LookupObject')},
                 **cone_counts,
+                **qualification,
+                **qualifying_total,
             },
         },
         'TnsResult': {
@@ -880,6 +939,8 @@ def _lookup_schemas() -> dict[str, Any]:
                         'against (R21); null when resolver_unavailable.'
                     ),
                 },
+                **qualification,
+                **qualifying_total,
             },
         },
         'InvalidInputResult': {
@@ -914,6 +975,7 @@ def _lookup_schemas() -> dict[str, Any]:
                         },
                     },
                 },
+                **qualification,
             },
         },
         'LookupResult': {
@@ -951,6 +1013,7 @@ def _lookup_schemas() -> dict[str, Any]:
                     'additionalProperties': _ref('ProvenanceSet'),
                 },
                 'results': {'type': 'array', 'items': _ref('LookupResult')},
+                **filters_echo,
             },
         },
         'ConeSearchResponse': {
@@ -1000,9 +1063,149 @@ def _lookup_schemas() -> dict[str, Any]:
                     'type': ['string', 'null'],
                     'description': 'Opaque token for the next page; null on the last.',
                 },
+                **filters_echo,
             },
         },
     }
+
+
+def _filter_value_schema(param: FilterParam) -> dict[str, Any]:
+    """The value schema of one filter parameter, described with its unit."""
+    if param.kind == KIND_CATALOG:
+        names = [cat['name'] for cat in settings.CROSSMATCH_CATALOGS]
+        return {'type': 'string', 'enum': names, 'description': param.description}
+    schema: dict[str, Any] = {'type': 'number', 'description': param.description}
+    if param.unit is not None:
+        schema['x-unit'] = param.unit
+    return schema
+
+
+def _filter_schemas() -> dict[str, Any]:
+    """Schemas of the filters and of the ``response=count`` body (U6)."""
+    status_counts = {
+        'type': 'object',
+        'description': 'Count per status; every status is present, zero-filled.',
+        'additionalProperties': {'type': 'integer', 'minimum': 0},
+    }
+    qualifying = {
+        'type': ['integer', 'null'],
+        'minimum': 0,
+        'description': 'How many qualify under the filters; null without filters.',
+    }
+    return {
+        'Filters': {
+            'type': 'object',
+            'description': (
+                'Filters (R13, R14). Bounds are inclusive. Catalog property '
+                'filters are named <catalog>.<column>_min|_max with the column '
+                'lowercased; they, catalog, and separation_arcsec_max are match '
+                'filters, and an object qualifies only if one of its current '
+                'coincident sources satisfies every match filter, so match '
+                'filters may name only one catalog (else 400 '
+                'filters_span_catalogs). reliability_min|_max are object '
+                'filters. A null or non-numeric stored value never qualifies. '
+                'An unknown filter name is a 400 naming it.'
+            ),
+            'additionalProperties': False,
+            'properties': {
+                param.name: _filter_value_schema(param) for param in filter_parameters()
+            },
+        },
+        'CountResponse': {
+            'type': 'object',
+            'description': (
+                'The response=count body (R15): counts for the same inputs and '
+                'filters as the listing, without objects and uncapped by the '
+                'listing limits.'
+            ),
+            'required': ['provenance', 'response', 'filters', 'counts'],
+            'additionalProperties': False,
+            'properties': {
+                'provenance': _ref('Provenance'),
+                'response': {'const': RESPONSE_COUNT},
+                'filters': {
+                    'description': 'The filters applied, normalized; null when none.',
+                    'anyOf': [{'type': 'null'}, _ref('Filters')],
+                },
+                'counts': {
+                    'type': 'object',
+                    'required': ['inputs', 'objects'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'inputs': {
+                            'type': 'object',
+                            'description': (
+                                'Per input, duplicates included. by_status keys '
+                                'are ObjectStatus (id inputs) and InputStatus '
+                                'values.'
+                            ),
+                            'required': ['total', 'by_status', 'qualifying'],
+                            'additionalProperties': False,
+                            'properties': {
+                                'total': {'type': 'integer', 'minimum': 0},
+                                'by_status': status_counts,
+                                'qualifying': qualifying,
+                            },
+                        },
+                        'objects': {
+                            'type': 'object',
+                            'description': (
+                                'Per distinct Rubin object the inputs reach '
+                                '(IDs, and every object within each radius). '
+                                'by_status keys are ObjectStatus values.'
+                            ),
+                            'required': [
+                                'total', 'by_status', 'qualifying',
+                                'by_qualifies_reason',
+                            ],
+                            'additionalProperties': False,
+                            'properties': {
+                                'total': {'type': 'integer', 'minimum': 0},
+                                'by_status': status_counts,
+                                'qualifying': qualifying,
+                                'by_qualifies_reason': {
+                                    'type': ['object', 'null'],
+                                    'description': (
+                                        'Count per QualifiesReason, zero-filled '
+                                        f'({", ".join(OBJECT_QUALIFIES_REASONS)}); '
+                                        'null without filters.'
+                                    ),
+                                    'additionalProperties': {
+                                        'type': 'integer', 'minimum': 0,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+
+def _response_mode_schema() -> dict[str, Any]:
+    """The ``response`` parameter's schema (KTD10)."""
+    return {
+        'type': 'string',
+        'enum': list(RESPONSE_MODES),
+        'description': (
+            'objects (default): the listing. count: counts by input status, '
+            'object status, and qualifies for the same inputs and filters, '
+            'without objects (CountResponse).'
+        ),
+    }
+
+
+def _filter_query_params() -> list[dict[str, Any]]:
+    """The filter and ``response`` query parameters of a GET query."""
+    params = [
+        _query_param(param.name, _filter_value_schema(param), param.description)
+        for param in filter_parameters()
+    ]
+    params.append(_query_param(
+        'response', _response_mode_schema(), _response_mode_schema()['description'],
+    ))
+    return params
 
 
 def _int_setting(name: str) -> int:
@@ -1069,10 +1272,18 @@ def _paths() -> dict[str, Any]:
                         {'type': 'string', 'enum': ['ids', 'position', 'matches', 'full']},
                         'Cumulative detail level (default matches).',
                     ),
+                    *_filter_query_params(),
                 ],
                 'responses': {
-                    '200': _json(_ref('LookupResponse'), 'The object.'),
-                    '400': _json(_ref('Error'), 'Invalid diaObjectId or detail.'),
+                    '200': _json(
+                        {'oneOf': [_ref('LookupResponse'), _ref('CountResponse')]},
+                        'The object, or counts for response=count.',
+                    ),
+                    '400': _json(
+                        _ref('Error'),
+                        'Invalid diaObjectId, detail, filter, or response; or '
+                        'filters_span_catalogs.',
+                    ),
                     '405': _json(_ref('Error'), 'Method not allowed.'),
                     '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),
                 },
@@ -1095,11 +1306,15 @@ def _paths() -> dict[str, Any]:
                     'content': {'application/json': {'schema': _ref('LookupRequest')}},
                 },
                 'responses': {
-                    '200': _json(_ref('LookupResponse'), 'One result per input.'),
+                    '200': _json(
+                        {'oneOf': [_ref('LookupResponse'), _ref('CountResponse')]},
+                        'One result per input, or counts for response=count.',
+                    ),
                     '400': _json(
                         _ref('Error'),
                         'Invalid request: body, Content-Type, inputs, detail, '
-                        'or an unknown field; or query_too_expensive.',
+                        'a filter, response, or an unknown field; '
+                        'filters_span_catalogs; or query_too_expensive.',
                     ),
                     '405': _json(_ref('Error'), 'Method not allowed.'),
                     '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),
@@ -1153,15 +1368,21 @@ def _paths() -> dict[str, Any]:
                         'cursor',
                         {'type': 'string'},
                         'Opaque next_cursor from a prior page; pins ra, dec, '
-                        'radius_arcsec, detail, and as_of.',
+                        'radius_arcsec, detail, and as_of. Filters are not '
+                        'pinned: pass them on every page. Not allowed with '
+                        'response=count.',
                     ),
+                    *_filter_query_params(),
                 ],
                 'responses': {
-                    '200': _json(_ref('ConeSearchResponse'), 'One page.'),
+                    '200': _json(
+                        {'oneOf': [_ref('ConeSearchResponse'), _ref('CountResponse')]},
+                        'One page, or counts for response=count.',
+                    ),
                     '400': _json(
                         _ref('Error'),
-                        'Invalid parameter or cursor (param names it), or '
-                        'query_too_expensive.',
+                        'Invalid parameter, filter, or cursor (param names it), '
+                        'filters_span_catalogs, or query_too_expensive.',
                     ),
                     '405': _json(_ref('Error'), 'Method not allowed.'),
                     '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),
@@ -1204,13 +1425,17 @@ def _paths() -> dict[str, Any]:
                         {'type': 'string', 'enum': ['ids', 'position', 'matches', 'full']},
                         'Cumulative detail level (default matches).',
                     ),
+                    *_filter_query_params(),
                 ],
                 'responses': {
-                    '200': _json(_ref('LookupResponse'), 'One result.'),
+                    '200': _json(
+                        {'oneOf': [_ref('LookupResponse'), _ref('CountResponse')]},
+                        'One result, or counts for response=count.',
+                    ),
                     '400': _json(
                         _ref('Error'),
-                        'Invalid name, radius_arcsec, or detail; or '
-                        'query_too_expensive.',
+                        'Invalid name, radius_arcsec, detail, filter, or '
+                        'response; filters_span_catalogs; or query_too_expensive.',
                     ),
                     '405': _json(_ref('Error'), 'Method not allowed.'),
                     '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),
@@ -1224,7 +1449,13 @@ def _paths() -> dict[str, Any]:
                 'description': (
                     'One keyset page of matched objects whose alert falls in the '
                     'window, newest first. Matches-only: an object with no '
-                    'catalog match is not listed. Follow next_cursor until null.'
+                    'catalog match is not listed. Follow next_cursor until null. '
+                    'Does not filter or count: a filter-named parameter '
+                    '(<catalog>.<column>_min|_max, catalog, '
+                    'separation_arcsec_max, reliability_min|_max, or any name '
+                    'with a dot or ending _min/_max) or response is a 400 '
+                    'unsupported_parameter; other unknown parameters are '
+                    'ignored.'
                 ),
                 'parameters': [
                     _query_param(
@@ -1263,7 +1494,13 @@ def _paths() -> dict[str, Any]:
                 ],
                 'responses': {
                     '200': _json(_ref('RecentCrossmatchesPage'), 'One page.'),
-                    '400': _json(_ref('LegacyError'), 'Invalid parameter.'),
+                    '400': _json(
+                        {'anyOf': [_ref('Error'), _ref('LegacyError')]},
+                        'Invalid parameter (the original body, error only); or '
+                        'unsupported_parameter (a structured Error naming the '
+                        'filter or response parameters, which this operation '
+                        'does not support).',
+                    ),
                     '405': _json(_ref('LegacyError'), 'Method not allowed.'),
                 },
             },
