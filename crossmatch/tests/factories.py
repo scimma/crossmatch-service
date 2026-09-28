@@ -9,7 +9,16 @@ import factory
 from django.utils import timezone
 from factory.django import DjangoModelFactory
 
-from core.models import Alert, AlertDelivery, CatalogMatch, Notification
+from core import provenance
+from core.models import (
+    Alert,
+    AlertDelivery,
+    CatalogMatch,
+    CatalogSearchOutcome,
+    Notification,
+    ObjectCrossmatchRecord,
+    ProvenanceSet,
+)
 
 
 class AlertFactory(DjangoModelFactory):
@@ -56,6 +65,39 @@ class NotificationFactory(DjangoModelFactory):
     destination = "hopskotch"
     payload = factory.LazyFunction(dict)
     state = Notification.State.PENDING
+
+
+class ProvenanceSetFactory(DjangoModelFactory):
+    """A provenance set built from the live settings, as the crossmatch task does."""
+
+    class Meta:
+        model = ProvenanceSet
+
+    content_hash = factory.Sequence(lambda n: f'{n:064x}')
+    crossmatch_radius_arcsec = factory.LazyFunction(provenance.crossmatch_radius_arcsec)
+    catalogs = factory.LazyFunction(provenance.catalog_releases)
+    reliability_cuts = factory.LazyFunction(provenance.reliability_cuts)
+
+
+def _all_searched():
+    return {
+        cat['name']: CatalogSearchOutcome.SEARCHED.value
+        for cat in provenance.catalog_releases()
+    }
+
+
+class ObjectCrossmatchRecordFactory(DjangoModelFactory):
+    """A per-object crossmatch record; by default every catalog in service searched."""
+
+    class Meta:
+        model = ObjectCrossmatchRecord
+
+    alert = factory.SubFactory(AlertFactory, status=Alert.Status.MATCHED)
+    match_version = 1
+    provenance_set = factory.SubFactory(ProvenanceSetFactory)
+    catalog_outcomes = factory.LazyFunction(_all_searched)
+    brokers = factory.LazyFunction(lambda: ['antares'])
+    crossmatched_at = factory.LazyFunction(timezone.now)
 
 
 def set_ingest_time(alert, when):

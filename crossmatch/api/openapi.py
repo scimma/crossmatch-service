@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
+
 from api.contract import (
     CATALOG_OUTCOME_VALUES,
     CODE_DESCRIPTIONS,
@@ -26,6 +28,12 @@ from api.contract import (
     ErrorCode,
     InputStatus,
     ObjectStatus,
+)
+from api.lookup import (
+    BASIS_BEST_GUESS,
+    BASIS_RECORDED,
+    PROVENANCE_NOT_RECORDED,
+    PROVENANCE_RECORDED,
 )
 from core import provenance
 from core.models import CutEnforcedBy, CutStatus
@@ -251,6 +259,7 @@ def _components(current: dict[str, Any]) -> dict[str, Any]:
                 'properties': {'error': {'type': 'string'}},
             },
             **_recent_crossmatches_schemas(),
+            **_lookup_schemas(),
         },
     }
 
@@ -357,6 +366,322 @@ def _recent_crossmatches_schemas() -> dict[str, Any]:
     }
 
 
+def _lookup_schemas() -> dict[str, Any]:
+    """Schemas of the object lookups (get_object, lookup_objects; U4)."""
+    recording_release = provenance.PROVENANCE_RECORDING_RELEASE
+    provenance_set_ref = {
+        'type': ['string', 'null'],
+        'description': (
+            'Key into the response provenance_sets map of the provenance '
+            'recorded for this crossmatch; null when not recorded.'
+        ),
+    }
+    with_provenance_set = {
+        'type': 'object',
+        'required': ['provenance_set'],
+        'properties': {'provenance_set': provenance_set_ref},
+    }
+    return {
+        'IdInput': {
+            'type': 'object',
+            'description': 'Look up one Rubin object by diaObjectId.',
+            'required': ['kind', 'diaObjectId'],
+            'additionalProperties': False,
+            'properties': {
+                'kind': {'const': 'id'},
+                'diaObjectId': {
+                    'description': (
+                        'The diaObjectId as a JSON integer or a decimal string. '
+                        'Send a string from JavaScript clients, which lose '
+                        'precision above 2^53.'
+                    ),
+                    'oneOf': [
+                        _ref('DiaObjectId'),
+                        _ref('DiaObjectIdStr'),
+                    ],
+                },
+            },
+        },
+        'LookupInput': {
+            'description': (
+                'One tagged input, discriminated by kind. An entry that does '
+                'not match is not a request error: it gets its own result with '
+                'status invalid_input.'
+            ),
+            'oneOf': [_ref('IdInput')],
+        },
+        'LookupRequest': {
+            'type': 'object',
+            'required': ['inputs'],
+            'additionalProperties': False,
+            'properties': {
+                'inputs': {
+                    'type': 'array',
+                    'minItems': 1,
+                    'description': (
+                        'The inputs, answered one result per input in this '
+                        'order; duplicates are answered twice. Per-request '
+                        'maximums (currently: IDs '
+                        f'{_int_setting("API_MAX_IDS")}) apply; over a maximum '
+                        'the request is a 400 naming inputs.'
+                    ),
+                    'items': _ref('LookupInput'),
+                },
+                'detail': {
+                    'type': 'string',
+                    'enum': ['ids', 'position', 'matches', 'full'],
+                    'description': 'Cumulative detail level (default matches).',
+                },
+            },
+        },
+        'ProvenanceSet': {
+            'type': 'object',
+            'description': (
+                'The conditions a crossmatch ran under. basis `recorded`: '
+                'written when the object was crossmatched (R18). basis '
+                f'`{BASIS_BEST_GUESS}`: the current settings, offered for '
+                'objects without recorded provenance and labeled as a best '
+                'guess, not a record (R19).'
+            ),
+            'required': [
+                'basis', 'crossmatch_radius_arcsec', 'catalogs', 'reliability_cuts',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'basis': {'type': 'string', 'enum': [BASIS_RECORDED, BASIS_BEST_GUESS]},
+                'description': {'type': 'string'},
+                'crossmatch_radius_arcsec': {
+                    'type': ['number', 'null'],
+                    'description': 'Crossmatch radius, arcsec.',
+                },
+                'catalogs': {'type': 'array', 'items': _ref('CatalogRelease')},
+                'reliability_cuts': {
+                    'type': 'array',
+                    'items': _ref('ReliabilityCut'),
+                },
+            },
+        },
+        'Crossmatch': {
+            'type': 'object',
+            'description': (
+                'What the crossmatch of this object searched, and under which '
+                'provenance. Without a record (provenance '
+                f'`{PROVENANCE_NOT_RECORDED}`) every catalog reports '
+                '`not_recorded`; recording started with service release '
+                f'{recording_release}, but a missing record does not assert '
+                'that the object predates it.'
+            ),
+            'required': [
+                'provenance', 'match_version', 'crossmatched_at', 'provenance_set',
+                'brokers_at_crossmatch', 'catalog_outcomes',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'provenance': {
+                    'type': 'string',
+                    'enum': [PROVENANCE_RECORDED, PROVENANCE_NOT_RECORDED],
+                },
+                'match_version': {'type': ['integer', 'null']},
+                'crossmatched_at': {
+                    'type': ['string', 'null'],
+                    'format': 'date-time',
+                    'description': 'When the crossmatch result was committed.',
+                },
+                'provenance_set': provenance_set_ref,
+                'brokers_at_crossmatch': {
+                    'type': ['array', 'null'],
+                    'items': {'type': 'string'},
+                    'description': (
+                        'Brokers that had delivered the object when it was '
+                        'crossmatched. A broker that delivered it later is in '
+                        'the object brokers list only.'
+                    ),
+                },
+                'catalog_outcomes': {
+                    'type': 'object',
+                    'description': (
+                        'Search outcome per catalog: every catalog in service '
+                        'now, plus any recorded catalog no longer in service.'
+                    ),
+                    'additionalProperties': _ref('CatalogOutcome'),
+                },
+                'recording_release': {
+                    'type': 'string',
+                    'description': (
+                        'Present when not recorded: the service release that '
+                        'started recording provenance.'
+                    ),
+                },
+                'best_guess_provenance_set': {
+                    'type': 'string',
+                    'description': (
+                        'Present when not recorded: key of the labeled '
+                        'best-guess entry in provenance_sets.'
+                    ),
+                },
+            },
+        },
+        'LookupMatch': {
+            'description': (
+                'A coincident source (raw catalog values at detail full). A '
+                'coincident source is not a host association.'
+            ),
+            'anyOf': [
+                {'allOf': [_ref('MatchSummary'), with_provenance_set]},
+                {'allOf': [_ref('PublishedMatch'), with_provenance_set]},
+            ],
+        },
+        'LookupObject': {
+            'type': 'object',
+            'description': (
+                'One Rubin object. An object not in the service carries only '
+                'its ID and status. Position, reliability, times, and brokers '
+                'appear from detail position; matches from detail matches.'
+            ),
+            'required': ['diaObjectId', 'diaObjectId_str', 'status'],
+            'additionalProperties': False,
+            'properties': {
+                'diaObjectId': _ref('DiaObjectId'),
+                'diaObjectId_str': _ref('DiaObjectIdStr'),
+                'status': _ref('ObjectStatus'),
+                'ra': {'type': ['number', 'null'], 'description': 'Object RA, degrees (ICRS).'},
+                'dec': {'type': ['number', 'null'], 'description': 'Object Dec, degrees (ICRS).'},
+                'reliability': {
+                    'type': ['number', 'null'],
+                    'description': (
+                        'LSST real/bogus reliability stored when the object '
+                        'was first seen.'
+                    ),
+                },
+                'ingest_time': {
+                    'type': 'string',
+                    'format': 'date-time',
+                    'description': 'When the service first ingested the object.',
+                },
+                'event_time': {
+                    'type': 'string',
+                    'format': 'date-time',
+                    'description': 'Observation time of the first ingested alert.',
+                },
+                'brokers': {
+                    'type': 'array',
+                    'items': {'type': 'string'},
+                    'description': 'Every broker that has delivered the object.',
+                },
+                'crossmatch': {
+                    'description': 'Null until the object is crossmatched.',
+                    'anyOf': [{'type': 'null'}, _ref('Crossmatch')],
+                },
+                'matches': {
+                    'type': 'array',
+                    'description': (
+                        'Coincident sources; empty unless status is '
+                        'coincident_sources.'
+                    ),
+                    'items': _ref('LookupMatch'),
+                },
+            },
+        },
+        'IdResult': {
+            'type': 'object',
+            'description': 'The result of an id input: its object and that object\'s status.',
+            'required': ['index', 'kind', 'input', 'normalized', 'status', 'objects'],
+            'additionalProperties': False,
+            'properties': {
+                'index': {'type': 'integer', 'minimum': 0},
+                'kind': {'const': 'id'},
+                'input': {'description': 'The input exactly as sent.'},
+                'normalized': {
+                    'type': 'object',
+                    'required': ['kind', 'diaObjectId', 'diaObjectId_str'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'kind': {'const': 'id'},
+                        'diaObjectId': _ref('DiaObjectId'),
+                        'diaObjectId_str': _ref('DiaObjectIdStr'),
+                    },
+                },
+                'status': _ref('ObjectStatus'),
+                'objects': {
+                    'type': 'array',
+                    'minItems': 1,
+                    'maxItems': 1,
+                    'items': _ref('LookupObject'),
+                },
+            },
+        },
+        'InvalidInputResult': {
+            'type': 'object',
+            'description': (
+                'A malformed input. Only this entry fails; the rest of the '
+                'request is answered.'
+            ),
+            'required': [
+                'index', 'kind', 'input', 'normalized', 'status', 'objects', 'error',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'index': {'type': 'integer', 'minimum': 0},
+                'kind': {
+                    'type': ['string', 'null'],
+                    'description': 'The kind as sent, when it was a string.',
+                },
+                'input': {'description': 'The input exactly as sent.'},
+                'normalized': {'type': 'null'},
+                'status': {'const': 'invalid_input'},
+                'objects': {'type': 'array', 'maxItems': 0},
+                'error': {
+                    'type': 'object',
+                    'required': ['message', 'param'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'message': {'type': 'string'},
+                        'param': {
+                            'type': 'string',
+                            'description': 'The offending field, e.g. inputs[3].diaObjectId.',
+                        },
+                    },
+                },
+            },
+        },
+        'LookupResult': {
+            'description': 'One result per input, in input order.',
+            'oneOf': [_ref('IdResult'), _ref('InvalidInputResult')],
+        },
+        'LookupResponse': {
+            'type': 'object',
+            'required': ['provenance', 'detail', 'count', 'provenance_sets', 'results'],
+            'additionalProperties': False,
+            'properties': {
+                'provenance': _ref('Provenance'),
+                'detail': {
+                    'type': 'string',
+                    'enum': ['ids', 'position', 'matches', 'full'],
+                },
+                'count': {
+                    'type': 'integer',
+                    'minimum': 0,
+                    'description': 'Number of results (equal to the number of inputs).',
+                },
+                'provenance_sets': {
+                    'type': 'object',
+                    'description': (
+                        'Provenance sets referenced by the results, keyed by '
+                        'the keys objects and matches carry.'
+                    ),
+                    'additionalProperties': _ref('ProvenanceSet'),
+                },
+                'results': {'type': 'array', 'items': _ref('LookupResult')},
+            },
+        },
+    }
+
+
+def _int_setting(name: str) -> int:
+    """A per-request maximum, read live (R27)."""
+    return int(getattr(settings, name))
+
+
 def _query_param(name: str, schema: dict[str, Any], description: str) -> dict[str, Any]:
     """An optional query parameter."""
     return {
@@ -384,6 +709,67 @@ def _paths() -> dict[str, Any]:
                         'The OpenAPI 3.1 document.',
                     ),
                     '405': _json(_ref('Error'), 'Method not allowed.'),
+                },
+            },
+        },
+        '/api/objects/{diaObjectId}': {
+            'get': {
+                'operationId': 'get_object',
+                'summary': 'Look up one Rubin object by diaObjectId.',
+                'description': (
+                    'What the service knows about one object: its status, '
+                    'per-catalog search outcomes, provenance, and coincident '
+                    'sources. The response has the lookup_objects shape with '
+                    'one result. not_in_service is not evidence that the object '
+                    'failed a reliability cut or does not exist in Rubin.'
+                ),
+                'parameters': [
+                    {
+                        'name': 'diaObjectId',
+                        'in': 'path',
+                        'required': True,
+                        'schema': _ref('DiaObjectIdStr'),
+                        'description': 'The diaObjectId, as a decimal string.',
+                    },
+                    _query_param(
+                        'detail',
+                        {'type': 'string', 'enum': ['ids', 'position', 'matches', 'full']},
+                        'Cumulative detail level (default matches).',
+                    ),
+                ],
+                'responses': {
+                    '200': _json(_ref('LookupResponse'), 'The object.'),
+                    '400': _json(_ref('Error'), 'Invalid diaObjectId or detail.'),
+                    '405': _json(_ref('Error'), 'Method not allowed.'),
+                    '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),
+                },
+            },
+        },
+        '/api/lookup': {
+            'post': {
+                'operationId': 'lookup_objects',
+                'summary': 'Look up a list of tagged inputs in one request.',
+                'description': (
+                    'Read-only and idempotent. Every input produces exactly one '
+                    'result, in input order, echoing the input as sent and its '
+                    'normalized form. A malformed input is reported as '
+                    'invalid_input in its own result and does not fail the '
+                    'others; request-level problems are a 400 naming the '
+                    'parameter.'
+                ),
+                'requestBody': {
+                    'required': True,
+                    'content': {'application/json': {'schema': _ref('LookupRequest')}},
+                },
+                'responses': {
+                    '200': _json(_ref('LookupResponse'), 'One result per input.'),
+                    '400': _json(
+                        _ref('Error'),
+                        'Invalid request: body, Content-Type, inputs, detail, '
+                        'or an unknown field; or query_too_expensive.',
+                    ),
+                    '405': _json(_ref('Error'), 'Method not allowed.'),
+                    '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),
                 },
             },
         },

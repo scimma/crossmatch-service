@@ -34,6 +34,11 @@ logger = get_logger(__name__)
 # by hand when the contract changes; independent of the service version.
 CONTRACT_VERSION = '1.0.0'
 
+# The service release that started recording per-object crossmatch provenance
+# (``ObjectCrossmatchRecord``, KTD5). Objects with no record report their
+# provenance as not recorded and name this release (R19). Fixed once released.
+PROVENANCE_RECORDING_RELEASE = '0.15.0'
+
 # Broker identifiers as stored in ``AlertDelivery.broker``, in reporting order.
 _BROKER_ENFORCED = ('antares', 'lasair')
 _SERVICE_ENFORCED = 'pittgoogle'

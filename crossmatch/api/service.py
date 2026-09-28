@@ -213,7 +213,7 @@ def recent_crossmatches(
     )
 
 
-def _load_matches(object_ids, detail):
+def _load_matches(object_ids, detail, *, include_match_version=False):
     """Return {diaObjectId: [match_entry, ...]} for the given objects.
 
     Postgres ``DISTINCT ON (object, catalog, source)`` combined with an
@@ -228,6 +228,10 @@ def _load_matches(object_ids, detail):
     null/non-finite source coordinate on a ``full`` build) is logged and skipped
     without 500-ing the whole response, mirroring the per-row guard on the write
     path in ``tasks/crossmatch.py``.
+
+    With ``include_match_version`` each entry also carries its row's
+    ``match_version``, so a caller can join it to the object's crossmatch
+    record on ``(alert, match_version)`` (KTD5); the caller owns that key.
     """
     rows = (
         CatalogMatch.objects.filter(alert_id__in=object_ids)
@@ -236,7 +240,8 @@ def _load_matches(object_ids, detail):
     )
     if detail != 'full':
         rows = rows.only(
-            'alert_id', 'catalog_name', 'catalog_source_id', 'match_distance_arcsec'
+            'alert_id', 'catalog_name', 'catalog_source_id', 'match_distance_arcsec',
+            'match_version',
         )
 
     # At the full level, the persisted TNS association (write path: tasks/crossmatch.py)
@@ -293,6 +298,8 @@ def _load_matches(object_ids, detail):
             logger.exception('Skipping unbuildable match row',
                              catalog=getattr(cm, 'catalog_name', None))
             continue
+        if include_match_version:
+            entry['match_version'] = int(cm.match_version)
         result.setdefault(oid, []).append(entry)
     return result
 

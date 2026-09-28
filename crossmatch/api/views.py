@@ -7,8 +7,11 @@ layer so it stays reusable by future endpoints and a Python client.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from typing import Any
 
+from django.core.exceptions import RequestDataTooBig
 from django.http import HttpRequest, JsonResponse
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import is_naive, make_aware
@@ -16,6 +19,8 @@ from django.utils.timezone import is_naive, make_aware
 from core.log import get_logger
 from api.contract import ErrorCode, error_response
 from api.errors import ApiError
+from api.guard import api_guard
+from api.lookup import get_object, lookup_objects, parse_lookup_body
 from api.openapi import build_document
 from api.service import InvalidQuery, recent_crossmatches
 
@@ -115,3 +120,80 @@ def openapi_view(request: HttpRequest) -> JsonResponse:
             )
         )
     return JsonResponse(build_document())
+
+
+def _method_not_allowed() -> ApiError:
+    """The structured 405 error."""
+    return ApiError(
+        'method not allowed', code=ErrorCode.METHOD_NOT_ALLOWED, status=405,
+    )
+
+
+def _reject_json_constant(name: str) -> Any:
+    """Refuse ``NaN``/``Infinity``: not JSON, and they could not be echoed back."""
+    raise ValueError(f'{name} is not valid JSON')
+
+
+def _json_body(request: HttpRequest) -> Any:
+    """Decode a request's JSON body, or raise ``InvalidQuery`` naming the problem.
+
+    Args:
+        request: The request.
+
+    Returns:
+        The decoded body.
+
+    Raises:
+        InvalidQuery: If the content type is not ``application/json``
+            (``param`` ``Content-Type``), or the body is too large or not
+            valid JSON (``param`` ``body``).
+    """
+    if request.content_type != 'application/json':
+        raise InvalidQuery(
+            f'Content-Type must be application/json, got {request.content_type!r}',
+            param='Content-Type',
+        )
+    try:
+        raw = request.body
+    except RequestDataTooBig:
+        raise InvalidQuery('request body is too large', param='body') from None
+    try:
+        return json.loads(raw, parse_constant=_reject_json_constant)
+    except (ValueError, RecursionError) as exc:
+        raise InvalidQuery(f'request body is not valid JSON: {exc}', param='body') from None
+
+
+@api_guard
+def get_object_view(request: HttpRequest, object_id: str) -> JsonResponse:
+    """GET one Rubin object by ``diaObjectId`` (R1).
+
+    The path segment is the ID as a decimal string; the optional ``detail``
+    query param is ``ids`` | ``position`` | ``matches`` (default) | ``full``.
+
+    Returns:
+        A ``JsonResponse``: 200 with one result, 400 naming ``diaObjectId`` or
+        ``detail``, 405 for a non-GET method, or a guard error (KTD12).
+    """
+    if request.method != 'GET':
+        raise _method_not_allowed()
+    result = get_object(dia_object_id=object_id, detail=request.GET.get('detail'))
+    return JsonResponse(result)
+
+
+@api_guard
+def lookup_objects_view(request: HttpRequest) -> JsonResponse:
+    """POST a batch of tagged inputs; one result per input, in order (R2, R7).
+
+    Read-only and idempotent despite the method: the body carries the input
+    list, which can be too long for a query string. The body is a JSON object
+    with ``inputs`` and optional ``detail``. A malformed input is reported in
+    its own result; request-level problems are a 400 naming the parameter.
+
+    Returns:
+        A ``JsonResponse``: 200 with the results, 400 naming the parameter, 405
+        for a non-POST method, or a guard error (KTD12).
+    """
+    if request.method != 'POST':
+        raise _method_not_allowed()
+    kwargs = parse_lookup_body(_json_body(request))
+    return JsonResponse(lookup_objects(**kwargs))
