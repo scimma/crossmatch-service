@@ -14,6 +14,8 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-01
+
 ### Added
 
 - Object lookup by `diaObjectId`: `GET /api/objects/<diaObjectId>` for one object and `POST /api/lookup` for an ordered batch of tagged inputs (`id`, `position`, or `tns`). Every input produces exactly one result, in input order, echoing the input as sent; a malformed input is reported as `invalid_input` in its own result without failing the rest. Each object reports a fixed status code (`not_in_service`, `crossmatch_pending`, `coincident_sources`, `no_coincident_source`, `not_searched`), its per-catalog search outcomes, and its coincident sources. IDs are accepted as JSON integers or decimal strings, and every object carries `diaObjectId_str` beside the integer `diaObjectId` for JavaScript clients.
@@ -223,7 +225,8 @@ Initial release of the crossmatch service.
 - Postgres init race condition on startup.
 - diaSourceId reliability filtering.
 
-[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/scimma/crossmatch-service/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/scimma/crossmatch-service/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/scimma/crossmatch-service/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/scimma/crossmatch-service/compare/v0.12.0...v0.13.0
