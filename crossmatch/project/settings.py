@@ -1,3 +1,4 @@
+import datetime
 import logging.config
 import os
 
@@ -26,12 +27,62 @@ GAIA_HATS_URL = os.getenv('GAIA_HATS_URL', 's3://stpubdata/gaia/gaia_dr3/public/
 DES_HATS_URL = os.getenv('DES_HATS_URL', 's3://stpubdata/mast/public/des/hats/des_y6_gold')
 DELVE_HATS_URL = os.getenv('DELVE_HATS_URL', 's3://stpubdata/mast/public/delve/hats/delve_dr3_gold')
 SKYMAPPER_HATS_URL = os.getenv('SKYMAPPER_HATS_URL', 'https://data.lsdb.io/hats/skymapper_dr4/catalog')
+# Catalog release labels reported as provenance (KTD7). Configured labels, not
+# read from the HATS build, so the web tier and API never open LSDB to report
+# them. Change a label together with its HATS URL when a new release is served.
+GAIA_RELEASE = os.getenv('GAIA_RELEASE', 'Gaia DR3')
+DES_RELEASE = os.getenv('DES_RELEASE', 'DES Y6 Gold')
+DELVE_RELEASE = os.getenv('DELVE_RELEASE', 'DELVE DR3 Gold')
+SKYMAPPER_RELEASE = os.getenv('SKYMAPPER_RELEASE', 'SkyMapper DR4')
+
+
+def _env_moc_order(name, default):
+    """Read an optional HEALPix order from the environment.
+
+    Args:
+        name: The environment variable.
+        default: The order when the variable is unset.
+
+    Returns:
+        The order as an int, ``default`` when unset, or ``None`` when set to an
+        empty string (not configured).
+
+    Raises:
+        ImproperlyConfigured: If the value is not an integer.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    if raw.strip() == '':
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise ImproperlyConfigured(
+            f'{name} must be an integer HEALPix order 0..29 (got {raw!r})'
+        ) from None
+
+
+# Max HEALPix order of each served catalog's HATS coverage map
+# (hc_structure.moc), reported by api/describe so users know the resolution at
+# which a catalog outcome of "searched" was decided: the crossmatch footprint
+# test uses that coverage map, so an object in a footprint hole or near an edge
+# can be recorded as searched. Configured, like the release labels, so the web
+# tier and API never open LSDB/HATS to report it; change it together with the
+# HATS URL. Order 8 is about 14 arcmin pixels, 6 about 55, 10 about 3.4. An
+# empty value reports the order as not configured.
+GAIA_FOOTPRINT_MOC_ORDER = _env_moc_order('GAIA_FOOTPRINT_MOC_ORDER', 8)
+DES_FOOTPRINT_MOC_ORDER = _env_moc_order('DES_FOOTPRINT_MOC_ORDER', 6)
+DELVE_FOOTPRINT_MOC_ORDER = _env_moc_order('DELVE_FOOTPRINT_MOC_ORDER', 10)
+SKYMAPPER_FOOTPRINT_MOC_ORDER = _env_moc_order('SKYMAPPER_FOOTPRINT_MOC_ORDER', 8)
 CROSSMATCH_RADIUS_ARCSEC = float(os.getenv('CROSSMATCH_RADIUS_ARCSEC', '1.0'))
 
 CROSSMATCH_CATALOGS = [
     {
         'name': 'gaia_dr3',
         'hats_url': GAIA_HATS_URL,
+        'release': GAIA_RELEASE,
+        'footprint_moc_order': GAIA_FOOTPRINT_MOC_ORDER,
         'source_id_column': 'source_id',
         'ra_column': 'ra',
         'dec_column': 'dec',
@@ -51,10 +102,35 @@ CROSSMATCH_CATALOGS = [
             # quality
             'ruwe', 'astrometric_excess_noise', 'astrometric_excess_noise_sig',
         ],
+        # Columns the API can filter on (R13; KTD9): a subset of payload_columns
+        # (upstream-native case) with their units, served as
+        # gaia_dr3.<column>_min/_max over the stored (lowercased) payload keys.
+        'filter_columns': {
+            'parallax': 'mas',
+            'parallax_error': 'mas',
+            'pmra': 'mas/yr',
+            'pmdec': 'mas/yr',
+            'ruwe': 'dimensionless',
+            'classprob_dsc_combmod_star': 'probability',
+            'classprob_dsc_combmod_galaxy': 'probability',
+            'classprob_dsc_combmod_quasar': 'probability',
+        },
+        # Filterable values computed from stored payload values as
+        # numerator / denominator (signed; null when either is missing or the
+        # denominator is 0). Gaia's own parallax_over_error is not stored.
+        'derived_filter_columns': {
+            'parallax_over_error': {
+                'numerator': 'parallax',
+                'denominator': 'parallax_error',
+                'unit': 'dimensionless',
+            },
+        },
     },
     {
         'name': 'des_y6_gold',
         'hats_url': DES_HATS_URL,
+        'release': DES_RELEASE,
+        'footprint_moc_order': DES_FOOTPRINT_MOC_ORDER,
         'source_id_column': 'COADD_OBJECT_ID',
         'ra_column': 'RA',
         'dec_column': 'DEC',
@@ -78,10 +154,18 @@ CROSSMATCH_CATALOGS = [
             # quality
             'FLAGS_GOLD', 'FLAGS_FOREGROUND', 'FLAGS_FOOTPRINT', 'BDF_FLAGS',
         ],
+        # Filterable columns with units (see gaia_dr3).
+        'filter_columns': {
+            'DNF_Z': 'dimensionless',
+            'DNF_ZSIGMA': 'dimensionless',
+            'EXT_MASH': 'class code (0-4)',
+        },
     },
     {
         'name': 'delve_dr3_gold',
         'hats_url': DELVE_HATS_URL,
+        'release': DELVE_RELEASE,
+        'footprint_moc_order': DELVE_FOOTPRINT_MOC_ORDER,
         'source_id_column': 'COADD_OBJECT_ID',
         'ra_column': 'RA',
         'dec_column': 'DEC',
@@ -104,10 +188,18 @@ CROSSMATCH_CATALOGS = [
             # quality
             'FLAGS_GOLD', 'FLAGS_FOREGROUND', 'FLAGS_FOOTPRINT', 'BDF_FLAGS',
         ],
+        # Filterable columns with units (see gaia_dr3).
+        'filter_columns': {
+            'DNF_Z': 'dimensionless',
+            'DNF_ZSIGMA': 'dimensionless',
+            'EXT_MASH': 'class code (0-4)',
+        },
     },
     {
         'name': 'skymapper_dr4',
         'hats_url': SKYMAPPER_HATS_URL,
+        'release': SKYMAPPER_RELEASE,
+        'footprint_moc_order': SKYMAPPER_FOOTPRINT_MOC_ORDER,
         'source_id_column': 'object_id',
         'ra_column': 'raj2000',
         'dec_column': 'dej2000',
@@ -125,8 +217,116 @@ CROSSMATCH_CATALOGS = [
             # quality
             'flags', 'nimaflags', 'ngood',
         ],
+        # No filterable columns (R13 names none for SkyMapper).
+        'filter_columns': {},
     },
 ]
+
+
+def _validate_catalog_releases(catalogs):
+    """Require a non-empty ``release`` label on every catalog entry (KTD7).
+
+    Args:
+        catalogs: The ``CROSSMATCH_CATALOGS`` list.
+
+    Raises:
+        ImproperlyConfigured: If an entry has no ``release`` or a blank one.
+    """
+    for cat in catalogs:
+        release = cat.get('release')
+        if not isinstance(release, str) or not release.strip():
+            raise ImproperlyConfigured(
+                f"CROSSMATCH_CATALOGS entry {cat.get('name')!r} needs a non-empty "
+                f"'release' label (got {release!r})"
+            )
+
+
+_validate_catalog_releases(CROSSMATCH_CATALOGS)
+
+
+def _validate_footprint_moc_orders(catalogs):
+    """Require any configured ``footprint_moc_order`` to be a HEALPix order.
+
+    The key is optional; ``None`` means not configured.
+
+    Args:
+        catalogs: The ``CROSSMATCH_CATALOGS`` list.
+
+    Raises:
+        ImproperlyConfigured: If a configured order is not an int in 0..29.
+    """
+    for cat in catalogs:
+        order = cat.get('footprint_moc_order')
+        if order is None:
+            continue
+        if isinstance(order, bool) or not isinstance(order, int) or not 0 <= order <= 29:
+            raise ImproperlyConfigured(
+                f"CROSSMATCH_CATALOGS entry {cat.get('name')!r}: "
+                f"footprint_moc_order must be an int HEALPix order 0..29 "
+                f"(got {order!r})"
+            )
+
+
+_validate_footprint_moc_orders(CROSSMATCH_CATALOGS)
+
+
+def _validate_filter_columns(catalogs):
+    """Require every filterable column to be a payload column with a unit (KTD9).
+
+    ``filter_columns`` maps upstream-native column names (exact case) to units;
+    ``derived_filter_columns`` maps a name to ``numerator``/``denominator``
+    payload columns and a unit. Public filter names are lowercased, so no two
+    names of one catalog may collide once lowercased.
+
+    Args:
+        catalogs: The ``CROSSMATCH_CATALOGS`` list.
+
+    Raises:
+        ImproperlyConfigured: If a filter column (or a derived filter's operand)
+            is not in the catalog's ``payload_columns``, a unit is missing or
+            blank, or two filter names collide.
+    """
+    for cat in catalogs:
+        name = cat.get('name')
+        payload = set(cat.get('payload_columns') or [])
+        seen = set()
+
+        def _check_name(filter_name):
+            if filter_name.lower() in seen:
+                raise ImproperlyConfigured(
+                    f"CROSSMATCH_CATALOGS entry {name!r}: filter name "
+                    f"{filter_name!r} collides with another once lowercased"
+                )
+            seen.add(filter_name.lower())
+
+        def _check_unit(filter_name, unit):
+            if not isinstance(unit, str) or not unit.strip():
+                raise ImproperlyConfigured(
+                    f"CROSSMATCH_CATALOGS entry {name!r}: filter {filter_name!r} "
+                    f"needs a non-empty unit (got {unit!r})"
+                )
+
+        for column, unit in (cat.get('filter_columns') or {}).items():
+            if column not in payload:
+                raise ImproperlyConfigured(
+                    f"CROSSMATCH_CATALOGS entry {name!r}: filter column {column!r} "
+                    f"is not in payload_columns (names are case-sensitive)"
+                )
+            _check_unit(column, unit)
+            _check_name(column)
+        for derived, spec in (cat.get('derived_filter_columns') or {}).items():
+            for operand in ('numerator', 'denominator'):
+                column = (spec or {}).get(operand)
+                if column not in payload:
+                    raise ImproperlyConfigured(
+                        f"CROSSMATCH_CATALOGS entry {name!r}: derived filter "
+                        f"{derived!r} {operand} {column!r} is not in payload_columns"
+                    )
+            _check_unit(derived, spec.get('unit'))
+            _check_name(derived)
+
+
+_validate_filter_columns(CROSSMATCH_CATALOGS)
 
 # Batch crossmatch thresholds
 CROSSMATCH_BATCH_MAX_WAIT_SECONDS = int(
@@ -455,6 +655,16 @@ DATABASES = {
         'PORT': os.getenv('DATABASE_PORT', '5432'),
         'CONN_MAX_AGE': int(os.getenv('CONN_MAX_AGE', '60')),
         'CONN_HEALTH_CHECKS': True,
+        # libpq connect_timeout, web tier only: entrypoints/run_web.sh exports
+        # DATABASE_CONNECT_TIMEOUT so an unreachable database fails fast into the
+        # API's structured 503 (KTD12) instead of outliving the request. Unset in
+        # every other process (Celery, beat, ingest consumers), which keep
+        # libpq's default wait-for-TCP behavior.
+        'OPTIONS': (
+            {'connect_timeout': int(os.environ['DATABASE_CONNECT_TIMEOUT'])}
+            if os.environ.get('DATABASE_CONNECT_TIMEOUT')
+            else {}
+        ),
     },
     'sqlite': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -500,6 +710,99 @@ RECENT_CROSSMATCH_MAX_PAGE_SIZE = int(
 )
 RECENT_CROSSMATCH_MAX_WINDOW_HOURS = int(
     os.environ.get('RECENT_CROSSMATCH_MAX_WINDOW_HOURS', '168')
+)
+
+# Object and position API per-request cost bound (KTD12, R32). The edge rate
+# limit caps only request rate, so each request's work is bounded here:
+#   - API_REQUEST_BUDGET_SECONDS is the wall-clock budget of one guarded API
+#     request (api/guard.py): SQL runs in a read-only transaction whose
+#     statement_timeout is reset to the time remaining before each SQL phase,
+#     and an overrun returns 400 query_too_expensive (not retryable).
+#   - The maximums below are set together so the largest allowed request fits
+#     the budget: 1000 IDs, 200 positions, a 60 arcsec cone radius, 100 objects
+#     per batched position, and 5000 objects per request across all inputs.
+# All are starting values: the pre-release benchmark on DEV (plan Verification
+# Contract) confirms or lowers each so its p95 is at most half the budget. They
+# are read at call time, so an env override needs only a pod restart.
+# Worker model (entrypoints/run_web.sh): gunicorn gthread workers,
+# WEB_WORKERS=2 x WEB_THREADS=4 = 8 concurrent requests per web pod. Each thread
+# holds at most one Postgres connection (CONN_MAX_AGE persists it), so one web
+# replica uses at most 8 connections -- well inside Postgres's default
+# max_connections=100 alongside Celery and the ingest consumers. With a 5 s
+# budget, a pod saturated by worst-case API requests still frees a thread every
+# ~5/8 s, so /healthz and the HTML pages are not queued behind them; gunicorn's
+# --timeout (WEB_TIMEOUT, 30 s) is only the worker-heartbeat backstop, well above
+# the budget, and the web-only DATABASE_CONNECT_TIMEOUT (3 s) keeps an
+# unreachable database inside it.
+API_REQUEST_BUDGET_SECONDS = float(os.environ.get('API_REQUEST_BUDGET_SECONDS', '5'))
+API_MAX_IDS = int(os.environ.get('API_MAX_IDS', '1000'))
+API_MAX_POSITIONS = int(os.environ.get('API_MAX_POSITIONS', '200'))
+API_MAX_CONE_RADIUS_ARCSEC = float(os.environ.get('API_MAX_CONE_RADIUS_ARCSEC', '60'))
+API_MAX_OBJECTS_PER_POSITION = int(
+    os.environ.get('API_MAX_OBJECTS_PER_POSITION', '100')
+)
+API_MAX_OBJECTS_PER_REQUEST = int(
+    os.environ.get('API_MAX_OBJECTS_PER_REQUEST', '5000')
+)
+
+# Declared broker-enforced reliability cuts (R20, KTD8). ANTARES and Lasair
+# apply their own reliability filter before alerts reach this service, so the
+# service cannot observe the value; the maintainer declares it here with the
+# date it was confirmed (ISO YYYY-MM-DD). Unset reports ``not_declared``. A value
+# and its as-of date are set together or not at all. Pitt-Google's cut is
+# MIN_DIASOURCE_RELIABILITY, enforced by this service, and needs no declaration.
+# Read only through core/provenance.py.
+
+
+def _declared_cut(broker):
+    """Parse and validate one broker's declared reliability cut from the env.
+
+    Args:
+        broker: The env-var prefix, e.g. ``'LASAIR'``.
+
+    Returns:
+        ``(value, as_of)``: a float in [0, 1] and an ISO date string, or
+        ``(None, None)`` when neither is set.
+
+    Raises:
+        ImproperlyConfigured: If only one of the pair is set, the value is not a
+            finite float in [0, 1], or the date is not an ISO ``YYYY-MM-DD``.
+    """
+    value_var = f'{broker}_DECLARED_MIN_RELIABILITY'
+    as_of_var = f'{value_var}_AS_OF'
+    raw_value = os.environ.get(value_var, '').strip()
+    raw_as_of = os.environ.get(as_of_var, '').strip()
+    if not raw_value and not raw_as_of:
+        return None, None
+    if not (raw_value and raw_as_of):
+        raise ImproperlyConfigured(
+            f'{value_var} and {as_of_var} must be set together (got '
+            f'{raw_value!r} / {raw_as_of!r})'
+        )
+    try:
+        value = float(raw_value)
+    except ValueError:
+        value = float('nan')
+    if not (0.0 <= value <= 1.0):
+        raise ImproperlyConfigured(
+            f'{value_var} must be a finite float in [0.0, 1.0]; got {raw_value!r}'
+        )
+    try:
+        as_of = datetime.date.fromisoformat(raw_as_of)
+    except ValueError:
+        as_of = None
+    if as_of is None or as_of.isoformat() != raw_as_of:
+        raise ImproperlyConfigured(
+            f'{as_of_var} must be an ISO date (YYYY-MM-DD); got {raw_as_of!r}'
+        )
+    return value, as_of.isoformat()
+
+
+ANTARES_DECLARED_MIN_RELIABILITY, ANTARES_DECLARED_MIN_RELIABILITY_AS_OF = (
+    _declared_cut('ANTARES')
+)
+LASAIR_DECLARED_MIN_RELIABILITY, LASAIR_DECLARED_MIN_RELIABILITY_AS_OF = (
+    _declared_cut('LASAIR')
 )
 
 # Password validation

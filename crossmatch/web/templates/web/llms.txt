@@ -1,0 +1,36 @@
+{% autoescape off %}# {{ ref.title }}
+
+> Read-only JSON API over the Rubin alert objects this service has ingested and their positional crossmatches against {% for cat in ref.catalogs %}{{ cat.name }} ({{ cat.release }}){% if not forloop.last %}, {% endif %}{% empty %}no catalogs{% endfor %} within {% if ref.radius_arcsec is not None %}{{ ref.radius_arcsec }} arcsec{% else %}a radius that is not configured{% endif %}. Look up objects by diaObjectId, sky position, or TNS name; count before fetching; every response carries the provenance a methods section needs.
+
+Service version {{ ref.service_version }}; contract version {{ ref.contract_version }}. Every fact here is read from the live configuration of the running service.
+
+- Crossmatch: {{ ref.nearest_rule }}
+- Units and frames: {{ ref.conventions }}
+- Reliability cuts (minimum LSST reliability per broker): {{ ref.cuts_text }}. A broker-enforced value is declared by the maintainer, not observed by this service.
+- Not in this service: {{ ref.caveats.not_in_service }}
+- Coincidence: {{ ref.caveats.coincidence }}
+- Paging: {{ ref.caveats.paging }}
+- Limits per request: {{ ref.limits.max_ids }} IDs; {{ ref.limits.max_positions }} positions and TNS names together; radius at most {{ ref.limits.max_cone_radius_arcsec }} arcsec; {{ ref.limits.max_objects_per_position }} objects per position and {{ ref.limits.max_objects_per_request }} per request; a {{ ref.limits.request_budget_seconds }} s budget. Over a maximum is a 400 naming the parameter.
+- Workflow: read the describe endpoint for catalogs, what catalog_source_id means per catalog, and filterable fields with units; send a lookup with response=count to size a question, then fetch with detail=full for raw catalog values. Each response's provenance block (service_version, crossmatch_radius_arcsec, catalogs with releases, reliability_cuts) is the methods sentence.
+- Errors are JSON with a fixed snake_case code and retryable; a malformed batch entry fails only that entry.
+
+## Docs
+
+- [OpenAPI 3.1 document]({{ ref.urls.openapi }}): every operation, parameter, response field, status value, and error code, with units (x-unit).
+- [API reference in Markdown]({{ ref.urls.markdown }}): the same reference as text, including every code and its meaning.
+- [API reference in HTML]({{ ref.urls.html }}): the same reference for people.
+
+## Discovery
+{% for op in ref.operations %}{% if op.discovery %}
+- [{{ op.method }} {{ op.path }}]({{ op.url }}): `{{ op.operation_id }}` -- {{ op.summary }}{% endif %}{% endfor %}
+
+## Endpoints
+{% for op in ref.operations %}{% if not op.discovery %}
+- [{{ op.method }} {{ op.path }}]({{ op.url }}): `{{ op.operation_id }}` -- {{ op.summary }}{% endif %}{% endfor %}
+
+## Optional
+
+- [Catalogs]({{ ref.urls.catalogs }}): published columns per catalog.
+- [Brokers and filtering]({{ ref.urls.brokers }}): where alerts come from and the reliability filter.
+- [Consuming matches]({{ ref.urls.consuming }}): subscribing to the Hopskotch match stream.
+{% endautoescape %}

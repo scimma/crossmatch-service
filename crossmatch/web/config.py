@@ -22,6 +22,8 @@ from typing import Any
 
 from django.conf import settings
 
+from api import docs
+from core import provenance
 from core.log import get_logger
 
 logger = get_logger(__name__)
@@ -154,19 +156,73 @@ def service_config() -> dict[str, Any]:
     """The scalar display facts, each read from a single named setting.
 
     Only these named fields are exposed; the settings module is never passed to
-    a template, so secrets in the same module cannot leak (R11).
+    a template, so secrets in the same module cannot leak (R11). The radius,
+    reliability cut, and version come from the provenance builder
+    (``core/provenance.py``, KTD8), the one reader of those settings, so the
+    pages report the same values as the API.
     """
     return {
-        'crossmatch_radius_arcsec': _present(
-            getattr(settings, 'CROSSMATCH_RADIUS_ARCSEC', None)
-        ),
-        'min_diasource_reliability': _present(
-            getattr(settings, 'MIN_DIASOURCE_RELIABILITY', None)
-        ),
+        'crossmatch_radius_arcsec': _present(provenance.crossmatch_radius_arcsec()),
+        'min_diasource_reliability': _present(provenance.service_min_reliability()),
         'hopskotch_broker_url': _present(
             getattr(settings, 'HOPSKOTCH_BROKER_URL', None)
         ),
         'hopskotch_topic': _present(getattr(settings, 'HOPSKOTCH_TOPIC', None)),
-        'app_version': _present(getattr(settings, 'APP_VERSION', None)),
+        'app_version': _present(provenance.service_version()),
         'lsdb_version': lsdb_version(),
     }
+
+
+def api_reference() -> Any:
+    """The API reference page's configured facts, from the docs builder (KTD15).
+
+    The page, ``/llms.txt``, ``/api-docs.md``, and the OpenAPI document all
+    read ``api.docs.reference``, so they agree on every configured fact. Only
+    the named fields below reach the template; the builder itself emits only
+    contract-derived values (no HATS URLs or credentials).
+
+    Returns:
+        A dict with ``service_version``, ``contract_version``,
+        ``radius_arcsec``, ``catalogs``,
+        ``example_catalog``, ``reliability_cuts``, ``limits``, ``recent``,
+        ``detail_levels``, ``default_detail``, ``caveats``, ``nearest_rule``,
+        ``conventions``, ``operations``, and ``urls``; or
+        ``SectionUnavailable`` on a read error.
+    """
+    try:
+        ref = docs.reference()
+        return {
+            'service_version': ref['service_version'],
+            'contract_version': ref['contract_version'],
+            'radius_arcsec': _present(ref['radius_arcsec']),
+            'catalogs': [
+                {
+                    'name': cat['name'],
+                    'release': cat['release'],
+                    'source_id_column': cat['catalog_source_id']['column'],
+                }
+                for cat in ref['catalogs']
+            ],
+            'example_catalog': ref['catalogs'][0]['name'] if ref['catalogs'] else '',
+            'reliability_cuts': ref['reliability_cuts'],
+            'limits': ref['limits'],
+            'recent': ref['recent'],
+            'detail_levels': ref['detail_levels'],
+            'default_detail': ref['default_detail'],
+            'caveats': ref['caveats'],
+            'nearest_rule': ref['nearest_rule'],
+            'conventions': ref['conventions'],
+            'operations': [
+                {
+                    'operation_id': op['operation_id'],
+                    'method': op['method'],
+                    'path': op['path'],
+                    'summary': op['summary'],
+                }
+                for op in ref['operations']
+            ],
+            'urls': ref['urls'],
+        }
+    except Exception as exc:  # noqa: BLE001 -- degrade the section, never 500
+        logger.warning('web_config_api_reference_unavailable', error=str(exc))
+        return SectionUnavailable(reason='API reference could not be read')

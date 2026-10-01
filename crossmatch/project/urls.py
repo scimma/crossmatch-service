@@ -13,6 +13,8 @@ with no gate.
 from django.http import JsonResponse
 from django.urls import include, path
 
+from api.views import openapi_view
+
 
 def healthz(request):
     """Liveness/readiness probe target: always 200 with a small JSON body."""
@@ -21,6 +23,8 @@ def healthz(request):
 
 urlpatterns = [
     path('healthz', healthz, name='healthz'),
+    # OpenAPI 3.1 document for the public API (KTD14), at the site root.
+    path('openapi.json', openapi_view, name='openapi'),
     path('api/', include('api.urls')),
     # Informational web frontend (server-rendered pages) at root paths. Kept
     # last so its catch-all page routes never shadow healthz or the api/ prefix.

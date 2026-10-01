@@ -1,8 +1,41 @@
+from datetime import datetime
+
+from django.conf import settings
 from django.db import models
+from django.db.models.functions import Lower
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from uuid import uuid4
 from core.log import get_logger
 logger = get_logger(__name__)
+
+
+# Stored contract codes (KTD2). The crossmatch task and the provenance builder
+# write these values, so they live here rather than in ``api`` and the Celery
+# worker never imports the API layer. The values are a published contract:
+# agents branch on them, so never rename one. Response-only codes, and the
+# descriptions of every code, live in ``api/contract.py``.
+class CatalogSearchOutcome(models.TextChoices):
+    """How one catalog was searched for one crossmatched object."""
+    SEARCHED = 'searched', _('searched')
+    OUTSIDE_FOOTPRINT = 'outside_footprint', _('outside the catalog footprint')
+    SKIPPED_READ_FAILURE = 'skipped_read_failure', _('skipped after a read failure')
+    NOT_SEARCHED_INVALID_POSITION = (
+        'not_searched_invalid_position', _('not searched: invalid position')
+    )
+
+
+class CutEnforcedBy(models.TextChoices):
+    """Where a broker's reliability cut is enforced (R20)."""
+    SERVICE = 'service', _('this service')
+    BROKER = 'broker', _('the broker')
+
+
+class CutStatus(models.TextChoices):
+    """How the reported value of a broker's reliability cut is known (R20)."""
+    SERVICE_SETTING = 'service_setting', _("this service's own setting")
+    DECLARED = 'declared', _('declared by the maintainer as of a date')
+    NOT_DECLARED = 'not_declared', _('not declared')
 
 
 class Alert(models.Model):
@@ -257,6 +290,10 @@ class TnsObject(models.Model):
         db_table = 'tns_objects'
         indexes = [
             models.Index(fields=['healpix_ipix'], name='core_tns_healpix_ipix_idx'),
+            # TNS-name lookup (KTD13) compares the normalized input with the
+            # lowercased name, so '2026a' finds a stored '2026A'. Built
+            # concurrently in its own migration (0012).
+            models.Index(Lower('name'), name='core_tns_name_lower_idx'),
         ]
 
 
@@ -275,6 +312,30 @@ class TnsSnapshotMeta(models.Model):
 
     class Meta:
         db_table = 'tns_snapshot_meta'
+
+    @classmethod
+    def current_epoch(cls, now: datetime | None = None) -> datetime | None:
+        """The snapshot epoch when the TNS snapshot is current, else ``None``.
+
+        The one currency rule shared by crossmatch TNS enrichment and TNS-name
+        resolution in the API (KTD13): the snapshot is current when its last
+        refresh is at most ``TNS_SNAPSHOT_MAX_AGE_SECONDS`` old.
+
+        Args:
+            now: The current time; defaults to ``timezone.now()``.
+
+        Returns:
+            ``last_refresh_epoch`` when a snapshot exists and is current;
+            ``None`` when there is no snapshot yet or it is stale.
+        """
+        now = now or timezone.now()
+        meta = cls.objects.first()
+        if meta is None or meta.last_refresh_epoch is None:
+            return None
+        age = (now - meta.last_refresh_epoch).total_seconds()
+        if age > settings.TNS_SNAPSHOT_MAX_AGE_SECONDS:
+            return None
+        return meta.last_refresh_epoch
 
 
 class TnsAssociation(models.Model):
@@ -312,3 +373,67 @@ class TnsAssociation(models.Model):
 
     class Meta:
         db_table = 'tns_associations'
+
+
+class ProvenanceSet(models.Model):
+    """One distinct combination of crossmatch conditions (KTD5, R18, R20).
+
+    Stored once and shared by every per-object record crossmatched under it,
+    keyed by a content hash of its JSON-native content: the radius, the catalog
+    releases in service, and the per-broker reliability-cut table, all as the
+    provenance builder (``core/provenance.py``) reported them at crossmatch
+    time. Dates are ISO strings and numbers JSON numbers.
+    """
+    id = models.BigAutoField(primary_key=True)
+    # TEXT UNIQUE NOT NULL    sha256 hex of the canonical JSON content
+    content_hash = models.TextField(unique=True, null=False)
+    # DOUBLE PRECISION NULL    crossmatch radius in arcsec (NULL if unset)
+    crossmatch_radius_arcsec = models.FloatField(null=True)
+    # JSONB NOT NULL    [{'name': ..., 'release': ...}, ...] in configured order
+    catalogs = models.JSONField(null=False)
+    # JSONB NOT NULL    per-broker cut entries from provenance.reliability_cuts()
+    reliability_cuts = models.JSONField(null=False)
+    created_at = models.DateTimeField(null=False, auto_now_add=True)
+
+    class Meta:
+        db_table = 'provenance_sets'
+
+
+class ObjectCrossmatchRecord(models.Model):
+    """What one crossmatch of one object searched, and under which conditions.
+
+    Written in the same transaction that moves the object to MATCHED (KTD5).
+    Keyed by ``(alert, match_version)`` -- not one-to-one like
+    ``TnsAssociation`` -- and upserted, so the last committed run wins.
+    ``catalog_outcomes`` maps every catalog in service at crossmatch time to a
+    ``CatalogSearchOutcome`` code. ``brokers`` is frozen at crossmatch time and
+    is distinct from the live broker list in ``AlertDelivery``.
+    """
+    id = models.BigAutoField(primary_key=True)
+    alert = models.ForeignKey(
+        Alert,
+        to_field='lsst_diaObject_diaObjectId',
+        on_delete=models.CASCADE,
+        db_column='lsst_diaobject_diaobjectid',
+    )
+    match_version = models.IntegerField(null=False, default=1)
+    provenance_set = models.ForeignKey(
+        ProvenanceSet,
+        on_delete=models.PROTECT,
+        db_column='provenance_set_id',
+    )
+    # JSONB NOT NULL    {catalog_name: CatalogSearchOutcome value}
+    catalog_outcomes = models.JSONField(null=False)
+    # JSONB NOT NULL    sorted broker names that had delivered the object
+    brokers = models.JSONField(null=False)
+    # TIMESTAMPTZ NOT NULL    when the batch's MATCHED transition was written
+    crossmatched_at = models.DateTimeField(null=False)
+
+    class Meta:
+        db_table = 'object_crossmatch_records'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['alert', 'match_version'],
+                name='unique_object_crossmatch_record',
+            )
+        ]

@@ -23,7 +23,7 @@ from django.test import override_settings
 
 import tasks.crossmatch as crossmatch_mod
 from core.metrics import CATALOG_SKIPS
-from core.models import Alert, CatalogMatch, Notification
+from core.models import Alert, CatalogMatch, Notification, ObjectCrossmatchRecord
 from tasks.crossmatch import crossmatch_batch
 from tests.factories import AlertFactory
 
@@ -32,6 +32,7 @@ from tests.factories import AlertFactory
 TWO_CATALOGS = [
     {
         "name": "cat_a",
+        "release": "cat_a r1",
         "hats_url": "x",
         "source_id_column": "source_id",
         "ra_column": "ra",
@@ -40,6 +41,7 @@ TWO_CATALOGS = [
     },
     {
         "name": "cat_b",
+        "release": "cat_b r1",
         "hats_url": "y",
         "source_id_column": "source_id",
         "ra_column": "ra",
@@ -116,6 +118,13 @@ def test_one_catalog_skip_continues_and_marks_partial(monkeypatch):
 
     assert _counter(catalog="cat_b") == skips_before + 1
 
+    # R18: the per-object record says cat_b was skipped, not searched.
+    record = ObjectCrossmatchRecord.objects.get(alert=alert)
+    assert record.catalog_outcomes == {
+        "cat_a": "searched",
+        "cat_b": "skipped_read_failure",
+    }
+
 
 @pytest.mark.django_db
 @override_settings(CROSSMATCH_CATALOGS=TWO_CATALOGS)
@@ -141,6 +150,7 @@ def test_all_catalogs_fail_reverts(monkeypatch):
     assert alert.status == Alert.Status.INGESTED
     assert CatalogMatch.objects.filter(alert=alert).count() == 0
     assert Notification.objects.filter(alert=alert).count() == 0
+    assert not ObjectCrossmatchRecord.objects.filter(alert=alert).exists()
     # Both catalogs skip (transient) before the guard reverts, so both counters
     # advance even though the batch itself reverted.
     assert _counter(catalog="cat_a") == a_before + 1

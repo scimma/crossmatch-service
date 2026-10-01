@@ -11,6 +11,12 @@ The query is index-backed on the selected timestamp (``ingest_time`` default,
 match are excluded (matches-only). The ``full`` detail level reconstructs the
 exact published Hopskotch payload via the shared ``build_published_payload``
 builder, so it cannot drift from what the crossmatch pipeline publishes.
+
+The endpoint gains the shared response contract additively (R6, R17): the page
+carries the service-level ``provenance`` block and an ``as_of`` pin (KTD11),
+and every key it had before keeps its type and meaning. Queries run in
+``api.guard.sql_phase`` blocks, so the guarded view stays inside the request
+budget (KTD12).
 """
 
 from __future__ import annotations
@@ -27,9 +33,11 @@ from core.models import Alert, CatalogMatch, TnsAssociation
 from matching.payload import build_published_payload
 from matching.tns_match import tns_payload
 
+from api.contract import dia_object_id_fields, envelope
 # InvalidQuery is defined in api.errors so the cursor codec (api.pagination) can
 # raise it without a circular import; re-exported here for existing importers.
 from api.errors import InvalidQuery
+from api.guard import check_deadline, sql_phase
 from api.pagination import Cursor, decode_cursor, encode_cursor, ensure_no_conflict
 
 logger = get_logger(__name__)
@@ -61,6 +69,15 @@ def recent_crossmatches(
     ``diaObjectId`` in the window exactly once. There is no total-object cap; only
     per-page size and window span are bounded.
 
+    The first page pins the walk with ``as_of`` (now), an upper bound on
+    ``ingest_time`` that its cursors carry, so an alert ingested after
+    ``as_of`` never joins it. ``ingest_time`` is set before the ingest commits,
+    so an alert whose ingest commits during the walk can still join it if its
+    ``ingest_time`` is at or before ``as_of``. A cursor minted before the pin existed continues from its
+    position and pins the rest of the walk at that request. The pin fixes which
+    alerts are in the set, not their matches: an object in the pinned set whose
+    first match lands mid-walk can still appear on a later page (R6).
+
     Args:
         start: Window start (aware datetime). Defaults to ``end`` minus 12h.
             Ignored (and, if it conflicts, rejected) when ``cursor`` is given.
@@ -78,10 +95,10 @@ def recent_crossmatches(
             with a conflicting value is an error. ``page_size`` is not pinned.
 
     Returns:
-        A JSON-native dict with the resolved query metadata, the effective
-        ``page_size``, a per-page ``count``, a ``next_cursor`` (null when the
-        window is exhausted), and an ``objects`` list, one entry per
-        ``diaObjectId`` (matches-only).
+        A JSON-native dict with the service-level ``provenance``, the resolved
+        query metadata, the effective ``page_size``, a per-page ``count``, a
+        ``next_cursor`` (null when the window is exhausted), the ``as_of`` pin,
+        and an ``objects`` list, one entry per ``diaObjectId`` (matches-only).
 
     Raises:
         InvalidQuery: On an unknown/decoded-invalid ``detail``/``time_field``, a
@@ -103,20 +120,25 @@ def recent_crossmatches(
         )
         start, end = decoded.start, decoded.end
         time_field, detail = decoded.time_field, decoded.detail
+    # The walk's pin (KTD11): carried by the cursor, or set now on a first page
+    # and on a cursor minted before the pin existed.
+    as_of = decoded.as_of if decoded is not None and decoded.as_of else timezone.now()
 
     time_field = time_field if time_field is not None else DEFAULT_TIME_FIELD
     detail = detail if detail is not None else DEFAULT_DETAIL
 
     if detail not in DETAIL_LEVELS:
         raise InvalidQuery(
-            f"detail must be one of {DETAIL_LEVELS}, got {detail!r}"
+            f"detail must be one of {DETAIL_LEVELS}, got {detail!r}",
+            param='cursor' if decoded is not None else 'detail',
         )
     if time_field not in TIME_FIELDS:
         raise InvalidQuery(
-            f"time_field must be one of {TIME_FIELDS}, got {time_field!r}"
+            f"time_field must be one of {TIME_FIELDS}, got {time_field!r}",
+            param='cursor' if decoded is not None else 'time_field',
         )
     if page_size is not None and page_size <= 0:
-        raise InvalidQuery("page_size must be a positive integer")
+        raise InvalidQuery("page_size must be a positive integer", param='page_size')
 
     # Per-page and window-span ceilings, read live (matching the repo convention
     # of reading settings at call time, so @override_settings works in tests).
@@ -135,11 +157,13 @@ def recent_crossmatches(
 
     end = end or timezone.now()
     start = start or (end - timedelta(hours=DEFAULT_WINDOW_HOURS))
+    window_params = ['cursor'] if decoded is not None else ['start', 'end']
     if end < start:
-        raise InvalidQuery("end must not be earlier than start")
+        raise InvalidQuery("end must not be earlier than start", params=window_params)
     if (end - start) > timedelta(hours=max_window_hours):
         raise InvalidQuery(
-            f"window span exceeds the maximum of {max_window_hours} hours"
+            f"window span exceeds the maximum of {max_window_hours} hours",
+            params=window_params,
         )
 
     window = {f'{time_field}__gte': start, f'{time_field}__lt': end}
@@ -155,7 +179,9 @@ def recent_crossmatches(
     has_match = CatalogMatch.objects.filter(
         alert_id=OuterRef('lsst_diaObject_diaObjectId')
     )
-    query = Alert.objects.filter(**window).filter(Exists(has_match))
+    query = Alert.objects.filter(**window, ingest_time__lte=as_of).filter(
+        Exists(has_match)
+    )
 
     if decoded is not None:
         # Resume strictly after the cursor's (t0, id0) in the descending
@@ -170,11 +196,12 @@ def recent_crossmatches(
         )
 
     # Fetch one extra row to detect whether a further page exists.
-    fetched = list(
-        query.order_by(f'-{time_field}', 'lsst_diaObject_diaObjectId')
-        .values('lsst_diaObject_diaObjectId', 'ra_deg', 'dec_deg', time_field)
-        [: effective_page_size + 1]
-    )
+    with sql_phase():
+        fetched = list(
+            query.order_by(f'-{time_field}', 'lsst_diaObject_diaObjectId')
+            .values('lsst_diaObject_diaObjectId', 'ra_deg', 'dec_deg', time_field)
+            [: effective_page_size + 1]
+        )
     has_next = len(fetched) > effective_page_size
     object_rows = fetched[:effective_page_size]
 
@@ -189,12 +216,13 @@ def recent_crossmatches(
                 end=end,
                 time_field=time_field,
                 detail=detail,
+                as_of=as_of,
             )
         )
 
     # Detail levels are cumulative (ids < position < matches/full); each guard
     # skips work, not the shared return.
-    objects = [{'diaObjectId': int(r['lsst_diaObject_diaObjectId'])} for r in object_rows]
+    objects = [dia_object_id_fields(r['lsst_diaObject_diaObjectId']) for r in object_rows]
 
     if detail != 'ids' and object_rows:
         for obj, row in zip(objects, object_rows):
@@ -204,16 +232,19 @@ def recent_crossmatches(
 
         if detail != 'position':
             object_ids = [obj['diaObjectId'] for obj in objects]
-            matches_by_object = _load_matches(object_ids, detail)
+            with sql_phase():
+                matches_by_object = _load_matches(object_ids, detail)
+            check_deadline()
             for obj in objects:
                 obj['matches'] = matches_by_object.get(obj['diaObjectId'], [])
 
     return _envelope(
-        start, end, time_field, detail, objects, effective_page_size, next_cursor
+        start, end, time_field, detail, objects, effective_page_size, next_cursor,
+        as_of,
     )
 
 
-def _load_matches(object_ids, detail):
+def _load_matches(object_ids, detail, *, include_match_version=False):
     """Return {diaObjectId: [match_entry, ...]} for the given objects.
 
     Postgres ``DISTINCT ON (object, catalog, source)`` combined with an
@@ -228,6 +259,10 @@ def _load_matches(object_ids, detail):
     null/non-finite source coordinate on a ``full`` build) is logged and skipped
     without 500-ing the whole response, mirroring the per-row guard on the write
     path in ``tasks/crossmatch.py``.
+
+    With ``include_match_version`` each entry also carries its row's
+    ``match_version``, so a caller can join it to the object's crossmatch
+    record on ``(alert, match_version)`` (KTD5); the caller owns that key.
     """
     rows = (
         CatalogMatch.objects.filter(alert_id__in=object_ids)
@@ -236,7 +271,8 @@ def _load_matches(object_ids, detail):
     )
     if detail != 'full':
         rows = rows.only(
-            'alert_id', 'catalog_name', 'catalog_source_id', 'match_distance_arcsec'
+            'alert_id', 'catalog_name', 'catalog_source_id', 'match_distance_arcsec',
+            'match_version',
         )
 
     # At the full level, the persisted TNS association (write path: tasks/crossmatch.py)
@@ -293,6 +329,8 @@ def _load_matches(object_ids, detail):
             logger.exception('Skipping unbuildable match row',
                              catalog=getattr(cm, 'catalog_name', None))
             continue
+        if include_match_version:
+            entry['match_version'] = int(cm.match_version)
         result.setdefault(oid, []).append(entry)
     return result
 
@@ -305,14 +343,18 @@ def _envelope(
     objects: list[dict[str, Any]],
     page_size: int,
     next_cursor: str | None,
+    as_of: datetime,
 ) -> dict[str, Any]:
     """Wrap the projected objects with the resolved query metadata.
 
     ``count`` is the number of objects on *this page*, not a whole-set total (no
     cheap total exists under keyset paging). ``next_cursor`` is the opaque token
     to fetch the next page, or ``None`` when the window is exhausted.
+
+    The service-level ``provenance`` block (R17) and ``as_of`` are additions;
+    every earlier key keeps its type and meaning (R6).
     """
-    return {
+    return envelope({
         'window': {'start': start.isoformat(), 'end': end.isoformat()},
         'time_field': time_field,
         'detail': detail,
@@ -320,4 +362,5 @@ def _envelope(
         'count': len(objects),
         'next_cursor': next_cursor,
         'objects': objects,
-    }
+        'as_of': as_of.isoformat(),
+    })

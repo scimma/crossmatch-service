@@ -249,3 +249,61 @@ def test_api_docs_url_does_not_collide_with_api_prefix():
     url = reverse('web:api')
     assert url == '/api-docs'
     assert not url.startswith('/api/')
+
+
+# --- U8: API page reads configured facts through web/config.py ----------------
+
+
+@override_settings(
+    RECENT_CROSSMATCH_DEFAULT_PAGE_SIZE=321,
+    RECENT_CROSSMATCH_MAX_PAGE_SIZE=4321,
+    RECENT_CROSSMATCH_MAX_WINDOW_HOURS=77,
+    API_MAX_IDS=555,
+    API_MAX_POSITIONS=66,
+    API_MAX_CONE_RADIUS_ARCSEC=45,
+)
+def test_api_page_reads_limits_from_live_settings(client):
+    """Page sizes, window, and maximums come from settings, not the template (R27)."""
+    body = client.get(reverse('web:api')).content.decode()
+    for value in ['321', '4321', '77', '555', '66', '45']:
+        assert value in body, value
+    assert '"page_size": 1000' not in body  # the old hardcoded example value
+
+
+def test_api_page_default_window_matches_the_service():
+    """The default window shown is the one the service applies."""
+    from api.service import DEFAULT_WINDOW_HOURS
+    from web import config
+
+    assert config.api_reference()['recent']['default_window_hours'] == DEFAULT_WINDOW_HOURS
+
+
+def test_api_page_links_machine_readable_docs(client):
+    """The page points to the OpenAPI document, llms.txt, and the Markdown docs."""
+    body = client.get(reverse('web:api')).content.decode()
+    assert 'href="/openapi.json"' in body
+    assert 'href="/llms.txt"' in body
+    assert 'href="/api-docs.md"' in body
+
+
+def test_api_page_lists_every_operation(client):
+    """Every operation in the OpenAPI document is listed on the page."""
+    body = client.get(reverse('web:api')).content.decode()
+    doc = client.get('/openapi.json').json()
+    for path, item in doc['paths'].items():
+        for method, op in item.items():
+            assert op['operationId'] in body
+            assert path in body
+
+
+def test_api_reference_section_degrades_on_read_failure(client):
+    """A failed read of the API facts degrades that section, not the page (AE5)."""
+    from web import config
+
+    unavailable = config.SectionUnavailable(reason='forced')
+    with mock.patch.object(config, 'api_reference', return_value=unavailable):
+        resp = client.get(reverse('web:api'))
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert 'temporarily unavailable' in body.lower()
+    assert 'next_cursor' in body  # the hand-written reference still renders

@@ -11,18 +11,16 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
 from django.conf import settings
-from django.db import connection, transaction
 from django.db.models import BooleanField, Exists, F, Max, Min, OuterRef
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
 
+from core.db import read_only_transaction  # noqa: F401 -- re-exported for callers
 from core.models import Alert, CatalogMatch
 from replay.formats import content_digest, write_json
 
@@ -53,28 +51,6 @@ class LoadedSample:
     data: dict
     rows: list
     digest: str
-
-
-@contextmanager
-def read_only_transaction(
-    statement_timeout_seconds: int | None = None,
-) -> Iterator[None]:
-    """Run the enclosed queries in a transaction Postgres enforces as read-only.
-
-    Args:
-        statement_timeout_seconds: When set, Postgres cancels any single query in
-            the transaction that runs longer, so an export can never hold a long
-            query against the PROD database.
-    """
-    with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute("SET TRANSACTION READ ONLY")
-            if statement_timeout_seconds:
-                cursor.execute(
-                    "SELECT set_config('statement_timeout', %s, true)",
-                    [f"{int(statement_timeout_seconds)}s"],
-                )
-        yield
 
 
 def _seed_start(seed: str) -> int | None:

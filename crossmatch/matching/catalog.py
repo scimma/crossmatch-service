@@ -184,6 +184,40 @@ def get_catalog(catalog_config):
     return _get_catalog(catalog_config)
 
 
+class CatalogCoverageUnavailable(RuntimeError):
+    """A catalog in service opened without a HATS coverage map (MOC).
+
+    Without the map the per-object footprint test (KTD6) cannot run, and
+    reporting the catalog as searched would overclaim. This is a plan stop
+    condition: it must reach the operators, never become a silent fallback.
+    """
+
+
+def catalog_moc(catalog_config):
+    """Return the HATS coverage map (a ``mocpy.MOC``) of a configured catalog.
+
+    Reads ``hc_structure.moc`` from the process-cached LSDB catalog, so after the
+    catalog's first read this costs no I/O. Runs in the Celery process, not on
+    the Dask cluster.
+
+    Args:
+        catalog_config: The catalog's ``CROSSMATCH_CATALOGS`` entry.
+
+    Returns:
+        The catalog's coverage map.
+
+    Raises:
+        CatalogCoverageUnavailable: If the catalog has no coverage map.
+    """
+    moc = _get_catalog(catalog_config).hc_structure.moc
+    if moc is None:
+        raise CatalogCoverageUnavailable(
+            f"{catalog_config['name']}: HATS catalog has no coverage map (moc); "
+            f"per-object footprint outcomes cannot be recorded for it"
+        )
+    return moc
+
+
 def crossmatch_alerts(alerts_catalog, catalog_config):
     """Crossmatch an LSDB alerts catalog against a single HATS catalog.
 

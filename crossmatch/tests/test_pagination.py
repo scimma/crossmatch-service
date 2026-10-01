@@ -141,3 +141,79 @@ def test_json_unparseable_timestamp_raises():
     token = base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
     with pytest.raises(InvalidQuery):
         decode_cursor(token)
+
+
+# --- U5 / KTD11: kind discriminator and as_of pin ---
+
+from api.pagination import (  # noqa: E402
+    KIND_CONE_SEARCH,
+    KIND_RECENT_CROSSMATCHES,
+    ConeCursor,
+    decode_cone_cursor,
+    encode_cone_cursor,
+)
+
+
+def _legacy_token(payload):
+    import base64
+    import json
+    raw = json.dumps(payload, separators=(',', ':')).encode('utf-8')
+    return base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
+
+
+_LEGACY_PAYLOAD = {
+    't': '2026-07-14T01:05:53.123456+00:00', 'i': 170591542700933237,
+    's': '2026-07-14T01:00:00+00:00', 'e': '2026-07-14T13:00:00.654321+00:00',
+    'f': 'event_time', 'd': 'matches',
+}
+
+
+def test_pre_upgrade_cursor_decodes_as_unpinned_recent_crossmatches():
+    cursor = decode_cursor(_legacy_token(_LEGACY_PAYLOAD))
+    assert cursor == _cursor()
+    assert cursor.kind == KIND_RECENT_CROSSMATCHES
+    assert cursor.as_of is None
+
+
+def _cone_cursor(**overrides):
+    base = dict(
+        ingest_time=datetime(2026, 9, 28, 1, 5, 53, 123456, tzinfo=timezone.utc),
+        dia_object_id=9_223_372_036_854_775_807,
+        as_of=datetime(2026, 9, 28, 2, 0, 0, 1, tzinfo=timezone.utc),
+        ra=359.9999,
+        dec=-89.5,
+        radius_arcsec=12.5,
+        detail='full',
+    )
+    base.update(overrides)
+    return ConeCursor(**base)
+
+
+def test_cone_cursor_round_trips():
+    cursor = _cone_cursor()
+    assert decode_cone_cursor(encode_cone_cursor(cursor)) == cursor
+
+
+def test_cone_cursor_is_rejected_by_recent_crossmatches_and_vice_versa():
+    with pytest.raises(InvalidQuery):
+        decode_cursor(encode_cone_cursor(_cone_cursor()))
+    with pytest.raises(InvalidQuery):
+        decode_cone_cursor(encode_cursor(_cursor()))
+    with pytest.raises(InvalidQuery):
+        decode_cone_cursor(_legacy_token(_LEGACY_PAYLOAD))
+
+
+def test_cone_cursor_requires_its_as_of_pin():
+    import base64
+    import json
+    token = encode_cone_cursor(_cone_cursor())
+    payload = json.loads(base64.urlsafe_b64decode(token + '=' * (-len(token) % 4)))
+    assert payload['k'] == KIND_CONE_SEARCH
+    del payload['a']
+    with pytest.raises(InvalidQuery):
+        decode_cone_cursor(_legacy_token(payload))
+
+
+def test_unknown_cursor_kind_is_rejected():
+    with pytest.raises(InvalidQuery):
+        decode_cursor(_legacy_token({**_LEGACY_PAYLOAD, 'k': 'bogus'}))
