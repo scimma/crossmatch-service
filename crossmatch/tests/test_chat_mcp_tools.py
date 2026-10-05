@@ -8,6 +8,7 @@ holding the JSON of the U5 projection. Argument problems and guard errors are
 
 import json
 import time
+import uuid
 
 import pytest
 from django.db import connection
@@ -31,6 +32,16 @@ from tests.test_chat_mcp_projection import (
 )
 
 MCP_URL = '/mcp'
+
+
+@pytest.fixture(autouse=True)
+def locmem_cache(settings):
+    """A fresh locmem cache per test: tools/call touches the rate limiter's
+    cache (U7), and the documented test run has no Valkey."""
+    settings.CACHES = {'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': f'mcp-{uuid.uuid4()}',
+    }}
 
 
 def call_tool(client, name, arguments, **headers):
@@ -273,7 +284,7 @@ def test_each_tool_call_logs_one_line_without_the_session_id(client):
     assert lookup_line['outcome'] == 'ok'
     assert lookup_line['truncated'] is False
     assert lookup_line['protocol_version'] == '2025-06-18'
-    assert lookup_line['client_class'] == 'unknown'
+    assert lookup_line['client_class'] == 'direct'
     assert lookup_line['session'] == protocol.session_hash(token)
     assert near_line['objects_found'] == 1 and near_line['outcome'] == 'ok'
     assert near_line['session'] is None

@@ -834,6 +834,39 @@ MCP_ALLOWED_ORIGINS = tuple(
     if origin.strip()
 )
 MCP_SESSION_MAX_AGE_SECONDS = int(os.environ.get('MCP_SESSION_MAX_AGE_SECONDS', '86400'))
+# MCP rate limits and concurrency cap (KTD4), read at call time; only
+# tools/call is limited, on the shared cache (Valkey). A limited call is an
+# isError tool result with a retry-after, never an HTTP 429.
+#   - MCP_CLIENT_IP_HEADER: request header carrying the client IP (Traefik
+#     sets X-Real-Ip); REMOTE_ADDR when it is absent.
+#   - MCP_PROVIDER_CIDRS: comma-separated chat-provider egress ranges.
+#     Callers inside them are limited per session ID; with no valid session ID
+#     they share one bucket per range. Default: Anthropic's 160.79.104.0/21.
+#   - Rates are "<requests per second>/<burst>":
+#     MCP_SESSION_RATE per provider session, MCP_IP_RATE per other client IP
+#     (both the API query routes' 2/s burst 10), and MCP_PROVIDER_RATE for a
+#     provider range's session-less calls: 10/s burst 50, five conversations'
+#     worth, because every user of a client that does not echo the session ID
+#     (or of the session-less 2026-07-28 protocol) lands in it.
+#   - MCP_MAX_CONCURRENT: tool calls in flight cluster-wide (6 of the 16 PROD
+#     web slots); MCP_MAX_CONCURRENT_PER_KEY: in flight per session or client,
+#     so one conversation cannot hold every slot.
+def _mcp_rate(name, default):
+    rate, burst = os.environ.get(name, default).split('/')
+    return (float(rate), int(burst))
+
+
+MCP_CLIENT_IP_HEADER = os.environ.get('MCP_CLIENT_IP_HEADER', 'X-Real-Ip')
+MCP_PROVIDER_CIDRS = tuple(
+    cidr.strip()
+    for cidr in os.environ.get('MCP_PROVIDER_CIDRS', '160.79.104.0/21').split(',')
+    if cidr.strip()
+)
+MCP_SESSION_RATE = _mcp_rate('MCP_SESSION_RATE', '2/10')
+MCP_IP_RATE = _mcp_rate('MCP_IP_RATE', '2/10')
+MCP_PROVIDER_RATE = _mcp_rate('MCP_PROVIDER_RATE', '10/50')
+MCP_MAX_CONCURRENT = int(os.environ.get('MCP_MAX_CONCURRENT', '6'))
+MCP_MAX_CONCURRENT_PER_KEY = int(os.environ.get('MCP_MAX_CONCURRENT_PER_KEY', '2'))
 
 # Declared broker-enforced reliability cuts (R20, KTD8). ANTARES and Lasair
 # apply their own reliability filter before alerts reach this service, so the

@@ -12,7 +12,9 @@ JSON-RPC errors are reserved for protocol faults: parse error, invalid
 request, unknown method, unknown tool. Invalid tool arguments, and an
 ``ApiError`` from the guard or the API, are tool results with ``isError``
 true, so the model can read and relay them. Each ``tools/call`` logs one
-``mcp tool call`` line (KTD14).
+``mcp tool call`` line (KTD14). Only ``tools/call`` is rate-limited and
+counted against the concurrency cap (``chat_mcp.limits``, KTD4); an over-limit
+call is an ``isError`` tool result with a retry-after, never an HTTP 429.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonR
 from api.errors import ApiError, InvalidQuery
 from api.guard import RequestGuard
 from api.views import _json_body
-from chat_mcp import protocol
+from chat_mcp import limits, protocol
 from chat_mcp.projection import to_text
 from chat_mcp.protocol import RpcError
 from chat_mcp.tools import TOOLS, ToolArgumentError
@@ -50,9 +52,6 @@ INSTRUCTIONS = (
 
 #: ``outcome`` of a call whose arguments failed validation.
 OUTCOME_INVALID_ARGUMENTS = 'invalid_arguments'
-
-#: ``client_class`` until U7 classifies callers as provider or direct.
-CLIENT_CLASS_UNKNOWN = 'unknown'
 
 
 def _rpc_response(body: dict[str, Any], status: int = 200) -> JsonResponse:
@@ -144,6 +143,7 @@ def _call_tool(request: HttpRequest, params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(protocol.INVALID_PARAMS, 'arguments must be an object')
 
     token = session_token(request)
+    caller = limits.identify_caller(limits.client_ip(request), token)
     guard = RequestGuard()
     counts: dict[str, Any] = {}
     truncated = False
@@ -154,26 +154,32 @@ def _call_tool(request: HttpRequest, params: dict[str, Any]) -> dict[str, Any]:
             outcome = OUTCOME_INVALID_ARGUMENTS
             result = error_result(OUTCOME_INVALID_ARGUMENTS, exc.message)
         else:
-            # U7 hook: check the rate limits and the concurrency cap here,
-            # before the guard runs the tool. An over-limit call returns
-            # error_result(...) with retryable=True and retry_after, never an
-            # HTTP 429 (KTD4).
             try:
-                projection, counts = tool.run(guard, parsed)
-            except ApiError as exc:
+                with limits.admit(caller):
+                    try:
+                        projection, counts = tool.run(guard, parsed)
+                    except ApiError as exc:
+                        outcome = exc.code
+                        result = error_result(
+                            exc.code, exc.message,
+                            retryable=exc.retryable, retry_after=exc.retry_after,
+                        )
+                    else:
+                        outcome = 'ok'
+                        truncated = bool(projection.get('truncated', False))
+                        result = text_result(projection)
+            except limits.Limited as exc:
                 outcome = exc.code
                 result = error_result(
-                    exc.code, exc.message,
-                    retryable=exc.retryable, retry_after=exc.retry_after,
+                    exc.code, exc.message, retryable=True, retry_after=exc.retry_after,
                 )
-            else:
-                outcome = 'ok'
-                truncated = bool(projection.get('truncated', False))
-                result = text_result(projection)
     except BaseException as exc:
-        _log(request, tool.name, token, guard, 'exception', False, counts, repr(exc))
+        _log(
+            request, tool.name, token, caller, guard, 'exception', False, counts,
+            repr(exc),
+        )
         raise
-    _log(request, tool.name, token, guard, outcome, truncated, counts, guard.error)
+    _log(request, tool.name, token, caller, guard, outcome, truncated, counts, guard.error)
     return result
 
 
@@ -181,6 +187,7 @@ def _log(
     request: HttpRequest,
     tool: str,
     token: str | None,
+    caller: limits.Caller,
     guard: RequestGuard,
     outcome: str,
     truncated: bool,
@@ -194,7 +201,7 @@ def _log(
         'outcome': outcome,
         'truncated': truncated,
         'protocol_version': request.headers.get('Mcp-Protocol-Version', '')[:32] or None,
-        'client_class': CLIENT_CLASS_UNKNOWN,
+        'client_class': caller.client_class,
         'session': protocol.session_hash(token),
         **guard.timings(),
     }

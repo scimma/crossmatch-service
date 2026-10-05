@@ -8,6 +8,7 @@ reserved for protocol faults.
 
 import json
 import time
+import uuid
 
 import pytest
 from django.core import signing
@@ -16,6 +17,16 @@ from django.test import override_settings
 from chat_mcp import protocol
 
 MCP_URL = '/mcp'
+
+
+@pytest.fixture(autouse=True)
+def locmem_cache(settings):
+    """A fresh locmem cache per test: tools/call touches the rate limiter's
+    cache (U7), and the documented test run has no Valkey."""
+    settings.CACHES = {'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': f'mcp-{uuid.uuid4()}',
+    }}
 TOOL_NAMES = {
     'lookup_rubin_transients',
     'search_rubin_transients_near_position',
