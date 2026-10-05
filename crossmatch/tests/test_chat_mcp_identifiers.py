@@ -84,3 +84,10 @@ def test_markup_and_shell_text_are_unrecognized(raw):
     assert ident.kind == KIND_UNRECOGNIZED
     assert ident.value is None
     assert raw not in ident.reason
+
+
+def test_a_digit_string_past_the_int_string_limit_is_unrecognized_not_an_error():
+    # Python refuses int() on a decimal string of more than ~4300 digits.
+    classified = classify_identifiers(['9' * 5000, '170666293697970324'])
+    kinds = [i.kind for i in classified.identifiers]
+    assert kinds == [KIND_UNRECOGNIZED, KIND_ID]

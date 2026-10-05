@@ -51,6 +51,7 @@ INSTRUCTIONS = (
 )
 
 #: ``outcome`` of a call whose arguments failed validation.
+OUTCOME_OK = 'ok'
 OUTCOME_INVALID_ARGUMENTS = 'invalid_arguments'
 
 
@@ -165,7 +166,7 @@ def _call_tool(request: HttpRequest, params: dict[str, Any]) -> dict[str, Any]:
                             retryable=exc.retryable, retry_after=exc.retry_after,
                         )
                     else:
-                        outcome = 'ok'
+                        outcome = OUTCOME_OK
                         truncated = bool(projection.get('truncated', False))
                         result = text_result(projection)
             except limits.Limited as exc:

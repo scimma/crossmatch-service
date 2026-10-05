@@ -18,6 +18,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from api.contract import parse_dia_object_id
+from api.errors import InvalidQuery
 from api.positions import normalize_tns_name
 
 KIND_ID = 'id'
@@ -36,7 +38,6 @@ PRECISION_LOST_REASON = (
     'decimal digits.'
 )
 
-_INT64_MAX = 2**63 - 1
 _EXACT_MAX = 2**53
 
 
@@ -112,10 +113,10 @@ def _classify_one(value: Any) -> tuple[str, str | None]:
         return KIND_UNRECOGNIZED, None
     text = value.strip()
     if text.isascii() and text.isdigit():
-        number = int(text)
-        if number > _INT64_MAX:
+        try:
+            return KIND_ID, str(parse_dia_object_id(text))
+        except InvalidQuery:  # past int64, or past Python's int-string limit
             return KIND_UNRECOGNIZED, None
-        return KIND_ID, str(number)
     try:
         return KIND_TNS, normalize_tns_name(text)
     except ValueError:

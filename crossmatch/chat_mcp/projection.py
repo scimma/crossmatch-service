@@ -23,6 +23,7 @@ designations), never from raw input or free-text fields.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode
@@ -31,14 +32,16 @@ from django.conf import settings
 
 from api.contract import CODE_DESCRIPTIONS, InputStatus, ObjectStatus
 from api.discovery import COINCIDENCE_CAVEAT, NOT_IN_SERVICE_CAVEAT
-from chat_mcp.identifiers import KIND_ID, KIND_PRECISION_LOST, KIND_TNS, Classified
+from chat_mcp.identifiers import (
+    KIND_ID, KIND_PRECISION_LOST, KIND_TNS, KIND_UNRECOGNIZED, Classified, Identifier,
+)
 from matching.payload import _to_json_scalar
 
 #: ``kind`` of a projected lookup result, by identifier kind.
 RESULT_KINDS = {
     KIND_ID: 'diaObjectId',
     KIND_TNS: 'tns_name',
-    'unrecognized': 'unrecognized',
+    KIND_UNRECOGNIZED: 'unrecognized',
     KIND_PRECISION_LOST: 'precision_lost',
 }
 
@@ -300,7 +303,7 @@ def _tns_reason(api: dict[str, Any], name: str) -> str | None:
 
 
 def _lookup_entry(
-    ident: Any, api: dict[str, Any], provenance_sets: dict[str, Any],
+    ident: Identifier, api: dict[str, Any], provenance_sets: dict[str, Any],
 ) -> tuple[dict[str, Any], int]:
     """One looked-up identifier's result and how many objects it found."""
     entry: dict[str, Any] = {
@@ -359,7 +362,7 @@ def _lookup_request(classified: Classified) -> dict[str, str]:
 
 def _fit(
     entries: list[dict[str, Any]],
-    assemble: Any,
+    assemble: Callable[[list[str]], dict[str, Any]],
     reasons: list[str],
 ) -> dict[str, Any]:
     """Drop whole objects from the end until the text fits the budget (KTD9).
