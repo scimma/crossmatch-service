@@ -110,3 +110,23 @@ def test_refresh_task_registered_with_interval(settings):
         RefreshTnsSnapshot.task_frequency_seconds
         == settings.TNS_SNAPSHOT_REFRESH_INTERVAL_SECONDS
     )
+
+
+@pytest.mark.django_db
+def test_refresh_task_enabled_without_credentials_in_this_container(settings):
+    """Consumers run initialize_periodic_tasks without TNS credentials (KTD12).
+
+    The enabled flag must not depend on the credentials visible to whichever
+    container initializes the schedule, or every consumer restart turns the
+    refresh off; refresh_snapshot itself skips when credentials are absent.
+    """
+    from django.core.management import call_command
+    from django_celery_beat.models import PeriodicTask
+
+    settings.TNS_BOT_API_KEY = ""
+    call_command("initialize_periodic_tasks")
+    assert PeriodicTask.objects.get(name=RefreshTnsSnapshot.task_name).enabled
+
+    # A second initialization (a consumer restart) keeps it enabled.
+    call_command("initialize_periodic_tasks")
+    assert PeriodicTask.objects.get(name=RefreshTnsSnapshot.task_name).enabled

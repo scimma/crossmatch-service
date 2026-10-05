@@ -171,9 +171,12 @@ class RefreshTnsSnapshot:
     task_name = 'Refresh TNS Snapshot'
     task_handle = 'refresh_tns_snapshot'
     task_frequency_seconds = settings.TNS_SNAPSHOT_REFRESH_INTERVAL_SECONDS
-    # Only run once the TNS bot credentials are provisioned; locked_init flips
-    # this to enabled on the next startup after the sealed secret lands.
-    task_initially_enabled = bool(settings.TNS_BOT_API_KEY)
+    # Always enabled. locked_init writes this flag from the ingest consumers'
+    # startup, and the consumers never carry the TNS bot credentials (only
+    # celery-worker and celery-beat do), so deriving it from TNS_BOT_API_KEY
+    # turned the refresh off on every consumer restart. refresh_snapshot skips
+    # and logs when the credentials are absent.
+    task_initially_enabled = True
 
 
 @shared_task
