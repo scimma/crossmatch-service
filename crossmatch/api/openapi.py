@@ -1635,12 +1635,62 @@ def _discovery_schemas() -> dict[str, Any]:
                 'provenance', 'catalogs', 'crossmatch', 'tns', 'limits',
                 'detail_levels', 'default_detail', 'response_modes',
                 'generic_filters', 'reliability_cuts',
-                'provenance_recording_release',
+                'provenance_recording_release', 'mcp',
             ],
             'additionalProperties': False,
             'properties': {
                 'provenance': _ref('Provenance'),
                 'catalogs': {'type': 'array', 'items': _ref('CatalogDescription')},
+                'mcp': {
+                    'type': 'object',
+                    'description': (
+                        'The public, read-only MCP endpoint for chat '
+                        'assistants (R14). Its tools answer from the same '
+                        'lookups as this API.'
+                    ),
+                    'required': [
+                        'path', 'method', 'transport', 'authentication',
+                        'description', 'tools',
+                    ],
+                    'additionalProperties': False,
+                    'properties': {
+                        'path': {
+                            'type': 'string',
+                            'description': 'Site-relative path of the endpoint.',
+                        },
+                        'method': {
+                            'type': 'string',
+                            'description': 'HTTP method: POST.',
+                        },
+                        'transport': {
+                            'type': 'string',
+                            'description': (
+                                'streamable_http: MCP Streamable HTTP, JSON-RPC '
+                                'over POST answered with a JSON body.'
+                            ),
+                        },
+                        'authentication': {
+                            'type': 'string',
+                            'description': (
+                                'none: no login; connect with the URL alone.'
+                            ),
+                        },
+                        'description': {'type': 'string'},
+                        'tools': {
+                            'type': 'array',
+                            'description': 'The tools tools/list serves, in order.',
+                            'items': {
+                                'type': 'object',
+                                'required': ['name', 'title'],
+                                'additionalProperties': False,
+                                'properties': {
+                                    'name': {'type': 'string'},
+                                    'title': {'type': 'string'},
+                                },
+                            },
+                        },
+                    },
+                },
                 'crossmatch': {
                     'type': 'object',
                     'required': [

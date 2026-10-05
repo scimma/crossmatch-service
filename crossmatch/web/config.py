@@ -173,7 +173,7 @@ def service_config() -> dict[str, Any]:
     }
 
 
-def api_reference() -> Any:
+def api_reference(base_url: str = '') -> Any:
     """The API reference page's configured facts, from the docs builder (KTD15).
 
     The page, ``/llms.txt``, ``/api-docs.md``, and the OpenAPI document all
@@ -181,16 +181,20 @@ def api_reference() -> Any:
     the named fields below reach the template; the builder itself emits only
     contract-derived values (no HATS URLs or credentials).
 
+    Args:
+        base_url: Scheme and host of the request, so the chat-connector URL
+            people paste is absolute; empty for site-relative links.
+
     Returns:
         A dict with ``service_version``, ``contract_version``,
         ``radius_arcsec``, ``catalogs``,
         ``example_catalog``, ``reliability_cuts``, ``limits``, ``recent``,
         ``detail_levels``, ``default_detail``, ``caveats``, ``nearest_rule``,
-        ``conventions``, ``operations``, and ``urls``; or
+        ``conventions``, ``operations``, ``chat_connector``, and ``urls``; or
         ``SectionUnavailable`` on a read error.
     """
     try:
-        ref = docs.reference()
+        ref = docs.reference(base_url)
         return {
             'service_version': ref['service_version'],
             'contract_version': ref['contract_version'],
@@ -221,6 +225,7 @@ def api_reference() -> Any:
                 }
                 for op in ref['operations']
             ],
+            'chat_connector': ref['chat_connector'],
             'urls': ref['urls'],
         }
     except Exception as exc:  # noqa: BLE001 -- degrade the section, never 500

@@ -192,6 +192,22 @@ def test_describe_never_opens_a_catalog(client):
     opened.assert_not_called()
 
 
+def test_describe_names_the_mcp_endpoint(client, openapi_validate):
+    """Agents reading api/describe learn the chat connector exists (R14; F2)."""
+    from chat_mcp.tools import TOOLS
+
+    body = client.get(DESCRIBE).json()
+
+    mcp = body['mcp']
+    assert mcp['path'] == reverse('mcp') == '/mcp'
+    assert mcp['method'] == 'POST'
+    assert mcp['authentication'] == 'none'
+    assert [t['name'] for t in mcp['tools']] == list(TOOLS)
+    assert all(t['title'] for t in mcp['tools'])
+    assert mcp['description'].strip()
+    openapi_validate('describe_service', 200, body)
+
+
 def test_describe_rejects_non_get_with_structured_error(client, openapi_validate):
     resp = client.post(DESCRIBE)
 

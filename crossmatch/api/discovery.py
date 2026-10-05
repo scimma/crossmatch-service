@@ -12,6 +12,8 @@ agent must respect, from the provenance builder (``core/provenance.py``), the
 filter registry (``api/filters.py``), and the settings ceilings, all read at
 call time. It needs no database, and it never opens a LSDB/HATS catalog: the
 coverage-map resolution it reports is the configured ``footprint_moc_order``.
+It also names the public MCP endpoint (``mcp_endpoint``), so an agent reading
+it learns that a chat assistant can connect to the same lookups.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import connection
+from django.urls import reverse
 
 from api.filters import (
     GENERIC_FILTERS,
@@ -355,14 +358,43 @@ def _limits() -> dict[str, Any]:
     }
 
 
+#: What the MCP endpoint is, for ``api/describe`` and the docs (R14).
+MCP_DESCRIPTION = (
+    'A public, read-only Model Context Protocol (MCP) server over the same '
+    'lookups as this API, for chat assistants such as Claude.ai and ChatGPT. '
+    'Add its URL as a custom connector; no authentication is needed.'
+)
+
+
+def mcp_endpoint() -> dict[str, Any]:
+    """The public MCP endpoint, as ``api/describe`` names it (R14; F2).
+
+    Returns:
+        A JSON-native dict: ``path`` (site-relative), ``method``,
+        ``transport``, ``authentication``, ``description``, and ``tools`` (each
+        tool's ``name`` and ``title``, in the order ``tools/list`` serves them).
+    """
+    # Imported here: the tools module imports this one for describe_service.
+    from chat_mcp.tools import TOOLS
+
+    return {
+        'path': reverse('mcp'),
+        'method': 'POST',
+        'transport': 'streamable_http',
+        'authentication': 'none',
+        'description': MCP_DESCRIPTION,
+        'tools': [{'name': tool.name, 'title': tool.title} for tool in TOOLS.values()],
+    }
+
+
 def describe_service() -> dict[str, Any]:
     """The ``api/describe`` body (KTD16; R22, R23).
 
     Returns:
         A JSON-native dict with ``provenance``, ``catalogs``, ``crossmatch``,
         ``tns``, ``limits``, ``detail_levels``, ``default_detail``,
-        ``response_modes``, ``generic_filters``, ``reliability_cuts``, and
-        ``provenance_recording_release``.
+        ``response_modes``, ``generic_filters``, ``reliability_cuts``,
+        ``provenance_recording_release``, and ``mcp``.
     """
     generic = {p.name: p for p in filter_parameters() if p.name in GENERIC_FILTERS}
     return {
@@ -400,4 +432,5 @@ def describe_service() -> dict[str, Any]:
         ],
         'reliability_cuts': provenance.reliability_cuts(),
         'provenance_recording_release': provenance.PROVENANCE_RECORDING_RELEASE,
+        'mcp': mcp_endpoint(),
     }

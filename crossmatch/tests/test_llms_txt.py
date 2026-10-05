@@ -7,6 +7,7 @@ parity walks (F1, F2) discover every URL from ``/llms.txt`` and the OpenAPI
 document, with no hard-coded paths.
 """
 
+import html
 import json
 import re
 from typing import Any
@@ -167,6 +168,39 @@ def test_markdown_docs_carry_catalog_meanings_and_caveats(client):
     assert 'not a host association' in text
     assert 'not evidence of a hostless transient' in text
     assert 'ICRS' in text
+
+
+# --- Chat connector setup (R14; F2) ---------------------------------------------
+
+
+def _chat_setup_texts(ref: dict[str, Any]) -> list[str]:
+    """Every sentence of the chat-connector setup section the builder emits."""
+    chat = ref['chat_connector']
+    texts = [chat['heading'], chat['intro'], chat['requirement'], chat['note']]
+    for app in chat['apps']:
+        texts.append(app['name'])
+        texts.extend(app['steps'])
+    return texts
+
+
+@pytest.mark.django_db
+def test_llms_txt_gives_the_absolute_https_mcp_url_behind_the_tls_proxy(client):
+    text = client.get(LLMS, HTTP_X_FORWARDED_PROTO='https').content.decode()
+    assert 'https://testserver/mcp' in text
+    for snippet in _chat_setup_texts(docs.reference('https://testserver')):
+        assert snippet in text, snippet
+    for tool in client.get('/api/describe').json()['mcp']['tools']:
+        assert tool['name'] in text, tool
+
+
+def test_markdown_and_html_reference_carry_the_same_chat_setup_section(client):
+    snippets = _chat_setup_texts(docs.reference('http://testserver'))
+    markdown = client.get(MARKDOWN).content.decode()
+    page = html.unescape(client.get('/api-docs').content.decode())
+    for text in (markdown, page):
+        assert 'http://testserver/mcp' in text
+        for snippet in snippets:
+            assert snippet in text, snippet
 
 
 # --- R27: one source of configured facts ----------------------------------------

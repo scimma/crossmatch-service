@@ -307,3 +307,13 @@ def test_api_reference_section_degrades_on_read_failure(client):
     body = resp.content.decode()
     assert 'temporarily unavailable' in body.lower()
     assert 'next_cursor' in body  # the hand-written reference still renders
+
+
+def test_api_page_shows_the_absolute_https_mcp_url_and_setup_steps(client):
+    """The API page tells people how to connect a chat assistant (R14; F2)."""
+    body = client.get(reverse('web:api'), HTTP_X_FORWARDED_PROTO='https').content.decode()
+    assert 'Connect from a chat assistant' in body
+    assert 'https://testserver/mcp' in body
+    assert 'Claude.ai' in body
+    assert 'ChatGPT' in body
+    assert 'Developer mode' in body

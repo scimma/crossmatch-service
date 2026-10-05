@@ -88,7 +88,7 @@ def api_reference(request: HttpRequest) -> HttpResponse:
     return render(
         request,
         'web/api.html',
-        _base_context('api', api=config.api_reference()),
+        _base_context('api', api=config.api_reference(_base_url(request))),
     )
 
 
