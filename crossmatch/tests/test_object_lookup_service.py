@@ -16,7 +16,12 @@ from api.contract import InputStatus, ObjectStatus, ReadTimeCatalogOutcome
 from api.errors import InvalidQuery
 from api.lookup import BEST_GUESS_PROVENANCE_SET, get_object, lookup_objects
 from core import provenance
-from core.models import Alert, CatalogSearchOutcome, ObjectCrossmatchRecord
+from core.models import (
+    Alert,
+    CatalogSearchOutcome,
+    ObjectCrossmatchRecord,
+    TnsAssociation,
+)
 from tests.factories import (
     AlertDeliveryFactory,
     AlertFactory,
@@ -487,7 +492,8 @@ def test_lookup_reaches_objects_whose_payload_was_reclaimed():
 @pytest.mark.django_db
 def test_ids_resolve_in_a_fixed_number_of_queries(django_assert_num_queries):
     # Set-based resolution: the query count does not grow with the batch
-    # (alerts, records, match existence, matches, TNS associations, deliveries),
+    # (alerts, records, match existence, matches, TNS associations for the
+    # matches, the per-object TNS associations, deliveries),
     # plus the SAVEPOINT and RELEASE around the record read.
     def batch(n):
         alerts = []
@@ -499,10 +505,115 @@ def test_ids_resolve_in_a_fixed_number_of_queries(django_assert_num_queries):
         return alerts + [_id(UNKNOWN_ID), {'kind': 'bogus'}]
 
     small, large = batch(2), batch(25)
-    with django_assert_num_queries(8):
+    with django_assert_num_queries(9):
         lookup_objects(inputs=small, detail='full')
-    with django_assert_num_queries(8):
+    with django_assert_num_queries(9):
         lookup_objects(inputs=large, detail='full')
+
+
+# --- U2: the per-object TNS block (R5, R10, KTD7, AE7) ---
+
+
+_NO_TNS_MATCH = {
+    'name': None,
+    'name_prefix': None,
+    'classification': None,
+    'redshift': None,
+    'separation_arcsec': None,
+    'url': None,
+}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('detail', ['matches', 'full'])
+def test_matched_tns_association_is_shown_on_the_object(detail):
+    epoch = timezone.now() - timedelta(hours=2)
+    alert = ObjectCrossmatchRecordFactory().alert
+    CatalogMatchFactory(alert=alert)
+    TnsAssociation.objects.create(
+        alert=alert, checked=True, snapshot_epoch=epoch,
+        objid=4242, name='2026xyz', name_prefix='SN', type='SN Ia',
+        redshift=0.031, separation_arcsec=0.4,
+    )
+
+    body = get_object(dia_object_id=alert.lsst_diaObject_diaObjectId, detail=detail)
+
+    assert _only_object(_only_result(body))['tns'] == {
+        'checked': True,
+        'snapshot_epoch': epoch.isoformat(),
+        'name': '2026xyz',
+        'name_prefix': 'SN',
+        'classification': 'SN Ia',
+        'redshift': 0.031,
+        'separation_arcsec': 0.4,
+        'url': 'https://www.wis-tns.org/object/2026xyz',
+    }
+
+
+@pytest.mark.django_db
+def test_checked_with_no_tns_match_shows_checked_and_null_name_fields():
+    epoch = timezone.now()
+    alert = ObjectCrossmatchRecordFactory().alert
+    TnsAssociation.objects.create(alert=alert, checked=True, snapshot_epoch=epoch)
+
+    body = get_object(dia_object_id=alert.lsst_diaObject_diaObjectId)
+
+    assert _only_object(_only_result(body))['tns'] == {
+        'checked': True, 'snapshot_epoch': epoch.isoformat(), **_NO_TNS_MATCH,
+    }
+
+
+@pytest.mark.django_db
+def test_crossmatched_with_no_current_snapshot_shows_not_checked():
+    # tasks/crossmatch.py writes this row whenever no TNS snapshot is current.
+    alert = ObjectCrossmatchRecordFactory().alert
+    TnsAssociation.objects.create(alert=alert, checked=False)
+
+    body = get_object(dia_object_id=alert.lsst_diaObject_diaObjectId)
+
+    assert _only_object(_only_result(body))['tns'] == {
+        'checked': False, 'snapshot_epoch': None, **_NO_TNS_MATCH,
+    }
+
+
+@pytest.mark.django_db
+def test_crossmatched_before_the_tns_feature_shows_null_tns():
+    alert = ObjectCrossmatchRecordFactory().alert
+
+    body = get_object(dia_object_id=alert.lsst_diaObject_diaObjectId, detail='full')
+
+    assert _only_object(_only_result(body))['tns'] is None
+
+
+@pytest.mark.django_db
+def test_object_with_no_coincident_source_still_shows_its_tns_association():
+    # The per-match tns block at full cannot carry it: there are no matches.
+    alert = ObjectCrossmatchRecordFactory().alert
+    TnsAssociation.objects.create(
+        alert=alert, checked=True, snapshot_epoch=timezone.now(),
+        objid=7, name='2026abc', separation_arcsec=0.2,
+    )
+
+    body = get_object(dia_object_id=alert.lsst_diaObject_diaObjectId, detail='full')
+
+    obj = _only_object(_only_result(body))
+    assert obj['status'] == ObjectStatus.NO_COINCIDENT_SOURCE
+    assert obj['matches'] == []
+    assert obj['tns']['name'] == '2026abc'
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('detail', ['ids', 'position'])
+def test_no_tns_block_below_detail_matches(detail):
+    alert = ObjectCrossmatchRecordFactory().alert
+    TnsAssociation.objects.create(
+        alert=alert, checked=True, snapshot_epoch=timezone.now(),
+        objid=7, name='2026abc', separation_arcsec=0.2,
+    )
+
+    body = get_object(dia_object_id=alert.lsst_diaObject_diaObjectId, detail=detail)
+
+    assert 'tns' not in _only_object(_only_result(body))
 
 
 class _PgError(Exception):

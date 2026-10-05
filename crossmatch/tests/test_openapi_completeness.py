@@ -271,6 +271,16 @@ def test_separation_states_what_it_separates(client):
         assert 'Rubin object' in text
 
 
+def test_object_tns_block_states_it_is_as_of_its_snapshot(client):
+    # U2 / R5: the stored association is never "no TNS counterpart now".
+    schemas = _document(client)['components']['schemas']
+    tns = schemas['LookupObject']['properties']['tns']
+    assert {'type': 'null'} in tns['anyOf']
+    text = schemas['ObjectTns']['description']
+    assert 'snapshot' in text
+    assert 'null' in text
+
+
 # --- R9, R24, paging caveats ---------------------------------------------------
 
 

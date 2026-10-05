@@ -18,7 +18,7 @@ from api.errors import InvalidQuery
 from api.lookup import lookup_objects
 from api.positions import normalize_tns_name, resolve_tns
 from core.healpix import radec_to_ipix
-from core.models import Alert, TnsObject, TnsSnapshotMeta
+from core.models import Alert, TnsAssociation, TnsObject, TnsSnapshotMeta
 from tests.factories import (
     AlertFactory,
     CatalogMatchFactory,
@@ -225,7 +225,6 @@ def test_absent_snapshot_reports_resolver_unavailable():
 
 @pytest.mark.django_db
 def test_no_fallback_to_stored_tns_associations():
-    from core.models import TnsAssociation
     alert = alert_at(150.0, 2.0)
     TnsAssociation.objects.create(
         alert=alert, checked=True, snapshot_epoch=timezone.now(),
@@ -278,6 +277,51 @@ def test_sn_with_offset_host_returns_no_coincident_galaxy(client, openapi_valida
     assert 'not evidence of a hostless transient' in statuses.lower()
     tns_result = doc['components']['schemas']['TnsResult']['description']
     assert 'not a host association' in tns_result
+
+
+# --- AE7: the per-object TNS block (U2, R5, KTD7) ---
+
+@pytest.mark.django_db
+def test_ae7_name_lookup_of_object_crossmatched_before_the_name_existed(
+    client, openapi_validate,
+):
+    # Covers AE7: the object was crossmatched while no TNS snapshot was
+    # current (a checked=false association row); TNS has since named it. A
+    # neighbour within the radius carries a matched association, and a third
+    # object predates the TNS feature (no row), so every block shape validates.
+    meta = current_snapshot()
+    tns_object('2026ae', 60.0, -10.0, type='SN II', redshift=0.02)
+    named_later = ObjectCrossmatchRecordFactory(
+        alert=alert_at(60.0, -10.0, status=Alert.Status.MATCHED)
+    ).alert
+    TnsAssociation.objects.create(alert=named_later, checked=False)
+    neighbour = ObjectCrossmatchRecordFactory(
+        alert=alert_at(60.0, -10.0 + 0.5 * ARCSEC, status=Alert.Status.MATCHED)
+    ).alert
+    TnsAssociation.objects.create(
+        alert=neighbour, checked=True, snapshot_epoch=meta.last_refresh_epoch,
+        objid=99, name='2026ae', name_prefix='SN', type='SN II', redshift=0.02,
+        separation_arcsec=0.5,
+    )
+    ObjectCrossmatchRecordFactory(
+        alert=alert_at(60.0, -10.0 - 0.5 * ARCSEC, status=Alert.Status.MATCHED)
+    )
+
+    resp = client.get('/api/tns/SN%202026ae', {'detail': 'full'})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    openapi_validate('resolve_tns', 200, body)
+    result = only_result(body)
+    assert result['tns']['name'] == '2026ae'
+    assert result['tns']['url'].endswith('/2026ae')
+    blocks = {obj['diaObjectId']: obj['tns'] for obj in result['objects']}
+    assert len(blocks) == 3
+    later = blocks[named_later.lsst_diaObject_diaObjectId]
+    assert later['checked'] is False
+    assert later['snapshot_epoch'] is None and later['name'] is None
+    assert blocks[neighbour.lsst_diaObject_diaObjectId]['name'] == '2026ae'
+    assert None in blocks.values()
 
 
 # --- HTTP ---
