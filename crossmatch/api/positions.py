@@ -84,6 +84,14 @@ TRUNCATION_VALUES = (TRUNCATION_PER_INPUT, TRUNCATION_PER_REQUEST)
 #: Resolver group shared by the position and TNS kinds.
 CONE_GROUP = 'cone'
 
+#: Listing orders of ``search_cones`` and ``cone_search``. ``ingest`` (the
+#: default) is ``(ingest_time, diaObjectId)`` and pages with a cursor;
+#: ``nearest`` is ``(separation, diaObjectId)``, first page only, and is not
+#: offered on any API route (KTD8: the MCP tool uses it).
+ORDER_INGEST = 'ingest'
+ORDER_NEAREST = 'nearest'
+_ORDER_SQL = {ORDER_INGEST: 'ingest_time, oid', ORDER_NEAREST: 'sep, oid'}
+
 _TNS_PREFIX = re.compile(r'^(?:sn|at)', re.IGNORECASE)
 _TNS_NAME = re.compile(r'[0-9]{4}[0-9a-z]+')
 _TNS_NAME_MAX_LENGTH = 64
@@ -123,7 +131,8 @@ class ConeHits:
     Attributes:
         total: Objects inside the radius (under ``as_of`` when pinned).
         rows: ``(diaObjectId, ingest_time, separation_arcsec)`` of the listed
-            objects, in ``(ingest_time, diaObjectId)`` order.
+            objects, in the search's order (by default ``(ingest_time,
+            diaObjectId)``).
     """
 
     total: int = 0
@@ -137,23 +146,36 @@ def search_cones(
     as_of: datetime | None = None,
     after: tuple[datetime, int] | None = None,
     limit: int | None = None,
+    order: str = ORDER_INGEST,
 ) -> dict[int, ConeHits]:
     """Find the Rubin objects inside each cone, in one statement.
 
     Args:
         cones: The cones; keys must be distinct.
         per_cone_limit: List at most this many objects per cone (the first in
-            ``(ingest_time, diaObjectId)`` order).
+            ``order``).
         as_of: Only objects ingested at or before this time.
         after: Only objects strictly after this ``(ingest_time,
             diaObjectId)`` keyset position (single-cone paging).
         limit: List at most this many objects in all.
+        order: ``ORDER_INGEST`` (default) or ``ORDER_NEAREST``, which lists
+            each cone by ``(separation, diaObjectId)`` and takes no ``after``.
 
     Returns:
         ``{cone key: ConeHits}`` for every cone with at least one listed
         object. ``total`` counts every object inside the radius regardless of
         ``per_cone_limit``, ``after``, and ``limit``.
+
+    Raises:
+        InvalidQuery: If ``after`` is given with ``ORDER_NEAREST`` (``param``
+            ``cursor``).
     """
+    order_sql = _ORDER_SQL[order]
+    if after is not None and order == ORDER_NEAREST:
+        raise InvalidQuery(
+            'nearest-first order is first page only and takes no cursor',
+            param='cursor',
+        )
     cone_keys, ras, decs, radii = [], [], [], []
     range_keys, los, his = [], [], []
     for cone in cones:
@@ -213,13 +235,13 @@ def search_cones(
             SELECT idx, oid, ingest_time, sep,
                    count(*) OVER (PARTITION BY idx) AS total,
                    row_number() OVER (
-                       PARTITION BY idx ORDER BY ingest_time, oid
+                       PARTITION BY idx ORDER BY {order_sql}
                    ) AS rn
             FROM inside
         )
         SELECT idx, oid, ingest_time, sep, total FROM ranked
         {where_sql}
-        ORDER BY idx, ingest_time, oid
+        ORDER BY idx, {order_sql}
         {limit_sql}
     '''
     hits: dict[int, ConeHits] = {}
@@ -567,6 +589,7 @@ def cone_search(
     cursor: str | None = None,
     filters: Any = None,
     response: Any = None,
+    order: str = ORDER_INGEST,
 ) -> dict[str, Any]:
     """Search one position for every Rubin object within the radius (R4, R16).
 
@@ -593,6 +616,10 @@ def cone_search(
             every page.
         response: ``objects`` (default) or ``count``. A count covers every
             object within the radius now and takes no ``cursor``.
+        order: ``ORDER_INGEST`` (default) or ``ORDER_NEAREST``. Internal only,
+            never taken from a request (KTD8): nearest lists the closest
+            ``page_size`` objects first, with ``total`` over all of them,
+            ``next_cursor`` always null, and no ``cursor`` accepted.
 
     Returns:
         The lookup-shaped response with one position result, plus ``as_of``,
@@ -638,7 +665,9 @@ def cone_search(
     size = _parse_page_size(page_size)
 
     cone = Cone(0, center[0], center[1], radius)
-    cone_hits = search_cones([cone], as_of=as_of, after=after, limit=size + 1).get(0)
+    cone_hits = search_cones(
+        [cone], as_of=as_of, after=after, limit=size + 1, order=order,
+    ).get(0)
     rows = cone_hits.rows[:size] if cone_hits is not None else []
     has_next = cone_hits is not None and len(cone_hits.rows) > size
     if cone_hits is not None:
@@ -658,7 +687,7 @@ def cone_search(
     objects = build_objects([row[0] for row in rows], ctx)
 
     next_cursor = None
-    if has_next:
+    if has_next and order == ORDER_INGEST:
         last_id, last_time, _separation = rows[-1]
         next_cursor = encode_cone_cursor(ConeCursor(
             ingest_time=last_time, dia_object_id=last_id, as_of=as_of,
