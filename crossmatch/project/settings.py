@@ -526,6 +526,10 @@ CACHES = {
     'default': {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": f"{VALKEY_OR_SENTINEL}://{VALKEY_SERVICE}:{VALKEY_PORT}",
+        # Fail fast instead of hanging when Valkey stalls: the MCP limiter
+        # (chat_mcp/limits.py) runs cache calls on every public /mcp tool call
+        # outside the request budget, and fails open only on a raised error.
+        "OPTIONS": {"socket_timeout": 1.0, "socket_connect_timeout": 1.0},
     }
 }
 
