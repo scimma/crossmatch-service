@@ -820,6 +820,20 @@ MCP_MAX_OBJECTS = int(os.environ.get('MCP_MAX_OBJECTS', '20'))
 MCP_MATCHES_PER_CATALOG = int(os.environ.get('MCP_MATCHES_PER_CATALOG', '3'))
 MCP_MAX_RESULT_CHARS = int(os.environ.get('MCP_MAX_RESULT_CHARS', '30000'))
 MCP_API_BASE_URL = os.environ.get('MCP_API_BASE_URL', 'https://crossmatch.scimma.org')
+# MCP endpoint transport (KTD3, KTD13).
+#   - MCP_ALLOWED_ORIGINS: comma-separated browser origins allowed to call
+#     /mcp. A request carrying any other Origin header gets 403 (the transport
+#     spec's DNS-rebinding guard); requests with no Origin, which is how the
+#     chat providers' back ends call, always pass. Empty by default.
+#   - MCP_SESSION_MAX_AGE_SECONDS: how long a signed Mcp-Session-Id stays
+#     valid. An expired or invalid ID is still served, only without a
+#     per-conversation key (the rate-limit fallback bucket).
+MCP_ALLOWED_ORIGINS = tuple(
+    origin.strip()
+    for origin in os.environ.get('MCP_ALLOWED_ORIGINS', '').split(',')
+    if origin.strip()
+)
+MCP_SESSION_MAX_AGE_SECONDS = int(os.environ.get('MCP_SESSION_MAX_AGE_SECONDS', '86400'))
 
 # Declared broker-enforced reliability cuts (R20, KTD8). ANTARES and Lasair
 # apply their own reliability filter before alerts reach this service, so the

@@ -14,6 +14,7 @@ from django.http import JsonResponse
 from django.urls import include, path
 
 from api.views import openapi_view
+from chat_mcp.views import mcp_view
 
 
 def healthz(request):
@@ -26,6 +27,9 @@ urlpatterns = [
     # OpenAPI 3.1 document for the public API (KTD14), at the site root.
     path('openapi.json', openapi_view, name='openapi'),
     path('api/', include('api.urls')),
+    # Public, read-only MCP endpoint for chat assistants (KTD1). No trailing
+    # slash: connectors are given the bare URL.
+    path('mcp', mcp_view, name='mcp'),
     # Informational web frontend (server-rendered pages) at root paths. Kept
     # last so its catch-all page routes never shadow healthz or the api/ prefix.
     path('', include('web.urls')),
