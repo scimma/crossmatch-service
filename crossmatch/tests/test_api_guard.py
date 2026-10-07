@@ -16,7 +16,8 @@ from django.test import override_settings
 from django.urls import include, path
 from structlog.testing import capture_logs
 
-from api.guard import api_guard, check_deadline, sql_phase
+from api.errors import ApiError
+from api.guard import RequestGuard, api_guard, check_deadline, run_guarded, sql_phase
 from core.models import Alert
 from tests.factories import AlertFactory
 
@@ -270,3 +271,82 @@ def test_sql_phase_and_check_deadline_are_no_ops_outside_a_guard():
     check_deadline()
     with sql_phase():
         pass
+
+
+# -- run_guarded: the guard's core, callable without a view (KTD15) ---------
+
+
+def _select_one() -> int:
+    with sql_phase():
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1 FROM pg_sleep(0.02)')
+            return cursor.fetchone()[0]
+
+
+def _sleep_statement(seconds: float) -> None:
+    with sql_phase():
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT pg_sleep(%s)', [seconds])
+
+
+def _assert_too_expensive_error(exc: ApiError) -> None:
+    assert exc.code == 'query_too_expensive'
+    assert exc.retryable is False
+
+
+@pytest.mark.django_db(transaction=True)
+def test_run_guarded_returns_the_result_and_populates_timings():
+    guard = RequestGuard(2)
+
+    assert run_guarded(guard, _select_one) == 1
+    timings = guard.timings()
+    assert timings['budget_seconds'] == 2
+    assert timings['sql_phases'] == 1
+    assert timings['sql_seconds'] >= 0.02
+    assert timings['total_seconds'] >= timings['sql_seconds']
+    assert timings['python_seconds'] >= 0
+    assert guard.error is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_run_guarded_past_the_deadline_is_too_expensive():
+    guard = RequestGuard(0.1)
+
+    with pytest.raises(ApiError) as caught:
+        run_guarded(guard, lambda: time.sleep(0.2))
+    _assert_too_expensive_error(caught.value)
+    assert guard.error == 'deadline exceeded'
+
+
+@pytest.mark.django_db(transaction=True)
+def test_run_guarded_statement_timeout_is_too_expensive():
+    guard = RequestGuard(0.3)
+    started = time.monotonic()
+
+    with pytest.raises(ApiError) as caught:
+        run_guarded(guard, lambda: _sleep_statement(10))
+    _assert_too_expensive_error(caught.value)
+    assert time.monotonic() - started < 2.0
+    assert 'statement timeout' in guard.error
+
+
+@pytest.mark.django_db
+def test_run_guarded_connection_error_is_service_unavailable():
+    guard = RequestGuard(2)
+
+    def lose_connection() -> None:
+        raise OperationalError(f'connection to server at "{_SECRET_HOST}" failed')
+
+    with pytest.raises(ApiError) as caught:
+        run_guarded(guard, lose_connection)
+    assert caught.value.code == 'service_unavailable'
+    assert caught.value.retryable is True
+    assert _SECRET_HOST not in caught.value.message
+    assert _SECRET_HOST in guard.error
+
+
+@pytest.mark.django_db(transaction=True)
+def test_run_guarded_runs_read_only():
+    with pytest.raises(DatabaseError):
+        run_guarded(RequestGuard(2), AlertFactory)
+    assert Alert.objects.count() == 0

@@ -4,6 +4,7 @@ Read-only JSON queries over the Rubin alert objects this service has ingested an
 
 Machine-readable: [OpenAPI 3.1 document]({{ ref.urls.openapi }}), [llms.txt]({{ ref.urls.llms }}). For people: [HTML reference]({{ ref.urls.html }}).
 
+{% include 'web/_chat_connector.md' %}
 ## Conventions
 
 - {{ ref.conventions }}

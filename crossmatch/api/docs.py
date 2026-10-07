@@ -8,7 +8,10 @@ OpenAPI document and ``api/describe``: the served document itself
 (``api/discovery.py``) for the catalogs, limits, and vocabulary, and the
 provenance builder (``core/provenance.py``) for the radius, catalog releases,
 reliability cuts, and version. Nothing configured is restated here, so the four
-surfaces cannot disagree with each other or with the running service.
+surfaces cannot disagree with each other or with the running service. The
+"Connect from a chat assistant" section (``chat_connector``) is built here too,
+so ``/llms.txt``, ``/api-docs.md``, and ``/api-docs`` give the same MCP URL and
+setup steps (R14).
 
 Everything is read at call time, so ``@override_settings`` applies, and none of
 it needs the database.
@@ -18,6 +21,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.urls import reverse
 
 from api.contract import CODE_DESCRIPTIONS
@@ -50,6 +54,82 @@ CODE_GROUPS = (
     ('CutEnforcedBy', 'Reliability cut enforced by'),
     ('CutStatus', 'Reliability cut status'),
 )
+
+
+#: Heading of the chat-connector setup section on every docs surface.
+CHAT_CONNECTOR_HEADING = 'Connect from a chat assistant'
+
+#: Who can add a custom connector (KD: paste-a-URL distribution only).
+CHAT_CONNECTOR_REQUIREMENT = (
+    'Custom connectors need a paid plan: Claude.ai Pro, Max, Team or '
+    'Enterprise, or ChatGPT Plus, Pro, Business, Enterprise or Education (on '
+    'the web).'
+)
+
+#: Setup steps per chat app, as (app name, steps). Menu labels are hedged:
+#: both apps rename their settings from time to time.
+CHAT_CONNECTOR_STEPS = (
+    ('Claude.ai', (
+        'In Settings, under Connectors, choose Add custom connector.',
+        'Paste the connector URL, give it a name, and leave authentication '
+        'empty; none is needed.',
+        'Start a new conversation; the connector and its tools are available '
+        'there.',
+    )),
+    ('ChatGPT', (
+        'In Settings, under Security and login (or Apps & Connectors), turn on '
+        'Developer mode.',
+        'Add a new app or connector with the connector URL and No '
+        'Authentication.',
+        'Start a new conversation in Developer mode and select the connector '
+        'so its tools are available.',
+    )),
+)
+
+#: Workspace admins and changing menu labels.
+CHAT_CONNECTOR_NOTE = (
+    'In a ChatGPT workspace, an admin must first allow Developer mode and '
+    'custom MCP connectors. Menu labels in both apps change from time to '
+    'time; look for Connectors or Developer mode in Settings.'
+)
+
+
+def chat_connector(base_url: str, mcp: dict[str, Any]) -> dict[str, Any]:
+    """The "Connect from a chat assistant" section (R14; F2).
+
+    Args:
+        base_url: Scheme and host for the connector URL; empty gives a
+            site-relative path.
+        mcp: The ``mcp`` block of ``describe_service()``.
+
+    Returns:
+        A JSON-native dict: ``heading``, ``url``, ``intro``, ``requirement``,
+        ``apps`` (each ``name`` and ``steps``), ``note``, and ``tools`` (as in
+        ``api/describe``).
+    """
+    max_cone = float(settings.API_MAX_CONE_RADIUS_ARCSEC)
+    intro = (
+        'Ask Claude.ai or ChatGPT about Rubin transients by TNS name, '
+        'diaObjectId, or sky position and get this service\'s answer in the '
+        'chat, without writing code. The assistant calls three read-only tools '
+        'on this service\'s MCP endpoint, which answer from the same lookups as '
+        f'the API. A lookup takes up to {int(settings.MCP_MAX_IDENTIFIERS)} '
+        f'identifiers and a position search at most a {max_cone:g} arcsec '
+        f'radius; an answer summarizes at most {int(settings.MCP_MAX_OBJECTS)} '
+        'objects, and a larger result comes back as the first part plus a '
+        'ready-to-run API request for the full set.'
+    )
+    return {
+        'heading': CHAT_CONNECTOR_HEADING,
+        'url': base_url + mcp['path'],
+        'intro': intro,
+        'requirement': CHAT_CONNECTOR_REQUIREMENT,
+        'apps': [
+            {'name': name, 'steps': list(steps)} for name, steps in CHAT_CONNECTOR_STEPS
+        ],
+        'note': CHAT_CONNECTOR_NOTE,
+        'tools': mcp['tools'],
+    }
 
 
 def _schema_name(schema: dict[str, Any] | None) -> str | None:
@@ -116,7 +196,7 @@ def doc_urls(base_url: str = '') -> dict[str, str]:
 
     Returns:
         ``openapi``, ``llms``, ``markdown``, ``html``, ``catalogs``,
-        ``brokers``, and ``consuming``.
+        ``brokers``, ``consuming``, and ``mcp`` (the chat connector).
     """
     return {
         'openapi': base_url + reverse('openapi'),
@@ -126,6 +206,7 @@ def doc_urls(base_url: str = '') -> dict[str, str]:
         'catalogs': base_url + reverse('web:catalogs'),
         'brokers': base_url + reverse('web:brokers'),
         'consuming': base_url + reverse('web:consuming'),
+        'mcp': base_url + reverse('mcp'),
     }
 
 
@@ -143,8 +224,8 @@ def reference(base_url: str = '') -> dict[str, Any]:
         ``tns``, ``detail_levels``, ``default_detail``, ``response_modes``,
         ``generic_filters``, ``provenance_recording_release``, ``recent`` (the
         recent-crossmatches defaults and limits), ``conventions``,
-        ``nearest_rule``, ``caveats``, ``operations``, ``code_groups``, and
-        ``urls``.
+        ``nearest_rule``, ``caveats``, ``operations``, ``code_groups``,
+        ``chat_connector``, and ``urls``.
     """
     document = build_document()
     described = describe_service()
@@ -190,5 +271,6 @@ def reference(base_url: str = '') -> dict[str, Any]:
             }
             for component, heading in CODE_GROUPS
         ],
+        'chat_connector': chat_connector(base_url, described['mcp']),
         'urls': doc_urls(base_url),
     }

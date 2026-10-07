@@ -14,7 +14,7 @@ from django.utils import timezone
 from api.contract import InputStatus, ObjectStatus
 from api.errors import InvalidQuery
 from api.lookup import lookup_objects
-from api.positions import cone_search
+from api.positions import ORDER_NEAREST, cone_search
 from core.healpix import radec_to_ipix
 from core.models import Alert
 from tests.factories import (
@@ -383,3 +383,72 @@ def test_duplicate_positions_are_answered_twice_in_order():
     assert [r['input'] for r in body['results']] == inputs
     assert ids_of(body['results'][0]) == ids_of(body['results'][2]) == [oid(found)]
     assert body['results'][1]['status'] == InputStatus.NO_RUBIN_OBJECT
+
+
+def ingested_in_order(offsets_arcsec):
+    """Alerts north of (210, -10) by each offset, ingested a second apart in order."""
+    base = timezone.now() - timedelta(hours=1)
+    alerts = []
+    for k, offset in enumerate(offsets_arcsec):
+        alert = alert_at(210.0, -10.0 + offset * ARCSEC)
+        set_ingest_time(alert, base + timedelta(seconds=k))
+        alerts.append(alert)
+    return alerts
+
+
+@pytest.mark.django_db
+def test_nearest_order_lists_closest_first_and_default_keeps_ingest_order():
+    far30, near5, far50 = ingested_in_order([30, 5, 50])
+
+    nearest = only_result(
+        cone_search(ra=210.0, dec=-10.0, radius_arcsec=60.0, order=ORDER_NEAREST)
+    )
+    default = only_result(cone_search(ra=210.0, dec=-10.0, radius_arcsec=60.0))
+
+    assert ids_of(nearest) == [oid(near5), oid(far30), oid(far50)]
+    assert [round(o['separation_arcsec']) for o in nearest['objects']] == [5, 30, 50]
+    assert ids_of(default) == [oid(far30), oid(near5), oid(far50)]
+
+
+@pytest.mark.django_db
+def test_nearest_order_with_a_limit_lists_the_closest_and_counts_all():
+    far30, near5, _far50 = ingested_in_order([30, 5, 50])
+
+    body = cone_search(
+        ra=210.0, dec=-10.0, radius_arcsec=60.0, page_size=2, order=ORDER_NEAREST
+    )
+
+    result = only_result(body)
+    assert ids_of(result) == [oid(near5), oid(far30)]
+    assert result['total'] == 3
+    # First page only: nearest order has no cursor.
+    assert body['next_cursor'] is None
+
+
+@pytest.mark.django_db
+def test_nearest_order_breaks_equal_separations_by_dia_object_id():
+    base = timezone.now() - timedelta(hours=1)
+    lower = alert_at(210.0, -10.0 + 5 * ARCSEC)
+    higher = alert_at(210.0, -10.0 + 5 * ARCSEC)
+    assert oid(lower) < oid(higher)
+    # The higher ID was ingested first, so ingest order is the reverse.
+    set_ingest_time(higher, base)
+    set_ingest_time(lower, base + timedelta(seconds=1))
+
+    nearest = only_result(
+        cone_search(ra=210.0, dec=-10.0, radius_arcsec=10.0, order=ORDER_NEAREST)
+    )
+    default = only_result(cone_search(ra=210.0, dec=-10.0, radius_arcsec=10.0))
+
+    assert ids_of(nearest) == [oid(lower), oid(higher)]
+    assert ids_of(default) == [oid(higher), oid(lower)]
+
+
+@pytest.mark.django_db
+def test_nearest_order_rejects_a_cursor():
+    ingested_in_order([1, 2, 3])
+    first = cone_search(ra=210.0, dec=-10.0, radius_arcsec=10.0, page_size=1)
+
+    with pytest.raises(InvalidQuery) as exc_info:
+        cone_search(cursor=first['next_cursor'], page_size=1, order=ORDER_NEAREST)
+    assert exc_info.value.param == 'cursor'

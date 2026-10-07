@@ -24,6 +24,7 @@ Service version {{ ref.service_version }}; contract version {{ ref.contract_vers
 {% for op in ref.operations %}{% if op.discovery %}
 - [{{ op.method }} {{ op.path }}]({{ op.url }}): `{{ op.operation_id }}` -- {{ op.summary }}{% endif %}{% endfor %}
 
+{% include 'web/_chat_connector.md' %}
 ## Endpoints
 {% for op in ref.operations %}{% if not op.discovery %}
 - [{{ op.method }} {{ op.path }}]({{ op.url }}): `{{ op.operation_id }}` -- {{ op.summary }}{% endif %}{% endfor %}

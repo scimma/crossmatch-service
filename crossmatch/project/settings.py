@@ -102,6 +102,13 @@ CROSSMATCH_CATALOGS = [
             # quality
             'ruwe', 'astrometric_excess_noise', 'astrometric_excess_noise_sig',
         ],
+        # Key values shown per coincident source by the chat connector
+        # (KTD10): a subset of payload_columns (upstream-native case), served
+        # under the lowercased payload keys.
+        'key_columns': [
+            'phot_g_mean_mag', 'parallax', 'parallax_error',
+            'classprob_dsc_combmod_star', 'classprob_dsc_combmod_galaxy',
+        ],
         # Columns the API can filter on (R13; KTD9): a subset of payload_columns
         # (upstream-native case) with their units, served as
         # gaia_dr3.<column>_min/_max over the stored (lowercased) payload keys.
@@ -154,6 +161,10 @@ CROSSMATCH_CATALOGS = [
             # quality
             'FLAGS_GOLD', 'FLAGS_FOREGROUND', 'FLAGS_FOOTPRINT', 'BDF_FLAGS',
         ],
+        # Key values for the chat connector (see gaia_dr3).
+        'key_columns': [
+            'WAVG_MAG_PSF_G', 'WAVG_MAG_PSF_R', 'WAVG_MAG_PSF_I', 'EXT_MASH', 'DNF_Z',
+        ],
         # Filterable columns with units (see gaia_dr3).
         'filter_columns': {
             'DNF_Z': 'dimensionless',
@@ -188,6 +199,10 @@ CROSSMATCH_CATALOGS = [
             # quality
             'FLAGS_GOLD', 'FLAGS_FOREGROUND', 'FLAGS_FOOTPRINT', 'BDF_FLAGS',
         ],
+        # Key values for the chat connector (see gaia_dr3).
+        'key_columns': [
+            'WAVG_MAG_PSF_G', 'WAVG_MAG_PSF_R', 'WAVG_MAG_PSF_I', 'EXT_MASH', 'DNF_Z',
+        ],
         # Filterable columns with units (see gaia_dr3).
         'filter_columns': {
             'DNF_Z': 'dimensionless',
@@ -217,6 +232,8 @@ CROSSMATCH_CATALOGS = [
             # quality
             'flags', 'nimaflags', 'ngood',
         ],
+        # Key values for the chat connector (see gaia_dr3).
+        'key_columns': ['g_psf', 'r_psf', 'class_star'],
         # No filterable columns (R13 names none for SkyMapper).
         'filter_columns': {},
     },
@@ -327,6 +344,33 @@ def _validate_filter_columns(catalogs):
 
 
 _validate_filter_columns(CROSSMATCH_CATALOGS)
+
+
+def _validate_key_columns(catalogs):
+    """Require every chat key column to be a payload column (KTD10).
+
+    ``key_columns`` is optional; when present it lists upstream-native column
+    names (exact case), shown by the chat connector under their lowercased
+    payload keys.
+
+    Args:
+        catalogs: The ``CROSSMATCH_CATALOGS`` list.
+
+    Raises:
+        ImproperlyConfigured: If a key column is not in the catalog's
+            ``payload_columns``.
+    """
+    for cat in catalogs:
+        payload = set(cat.get('payload_columns') or [])
+        for column in cat.get('key_columns') or []:
+            if column not in payload:
+                raise ImproperlyConfigured(
+                    f"CROSSMATCH_CATALOGS entry {cat.get('name')!r}: key column "
+                    f"{column!r} is not in payload_columns (names are case-sensitive)"
+                )
+
+
+_validate_key_columns(CROSSMATCH_CATALOGS)
 
 # Batch crossmatch thresholds
 CROSSMATCH_BATCH_MAX_WAIT_SECONDS = int(
@@ -482,6 +526,10 @@ CACHES = {
     'default': {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": f"{VALKEY_OR_SENTINEL}://{VALKEY_SERVICE}:{VALKEY_PORT}",
+        # Fail fast instead of hanging when Valkey stalls: the MCP limiter
+        # (chat_mcp/limits.py) runs cache calls on every public /mcp tool call
+        # outside the request budget, and fails open only on a raised error.
+        "OPTIONS": {"socket_timeout": 1.0, "socket_connect_timeout": 1.0},
     }
 }
 
@@ -635,6 +683,18 @@ TNS_OBJECTS_BASE_URL = os.getenv(
 TNS_OBJECT_URL_TEMPLATE = os.getenv(
     'TNS_OBJECT_URL_TEMPLATE', 'https://www.wis-tns.org/object/{name}'
 )
+# Broker object links shown by the chat connector (KTD11); {diaObjectId} is the
+# decimal diaObjectId. ANTARES keys objects by its own locus ID, which this
+# service does not store, so its link is a search. Both forms are best current
+# knowledge and must be confirmed against the live Lasair and ANTARES sites
+# before launch.
+LASAIR_OBJECT_URL_TEMPLATE = os.getenv(
+    'LASAIR_OBJECT_URL_TEMPLATE', 'https://lasair.lsst.ac.uk/objects/{diaObjectId}/'
+)
+ANTARES_OBJECT_URL_TEMPLATE = os.getenv(
+    'ANTARES_OBJECT_URL_TEMPLATE',
+    'https://antares.noirlab.edu/loci?search={diaObjectId}',
+)
 
 ######################################################################
 # Database
@@ -744,6 +804,73 @@ API_MAX_OBJECTS_PER_POSITION = int(
 API_MAX_OBJECTS_PER_REQUEST = int(
     os.environ.get('API_MAX_OBJECTS_PER_REQUEST', '5000')
 )
+
+# MCP chat connector caps (KTD9), read at call time like the API maximums.
+#   - MCP_MAX_IDENTIFIERS: identifiers one lookup call accepts; above the chat
+#     maximum, so a longer list is truncated with an API recipe, not refused.
+#   - MCP_MAX_OBJECTS: object summaries per answer (R1's chat maximum); one TNS
+#     name can resolve to several objects, and each counts.
+#   - MCP_MATCHES_PER_CATALOG: nearest coincident sources shown per catalog,
+#     plus a count of the rest.
+#   - MCP_MAX_RESULT_CHARS: size of the serialized answer; whole objects are
+#     dropped from the end to meet it, and any drop counts as truncation. 20
+#     typical summaries (one Gaia and one DES source each, key values, links)
+#     measure about 23,000 characters, so the default leaves room for TNS
+#     associations and extra brokers without cutting a typical answer.
+#   - MCP_API_BASE_URL: scheme and host of the public API, used in the
+#     ready-to-run request a truncated answer carries (request-independent).
+MCP_MAX_IDENTIFIERS = int(os.environ.get('MCP_MAX_IDENTIFIERS', '100'))
+MCP_MAX_OBJECTS = int(os.environ.get('MCP_MAX_OBJECTS', '20'))
+MCP_MATCHES_PER_CATALOG = int(os.environ.get('MCP_MATCHES_PER_CATALOG', '3'))
+MCP_MAX_RESULT_CHARS = int(os.environ.get('MCP_MAX_RESULT_CHARS', '30000'))
+MCP_API_BASE_URL = os.environ.get('MCP_API_BASE_URL', 'https://crossmatch.scimma.org')
+# MCP endpoint transport (KTD3, KTD13).
+#   - MCP_ALLOWED_ORIGINS: comma-separated browser origins allowed to call
+#     /mcp. A request carrying any other Origin header gets 403 (the transport
+#     spec's DNS-rebinding guard); requests with no Origin, which is how the
+#     chat providers' back ends call, always pass. Empty by default.
+#   - MCP_SESSION_MAX_AGE_SECONDS: how long a signed Mcp-Session-Id stays
+#     valid. An expired or invalid ID is still served, only without a
+#     per-conversation key (the rate-limit fallback bucket).
+MCP_ALLOWED_ORIGINS = tuple(
+    origin.strip()
+    for origin in os.environ.get('MCP_ALLOWED_ORIGINS', '').split(',')
+    if origin.strip()
+)
+MCP_SESSION_MAX_AGE_SECONDS = int(os.environ.get('MCP_SESSION_MAX_AGE_SECONDS', '86400'))
+# MCP rate limits and concurrency cap (KTD4), read at call time; only
+# tools/call is limited, on the shared cache (Valkey). A limited call is an
+# isError tool result with a retry-after, never an HTTP 429.
+#   - MCP_CLIENT_IP_HEADER: request header carrying the client IP (Traefik
+#     sets X-Real-Ip); REMOTE_ADDR when it is absent.
+#   - MCP_PROVIDER_CIDRS: comma-separated chat-provider egress ranges.
+#     Callers inside them are limited per session ID; with no valid session ID
+#     they share one bucket per range. Default: Anthropic's 160.79.104.0/21.
+#   - Rates are "<requests per second>/<burst>":
+#     MCP_SESSION_RATE per provider session, MCP_IP_RATE per other client IP
+#     (both the API query routes' 2/s burst 10), and MCP_PROVIDER_RATE for a
+#     provider range's session-less calls: 10/s burst 50, five conversations'
+#     worth, because every user of a client that does not echo the session ID
+#     (or of the session-less 2026-07-28 protocol) lands in it.
+#   - MCP_MAX_CONCURRENT: tool calls in flight cluster-wide (6 of the 16 PROD
+#     web slots); MCP_MAX_CONCURRENT_PER_KEY: in flight per session or client,
+#     so one conversation cannot hold every slot.
+def _mcp_rate(name, default):
+    rate, burst = os.environ.get(name, default).split('/')
+    return (float(rate), int(burst))
+
+
+MCP_CLIENT_IP_HEADER = os.environ.get('MCP_CLIENT_IP_HEADER', 'X-Real-Ip')
+MCP_PROVIDER_CIDRS = tuple(
+    cidr.strip()
+    for cidr in os.environ.get('MCP_PROVIDER_CIDRS', '160.79.104.0/21').split(',')
+    if cidr.strip()
+)
+MCP_SESSION_RATE = _mcp_rate('MCP_SESSION_RATE', '2/10')
+MCP_IP_RATE = _mcp_rate('MCP_IP_RATE', '2/10')
+MCP_PROVIDER_RATE = _mcp_rate('MCP_PROVIDER_RATE', '10/50')
+MCP_MAX_CONCURRENT = int(os.environ.get('MCP_MAX_CONCURRENT', '6'))
+MCP_MAX_CONCURRENT_PER_KEY = int(os.environ.get('MCP_MAX_CONCURRENT_PER_KEY', '2'))
 
 # Declared broker-enforced reliability cuts (R20, KTD8). ANTARES and Lasair
 # apply their own reliability filter before alerts reach this service, so the

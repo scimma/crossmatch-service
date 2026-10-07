@@ -74,8 +74,10 @@ from core.models import (
     CatalogMatch,
     CatalogSearchOutcome,
     ObjectCrossmatchRecord,
+    TnsAssociation,
 )
 from matching.payload import _to_json_scalar
+from matching.tns_match import tns_payload
 
 logger = get_logger(__name__)
 
@@ -663,6 +665,14 @@ def build_objects(ids: Sequence[int], ctx: LookupContext) -> dict[int, dict[str,
             ).values_list('alert_id', 'broker'):
                 brokers.setdefault(int(oid), []).append(broker)
 
+    associations: dict[int, TnsAssociation] = {}
+    if detail in ('matches', 'full') and alerts:
+        with sql_phase():
+            associations = {
+                int(a.alert_id): a
+                for a in TnsAssociation.objects.filter(alert_id__in=list(alerts))
+            }
+
     catalogs_in_service = [cat['name'] for cat in provenance.catalog_releases()]
     objects: dict[int, dict[str, Any]] = {}
     for oid in unique_ids:
@@ -713,8 +723,46 @@ def build_objects(ids: Sequence[int], ctx: LookupContext) -> dict[int, dict[str,
                 )
                 entries.append(match)
             obj['matches'] = entries
+            obj['tns'] = _tns_block(associations.get(oid))
         objects[oid] = obj
     return objects
+
+
+def _tns_block(assoc: TnsAssociation | None) -> dict[str, Any] | None:
+    """The object's stored TNS association, as of its snapshot (R5, KTD7).
+
+    Args:
+        assoc: The object's association row, or ``None`` when it has none
+            (crossmatched before the TNS feature, or not yet crossmatched).
+
+    Returns:
+        ``None`` without a row; otherwise ``checked``, ``snapshot_epoch``, and
+        the match fields, which are null unless the row holds a TNS match. A
+        ``checked: false`` row (no snapshot was current at crossmatch) has a
+        null epoch.
+    """
+    if assoc is None:
+        return None
+    block: dict[str, Any] = {
+        'checked': bool(assoc.checked),
+        'snapshot_epoch': _iso(assoc.snapshot_epoch),
+        'name': None,
+        'name_prefix': None,
+        'classification': None,
+        'redshift': None,
+        'separation_arcsec': None,
+        'url': None,
+    }
+    if assoc.objid is not None:
+        record = tns_payload(
+            objid=int(assoc.objid), name=assoc.name, type=assoc.type,
+            redshift=_to_json_scalar(assoc.redshift),
+            separation_arcsec=_to_json_scalar(assoc.separation_arcsec),
+            url_template=settings.TNS_OBJECT_URL_TEMPLATE,
+        )
+        del record['objid']
+        block.update(record, name_prefix=assoc.name_prefix)
+    return block
 
 
 def _provenance_set_key(record: ObjectCrossmatchRecord, ctx: LookupContext) -> str:

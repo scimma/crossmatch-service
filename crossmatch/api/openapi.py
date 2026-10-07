@@ -849,7 +849,8 @@ def _lookup_schemas() -> dict[str, Any]:
             'description': (
                 'One Rubin object. An object not in the service carries only '
                 'its ID and status. Position, reliability, times, and brokers '
-                'appear from detail position; matches from detail matches.'
+                'appear from detail position; matches and tns from detail '
+                'matches.'
             ),
             'required': ['diaObjectId', 'diaObjectId_str', 'status'],
             'additionalProperties': False,
@@ -902,6 +903,14 @@ def _lookup_schemas() -> dict[str, Any]:
                         'coincident_sources.'
                     ),
                     'items': _ref('LookupMatch'),
+                },
+                'tns': {
+                    'description': (
+                        'The stored TNS association; null when the object has '
+                        'none (crossmatched before TNS association was added, '
+                        'or not yet crossmatched).'
+                    ),
+                    'anyOf': [{'type': 'null'}, _ref('ObjectTns')],
                 },
                 'separation_arcsec': {
                     'type': 'number',
@@ -992,6 +1001,74 @@ def _lookup_schemas() -> dict[str, Any]:
                     'description': 'TNS redshift; null if none.',
                 },
                 'url': {'type': 'string', 'description': 'The TNS object page.'},
+            },
+        },
+        'ObjectTns': {
+            'type': 'object',
+            'description': (
+                'The TNS association stored when the object was crossmatched, '
+                'as of the TNS snapshot it was checked against '
+                '(snapshot_epoch). It is not refreshed: a TNS object named '
+                'after that snapshot is not shown, so null name fields mean '
+                'no TNS object within the association radius as of that '
+                'snapshot, not that none exists now. checked is false, with a '
+                'null snapshot_epoch, when no TNS snapshot was current at '
+                'crossmatch.'
+            ),
+            'required': [
+                'checked', 'snapshot_epoch', 'name', 'name_prefix',
+                'classification', 'redshift', 'separation_arcsec', 'url',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'checked': {
+                    'type': 'boolean',
+                    'description': (
+                        'Whether the object was checked against a current '
+                        'TNS snapshot.'
+                    ),
+                },
+                'snapshot_epoch': {
+                    'type': ['string', 'null'],
+                    'format': 'date-time',
+                    'description': (
+                        'Epoch of the TNS snapshot the object was checked '
+                        'against; null unless checked.'
+                    ),
+                },
+                'name': {
+                    'type': ['string', 'null'],
+                    'description': (
+                        'Bare TNS designation of the associated TNS object; '
+                        'null if none.'
+                    ),
+                },
+                'name_prefix': {
+                    'type': ['string', 'null'],
+                    'description': 'TNS name prefix, e.g. SN or AT.',
+                },
+                'classification': {
+                    'type': ['string', 'null'],
+                    'description': 'TNS classification, e.g. SN Ia; null if none.',
+                },
+                'redshift': {
+                    'type': ['number', 'null'],
+                    'x-unit': 'dimensionless',
+                    'description': 'TNS redshift; null if none.',
+                },
+                'separation_arcsec': {
+                    'type': ['number', 'null'],
+                    'x-unit': ARCSEC,
+                    'minimum': 0,
+                    'description': (
+                        'Angular separation of the Rubin object position from '
+                        'the TNS object position, arcsec; null if none.'
+                    ),
+                },
+                'url': {
+                    'type': ['string', 'null'],
+                    'description': 'The TNS object page; null if none.',
+                },
             },
         },
         'PositionResult': {
@@ -1558,12 +1635,62 @@ def _discovery_schemas() -> dict[str, Any]:
                 'provenance', 'catalogs', 'crossmatch', 'tns', 'limits',
                 'detail_levels', 'default_detail', 'response_modes',
                 'generic_filters', 'reliability_cuts',
-                'provenance_recording_release',
+                'provenance_recording_release', 'mcp',
             ],
             'additionalProperties': False,
             'properties': {
                 'provenance': _ref('Provenance'),
                 'catalogs': {'type': 'array', 'items': _ref('CatalogDescription')},
+                'mcp': {
+                    'type': 'object',
+                    'description': (
+                        'The public, read-only MCP endpoint for chat '
+                        'assistants (R14). Its tools answer from the same '
+                        'lookups as this API.'
+                    ),
+                    'required': [
+                        'path', 'method', 'transport', 'authentication',
+                        'description', 'tools',
+                    ],
+                    'additionalProperties': False,
+                    'properties': {
+                        'path': {
+                            'type': 'string',
+                            'description': 'Site-relative path of the endpoint.',
+                        },
+                        'method': {
+                            'type': 'string',
+                            'description': 'HTTP method: POST.',
+                        },
+                        'transport': {
+                            'type': 'string',
+                            'description': (
+                                'streamable_http: MCP Streamable HTTP, JSON-RPC '
+                                'over POST answered with a JSON body.'
+                            ),
+                        },
+                        'authentication': {
+                            'type': 'string',
+                            'description': (
+                                'none: no login; connect with the URL alone.'
+                            ),
+                        },
+                        'description': {'type': 'string'},
+                        'tools': {
+                            'type': 'array',
+                            'description': 'The tools tools/list serves, in order.',
+                            'items': {
+                                'type': 'object',
+                                'required': ['name', 'title'],
+                                'additionalProperties': False,
+                                'properties': {
+                                    'name': {'type': 'string'},
+                                    'title': {'type': 'string'},
+                                },
+                            },
+                        },
+                    },
+                },
                 'crossmatch': {
                     'type': 'object',
                     'required': [

@@ -17,6 +17,19 @@
 </ul>
 
 {% if api %}
+<h2 class="h4 mt-4">{{ api.chat_connector.heading }}</h2>
+<p>{{ api.chat_connector.intro }}</p>
+<p>Connector URL: <code>{{ api.chat_connector.url }}</code></p>
+<p>{{ api.chat_connector.requirement }}</p>
+{% for app in api.chat_connector.apps %}
+<h3 class="h5 mt-3">{{ app.name }}</h3>
+<ol>
+  {% for step in app.steps %}<li>{{ step }}</li>
+  {% endfor %}
+</ol>
+{% endfor %}
+<p>{{ api.chat_connector.note }}</p>
+
 <h2 class="h4 mt-4">Endpoints</h2>
 <div class="table-responsive">
   <table class="table table-sm table-bordered">
