@@ -14,6 +14,8 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-07
+
 ### Added
 
 - Chat connector: a public, read-only MCP (Model Context Protocol) endpoint at `POST /mcp` lets researchers ask Claude.ai or ChatGPT about Rubin transients and get this service's answer in the chat, with no login. It serves three tools that answer from the same lookup code as the API: `lookup_rubin_transients` (TNS names and `diaObjectId`s, up to 100 identifiers per call), `search_rubin_transients_near_position` (RA/Dec in degrees, default radius 10 arcsec, at most `API_MAX_CONE_RADIUS_ARCSEC`, nearest first), and `describe_crossmatch_service` (catalogs and releases, crossmatch radius, brokers and reliability cuts, TNS snapshot freshness, newest alert, and service status). Each answer summarizes at most 20 objects, with their coincident sources grouped by catalog, the stored TNS association, provenance basis, and TNS, Lasair and ANTARES links; an oversized answer returns the first part, says it is truncated and how many results exist, and carries a ready-to-run API request for the full set. Every tool declares itself read-only, and an unanswerable question returns an explicit reason (unknown TNS name, no Rubin object for a TNS name, not in the service, crossmatch pending, TNS unavailable, service unavailable). The JSON-RPC transport is hand-written (no new dependency), with an optional signed `Mcp-Session-Id`, an `Origin` check, and one `mcp tool call` log line per call (tool, inputs, result counts, truncation, outcome, latency).
@@ -25,7 +27,7 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 - The cone-search code gains an internal nearest-first listing order used by the chat connector; the public `GET /api/cone` order and paging are unchanged.
 - The API request guard (per-request budget and database-unavailable handling) is refactored into a reusable `run_guarded` helper shared by the API views and the MCP tools, with no change in behavior.
-- Deploy note: the gitops change routes `/mcp` to the web pods through its own Ingress and Traefik middleware (a generous per-IP ceiling; the fine-grained limits are the app's), rendered only when the API is public; passes the MCP settings to the web tier (set `MCP_API_BASE_URL` to the DEV host on DEV, and add OpenAI's published ChatGPT connector egress ranges to `MCP_PROVIDER_CIDRS`); and wires `TNS_BOT_*` credentials into celery-worker and celery-beat as optional secret refs, so it can deploy before the TNS secret is sealed. Until the maintainer seals TNS bot credentials on each cluster, TNS-name lookups answer "TNS unavailable". Confirm the Lasair and ANTARES link templates against the live sites before launch. An unreachable Valkey makes each cache call block about 16 s, so the MCP limits fail open but slowly.
+- Deploy note: the gitops change routes `/mcp` to the web pods through its own Ingress and Traefik middleware (a generous per-IP ceiling; the fine-grained limits are the app's), rendered only when the API is public; passes the MCP settings to the web tier (set `MCP_API_BASE_URL` to the DEV host on DEV, and add OpenAI's published ChatGPT connector egress ranges to `MCP_PROVIDER_CIDRS`); and wires `TNS_BOT_*` credentials into celery-worker and celery-beat as optional secret refs, so it can deploy before the TNS secret is sealed. Until the maintainer seals TNS bot credentials on each cluster, TNS-name lookups answer "TNS unavailable". Confirm the Lasair and ANTARES link templates against the live sites before launch. The default cache now sets one-second Valkey socket and connect timeouts, so a stalled Valkey raises and the MCP limits fail open instead of hanging web threads; an unresolvable Valkey host can still take several seconds per call because name lookup is outside those timeouts.
 
 ### Fixed
 
@@ -242,7 +244,8 @@ Initial release of the crossmatch service.
 - Postgres init race condition on startup.
 - diaSourceId reliability filtering.
 
-[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/scimma/crossmatch-service/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/scimma/crossmatch-service/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/scimma/crossmatch-service/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/scimma/crossmatch-service/compare/v0.13.0...v0.13.1
