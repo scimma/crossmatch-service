@@ -26,6 +26,27 @@ def _make_zip(csv_text: str) -> bytes:
     return buffer.getvalue()
 
 
+# An hourly delta for an hour with no new or changed objects, exactly as TNS
+# serves it (observed 2026-10-08): only the time-range line, no header row.
+EMPTY_DELTA_TEXT = "2026-10-08 10:00:00 - 11:00:00\n"
+
+
+def test_parse_empty_hourly_delta_returns_no_records():
+    assert tns.parse_objects_csv(_make_zip(EMPTY_DELTA_TEXT)) == []
+
+
+def test_parse_header_only_returns_no_records():
+    header = CSV_TEXT.splitlines()[1]
+    assert tns.parse_objects_csv(_make_zip(EMPTY_DELTA_TEXT + header + "\n")) == []
+
+
+def test_parse_content_without_header_still_raises():
+    # Rows with no header are a garbled export, not an empty one.
+    garbled = EMPTY_DELTA_TEXT + '"1001","SN","2024xyz","180.0","-30.0"\n'
+    with pytest.raises(tns.TnsClientError):
+        tns.parse_objects_csv(_make_zip(garbled))
+
+
 def test_tns_marker_header_shape():
     headers = tns.tns_marker_headers(12345, "mybot")
     marker = headers["user-agent"]

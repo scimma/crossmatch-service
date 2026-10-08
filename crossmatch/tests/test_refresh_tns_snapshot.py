@@ -130,3 +130,37 @@ def test_refresh_task_enabled_without_credentials_in_this_container(settings):
     # A second initialization (a consumer restart) keeps it enabled.
     call_command("initialize_periodic_tasks")
     assert PeriodicTask.objects.get(name=RefreshTnsSnapshot.task_name).enabled
+
+
+@pytest.mark.django_db
+def test_refresh_empty_hourly_delta_advances_epoch(creds, monkeypatch):
+    """A quiet hour's delta has no rows; the refresh succeeds and the epoch moves.
+
+    Exercises the real parser on the file TNS serves for such an hour, so a
+    quiet hour does not log a failure or let the snapshot go stale.
+    """
+    import io
+    import zipfile
+
+    real_fetch = tns_client.fetch_object_records
+    _patch_fetch(monkeypatch, [_record(1, name="kept")])
+    refresh_module.refresh_snapshot()
+    seeded_epoch = TnsSnapshotMeta.objects.get(pk=1).last_refresh_epoch
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "tns_public_objects_11.csv", "2026-10-08 10:00:00 - 11:00:00\n"
+        )
+    empty_zip = buffer.getvalue()
+    monkeypatch.setattr(
+        refresh_module.tns_client, "_download", lambda *args, **kwargs: empty_zip
+    )
+    # Restore the real download-and-parse path; only the HTTP call is faked.
+    monkeypatch.setattr(refresh_module.tns_client, "fetch_object_records", real_fetch)
+    result = refresh_module.refresh_snapshot()
+
+    assert result["status"] == "ok"
+    assert result["seed"] is False
+    assert TnsObject.objects.get(objid=1).name == "kept"
+    assert TnsSnapshotMeta.objects.get(pk=1).last_refresh_epoch > seeded_epoch
