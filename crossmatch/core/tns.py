@@ -148,7 +148,9 @@ def parse_objects_csv(zip_bytes: bytes) -> list[TnsObjectRecord]:
         The list of parseable object records.
 
     Raises:
-        TnsClientError: If the archive holds no CSV or has no recognizable header.
+        TnsClientError: If the archive holds no CSV, or holds content beyond the
+            preamble line but no recognizable header. A file with only the
+            preamble (a quiet hour's delta) parses to no records.
     """
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
@@ -165,6 +167,11 @@ def parse_objects_csv(zip_bytes: bytes) -> list[TnsObjectRecord]:
         None,
     )
     if header_index is None:
+        # An hourly delta for an hour with no new or changed objects holds only
+        # its time-range preamble line, with no header row: that is an empty
+        # export, not a garbled one. Anything more without a header is garbled.
+        if sum(1 for line in lines if line.strip()) <= 1:
+            return []
         raise TnsClientError("TNS CSV had no recognizable header row")
 
     reader = csv.DictReader(lines[header_index:])
