@@ -14,6 +14,8 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-10-08
+
 ### Fixed
 
 - The TNS snapshot refresh no longer fails on a quiet hour. TNS serves the hourly delta for an hour with no new or changed objects as a file holding only its time-range line, with no header row; the parser treated that as a garbled export, so the refresh logged `tns_refresh_failed`, the snapshot epoch stopped advancing, and after `TNS_SNAPSHOT_MAX_AGE_SECONDS` TNS-name lookups answered "TNS unavailable" until the next full re-download. Such a file now parses to no records and the refresh advances the epoch; a file with content beyond that line but no header still fails.
@@ -248,7 +250,8 @@ Initial release of the crossmatch service.
 - Postgres init race condition on startup.
 - diaSourceId reliability filtering.
 
-[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.16.1...HEAD
+[0.16.1]: https://github.com/scimma/crossmatch-service/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/scimma/crossmatch-service/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/scimma/crossmatch-service/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/scimma/crossmatch-service/compare/v0.13.1...v0.14.0
