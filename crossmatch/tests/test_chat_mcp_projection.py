@@ -164,8 +164,10 @@ def test_ae1_tns_name_with_gaia_match_gives_status_matches_brokers_and_links():
     assert obj['links']['tns'] == 'https://www.wis-tns.org/object/2026abc'
     assert obj['links']['lasair'] == settings.LASAIR_OBJECT_URL_TEMPLATE.format(
         diaObjectId=oid)
-    assert obj['links']['antares'] == settings.ANTARES_OBJECT_URL_TEMPLATE.format(
-        diaObjectId=oid)
+    # ANTARES's front end ignores unknown query parameters (a `?search=` link
+    # opened the unfiltered loci list); /loci/lookup/<id> is its documented
+    # route for finding an object by another survey's ID.
+    assert obj['links']['antares'] == f'https://antares.noirlab.edu/loci/lookup/{oid}'
     assert projection['truncated'] is False
 
 
