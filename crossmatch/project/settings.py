@@ -685,15 +685,16 @@ TNS_OBJECT_URL_TEMPLATE = os.getenv(
 )
 # Broker object links shown by the chat connector (KTD11); {diaObjectId} is the
 # decimal diaObjectId. ANTARES keys objects by its own locus ID, which this
-# service does not store, so its link is a search. Both forms are best current
-# knowledge and must be confirmed against the live Lasair and ANTARES sites
-# before launch.
+# service does not store, so its link uses ANTARES's documented lookup route
+# (/loci/lookup/<object_id>), which finds the locus by its LSST dia_object_id.
+# ANTARES is a single-page app that answers 200 for any path and ignores
+# unknown query parameters, so an HTTP status check cannot validate this link.
 LASAIR_OBJECT_URL_TEMPLATE = os.getenv(
     'LASAIR_OBJECT_URL_TEMPLATE', 'https://lasair.lsst.ac.uk/objects/{diaObjectId}/'
 )
 ANTARES_OBJECT_URL_TEMPLATE = os.getenv(
     'ANTARES_OBJECT_URL_TEMPLATE',
-    'https://antares.noirlab.edu/loci?search={diaObjectId}',
+    'https://antares.noirlab.edu/loci/lookup/{diaObjectId}',
 )
 
 ######################################################################

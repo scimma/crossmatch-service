@@ -14,6 +14,10 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+### Fixed
+
+- The chat connector's ANTARES links now open the object. They pointed at `https://antares.noirlab.edu/loci?search=<diaObjectId>`, but ANTARES ignores a `search` parameter, so every link opened its unfiltered object list. The default `ANTARES_OBJECT_URL_TEMPLATE` is now ANTARES's documented lookup route, `https://antares.noirlab.edu/loci/lookup/<diaObjectId>`, which finds the object by its LSST diaObjectId.
+
 ## [0.16.1] - 2026-10-08
 
 ### Fixed
