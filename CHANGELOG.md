@@ -14,6 +14,8 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-10-13
+
 ### Fixed
 
 - The chat connector's ANTARES links now open the object. They pointed at `https://antares.noirlab.edu/loci?search=<diaObjectId>`, but ANTARES ignores a `search` parameter, so every link opened its unfiltered object list. The default `ANTARES_OBJECT_URL_TEMPLATE` is now ANTARES's documented lookup route, `https://antares.noirlab.edu/loci/lookup/<diaObjectId>`, which finds the object by its LSST diaObjectId.
@@ -254,7 +256,8 @@ Initial release of the crossmatch service.
 - Postgres init race condition on startup.
 - diaSourceId reliability filtering.
 
-[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.16.1...HEAD
+[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.16.2...HEAD
+[0.16.2]: https://github.com/scimma/crossmatch-service/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/scimma/crossmatch-service/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/scimma/crossmatch-service/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/scimma/crossmatch-service/compare/v0.14.0...v0.15.0
