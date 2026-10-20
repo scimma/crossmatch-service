@@ -9,14 +9,18 @@ import time
 from antares_client import StreamingClient
 from django.conf import settings
 from brokers import ingest_alert
-from brokers.normalize import normalize_antares, select_antares_rubin_alert
+from brokers.normalize import (
+    antares_locus_first_detection_mjd,
+    normalize_antares,
+    select_antares_rubin_alert,
+)
 from core.log import get_logger
 
 logger = get_logger(__name__)
 
 BROKER_NAME = 'antares'
-_BACKOFF_INITIAL = 1    # seconds
-_BACKOFF_MAX = 60       # seconds
+_BACKOFF_INITIAL = 1  # seconds
+_BACKOFF_MAX = 60  # seconds
 
 
 def consume_alerts():
@@ -59,7 +63,12 @@ def consume_alerts():
                             locus_id=locus.locus_id,
                         )
                         continue
-                    canonical = normalize_antares(rubin_alert.properties)
+                    canonical = normalize_antares(
+                        rubin_alert.properties,
+                        locus_first_detection_mjd=antares_locus_first_detection_mjd(
+                            locus
+                        ),
+                    )
                     ingest_alert(canonical, broker=BROKER_NAME)
                     backoff = _BACKOFF_INITIAL
                 except Exception as err:
