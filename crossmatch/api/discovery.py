@@ -355,6 +355,7 @@ def _limits() -> dict[str, Any]:
             'max_page_size': int(settings.RECENT_CROSSMATCH_MAX_PAGE_SIZE),
             'max_window_hours': int(settings.RECENT_CROSSMATCH_MAX_WINDOW_HOURS),
         },
+        'max_summary_nights': int(settings.SUMMARY_MAX_NIGHTS),
     }
 
 

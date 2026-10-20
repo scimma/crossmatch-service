@@ -24,6 +24,14 @@ from api.lookup import get_object, lookup_objects, parse_lookup_body
 from api.openapi import build_document
 from api.positions import cone_search, resolve_tns
 from api.service import InvalidQuery, recent_crossmatches
+from api.summary import (
+    BROKER_PARAM,
+    CATALOG_MATCH_PARAM,
+    CATALOG_PARAM,
+    TOP_N_PARAM,
+    WINDOW_PARAMS,
+    summarize_window,
+)
 from api.timeparse import parse_timestamp
 
 logger = get_logger(__name__)
@@ -266,6 +274,51 @@ def resolve_tns_view(request: HttpRequest, name: str) -> JsonResponse:
         response=request.GET.get('response'),
     )
     return JsonResponse(result)
+
+
+#: The query parameters ``GET api/summary`` accepts; any other is a 400.
+SUMMARY_PARAMS = frozenset(
+    (*WINDOW_PARAMS, BROKER_PARAM, CATALOG_PARAM, CATALOG_MATCH_PARAM, TOP_N_PARAM)
+)
+
+
+@api_guard(isolation='repeatable_read')
+def summary_view(request: HttpRequest) -> JsonResponse:
+    """GET the window summary: object counts and outcomes for one window (R1, R17).
+
+    Query params (all optional): one window form, ``night`` (a dayObs date),
+    ``last_nights`` (1 to ``SUMMARY_MAX_NIGHTS``), or ``start`` + ``end``
+    (ISO-8601 UTC, half-open), defaulting to the latest begun Rubin night;
+    ``broker``; ``catalog`` with ``catalog_match`` (``with`` | ``without``);
+    and ``top_n``. Every statement reads one REPEATABLE READ snapshot (KTD4).
+
+    Any other parameter is a structured ``400 unsupported_parameter``, so a
+    filter or option the summary does not apply is never silently ignored.
+
+    Returns:
+        A ``JsonResponse``: 200 with the summary, 400 naming the parameter
+        (``invalid_parameter``, ``unsupported_parameter``,
+        ``filters_span_catalogs``), 405 for a non-GET method, or a guard error
+        (400 ``query_too_expensive``, 503 ``service_unavailable``).
+
+    Raises:
+        ApiError: Rendered by the guard as the error response.
+    """
+    if request.method != 'GET':
+        raise _method_not_allowed()
+    params = request.GET
+    unsupported = [name for name in params if name not in SUMMARY_PARAMS]
+    if unsupported:
+        logger.info('summary unsupported parameter', params=unsupported)
+        raise ApiError(
+            'summary accepts only night, last_nights, start, end, broker, '
+            f'catalog, catalog_match, and top_n. Unsupported: {", ".join(unsupported)}',
+            code=ErrorCode.UNSUPPORTED_PARAMETER,
+            status=400,
+            param=unsupported[0] if len(unsupported) == 1 else None,
+            params=unsupported if len(unsupported) > 1 else None,
+        )
+    return JsonResponse(summarize_window(params))
 
 
 @api_guard(map_unavailable=False)

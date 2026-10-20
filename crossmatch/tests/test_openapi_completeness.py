@@ -32,7 +32,16 @@ from api.lookup import (
 )
 from api.positions import TRUNCATION_VALUES
 from api.service import DETAIL_LEVELS, TIME_FIELDS
-from core.models import CutEnforcedBy, CutStatus
+from api.summary import (
+    BASIS_NOT_RECORDED,
+    CATALOG_MATCH_VALUES,
+    FORM_DEFAULT,
+    FORM_LAST_NIGHTS,
+    FORM_NIGHT,
+    FORM_SPAN,
+    broker_names,
+)
+from core.models import Alert, CutEnforcedBy, CutStatus
 
 OPENAPI_URL = '/openapi.json'
 _METHODS = ('get', 'put', 'post', 'delete', 'patch', 'head', 'options')
@@ -79,6 +88,12 @@ def _emittable_codes() -> set[str]:
     codes.update(contract.InputStatus.values)
     codes.update(contract.CATALOG_OUTCOME_VALUES)
     codes.update(contract.QualifiesReason.values)
+    codes.update(contract.SummaryCatalogOutcome.values)
+    codes.update(Alert.EventTimeBasis.values)
+    codes.update({BASIS_NOT_RECORDED})
+    codes.update({FORM_DEFAULT, FORM_NIGHT, FORM_LAST_NIGHTS, FORM_SPAN})
+    codes.update(CATALOG_MATCH_VALUES)
+    codes.update(broker_names())
     codes.update(CutEnforcedBy.values)
     codes.update(CutStatus.values)
     codes.update(TRUNCATION_VALUES)
@@ -125,7 +140,7 @@ def test_every_contract_code_is_defined_where_it_is_listed(client):
     schemas = _document(client)['components']['schemas']
     for name in (
         'ObjectStatus', 'InputStatus', 'CatalogOutcome', 'ErrorCode',
-        'QualifiesReason', 'CutEnforcedBy', 'CutStatus',
+        'QualifiesReason', 'CutEnforcedBy', 'CutStatus', 'SummaryCatalogOutcome',
     ):
         for value in schemas[name]['enum']:
             assert f'`{value}`: {contract.CODE_DESCRIPTIONS[value]}' in (
@@ -165,7 +180,7 @@ def test_every_guarded_operation_documents_query_too_expensive(client):
     # Guard against a vacuous pass if route resolution stops finding the guard.
     assert {
         'get_object', 'lookup_objects', 'cone_search', 'resolve_tns',
-        'recent_crossmatches',
+        'recent_crossmatches', 'summarize_rubin_transients_by_night',
     } <= set(guarded)
 
 

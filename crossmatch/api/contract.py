@@ -51,6 +51,16 @@ class ReadTimeCatalogOutcome(models.TextChoices):
     NOT_IN_SERVICE_AT_CROSSMATCH = 'not_in_service_at_crossmatch'
 
 
+class SummaryCatalogOutcome(models.TextChoices):
+    """Per-catalog outcome buckets only the window summary reports (KTD6).
+
+    Lookup never emits these: it reports the stored ``searched`` outcome and
+    lists the matches, while a summary must split searched objects into those
+    with a coincident source and those without.
+    """
+    SEARCHED_NO_MATCH = 'searched_no_match'
+
+
 class ErrorCode(models.TextChoices):
     """Request-level error codes (R28, R29)."""
     INVALID_PARAMETER = 'invalid_parameter'
@@ -142,6 +152,12 @@ CODE_DESCRIPTIONS: dict[str, str] = {
     ),
     'not_in_service_at_crossmatch': (
         'The catalog was added after this object was crossmatched.'
+    ),
+    # SummaryCatalogOutcome
+    'searched_no_match': (
+        'Crossmatched; the catalog was searched at this position and no source '
+        'lies within the crossmatch radius. Not evidence of a hostless '
+        'transient.'
     ),
     # ErrorCode
     'invalid_parameter': 'A request parameter is invalid; see param or params.',
@@ -389,6 +405,7 @@ __all__ = [
     'ObjectStatus',
     'QualifiesReason',
     'ReadTimeCatalogOutcome',
+    'SummaryCatalogOutcome',
     'dia_object_id_fields',
     'envelope',
     'error_response',

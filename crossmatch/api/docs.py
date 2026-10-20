@@ -53,6 +53,7 @@ CODE_GROUPS = (
     ('ErrorCode', 'Error code'),
     ('CutEnforcedBy', 'Reliability cut enforced by'),
     ('CutStatus', 'Reliability cut status'),
+    ('SummaryCatalogOutcome', 'Window summary catalog outcome'),
 )
 
 
@@ -110,8 +111,9 @@ def chat_connector(base_url: str, mcp: dict[str, Any]) -> dict[str, Any]:
     max_cone = float(settings.API_MAX_CONE_RADIUS_ARCSEC)
     intro = (
         'Ask Claude.ai or ChatGPT about Rubin transients by TNS name, '
-        'diaObjectId, or sky position and get this service\'s answer in the '
-        'chat, without writing code. The assistant calls three read-only tools '
+        'diaObjectId, or sky position, or how many arrived over recent Rubin '
+        'nights, and get this service\'s answer in the chat, without writing '
+        'code. The assistant calls read-only tools '
         'on this service\'s MCP endpoint, which answer from the same lookups as '
         f'the API. A lookup takes up to {int(settings.MCP_MAX_IDENTIFIERS)} '
         f'identifiers and a position search at most a {max_cone:g} arcsec '
