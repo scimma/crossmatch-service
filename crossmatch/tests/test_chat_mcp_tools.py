@@ -340,7 +340,7 @@ def test_summary_schema_enums_and_maximums_come_from_settings(client):
     assert schema['top_n']['maximum'] == 7
     assert schema['last_nights']['maximum'] == 12
     description = tools[SUMMARY_TOOL]['description']
-    for phrase in ('last_nights=7', 'last_nights=31', 'gaia_dr3', 'skymapper_dr4',
+    for phrase in ('last_nights=7', 'gaia_dr3', 'skymapper_dr4',
                    'Pitt-Google', 'lookup_rubin_transients', 'time zone'):
         assert phrase in description
 
@@ -394,8 +394,8 @@ def test_summary_tool_counts_equal_the_service_body_and_its_request(client, froz
 @pytest.mark.django_db
 @pytest.mark.parametrize('arguments, limit', [
     ({'top_n': 21}, '20'),
-    ({'last_nights': 60}, '31'),
-    ({'start': '2026-09-01T00:00:00Z', 'end': '2026-11-01T00:00:00Z'}, '31'),
+    ({'last_nights': 60}, '14'),
+    ({'start': '2026-09-01T00:00:00Z', 'end': '2026-11-01T00:00:00Z'}, '14'),
 ])
 def test_summary_over_a_limit_is_an_error_naming_it(client, frozen_now, arguments, limit):
     result = call_tool(client, SUMMARY_TOOL, arguments)

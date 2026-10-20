@@ -1,6 +1,6 @@
 """U3: window parsing and night arithmetic of the window summary (KTD2, KTD3).
 
-Pure parsing with a frozen ``now``; no database. Covers AE6 (31-night limit)
+Pure parsing with a frozen ``now``; no database. Covers AE6 (14-night limit)
 and AE9 (no window before the evening's observing means the previous night),
 plus the broker, catalog, and ``top_n`` parameters (KTD7, KTD8).
 """
@@ -100,12 +100,12 @@ def test_last_nights_ends_at_default_night():
     assert window.end == _at('2026-11-03T12:00')
 
 
-@pytest.mark.parametrize('value', ['0', '32', '-1', '1.5', 'seven'])
+@pytest.mark.parametrize('value', ['0', '15', '-1', '1.5', 'seven'])
 def test_last_nights_out_of_range_or_non_integer(value):
     exc = _error(f'last_nights={value}')
     assert exc.code == ErrorCode.INVALID_PARAMETER
     assert exc.param == 'last_nights'
-    assert '31' in exc.message
+    assert '14' in exc.message
 
 
 def test_last_nights_accepts_int_from_plain_mapping():
@@ -148,20 +148,20 @@ def test_offset_timestamp_converts_to_utc():
     [
         # 60 days (AE6).
         'start=2026-09-03T12:00Z&end=2026-11-02T12:00Z',
-        # 32 touched nights (10-02 .. 11-02): 30 whole nights plus two cut edges.
-        'start=2026-10-02T13:00Z&end=2026-11-02T13:00Z',
+        # 15 touched nights (10-19 .. 11-02): 13 whole nights plus two cut edges.
+        'start=2026-10-19T13:00Z&end=2026-11-02T13:00Z',
     ],
 )
-def test_span_over_limit_names_31(query):
+def test_span_over_limit_names_14(query):
     exc = _error(query)
     assert exc.code == ErrorCode.INVALID_PARAMETER
     assert exc.params == ['start', 'end']
-    assert '31' in exc.message
+    assert '14' in exc.message
 
 
-def test_span_of_exactly_31_nights_is_accepted():
-    window = _parse('start=2026-10-02T13:00Z&end=2026-11-02T00:00Z').window
-    assert len(window.nights) == 31
+def test_span_of_exactly_14_nights_is_accepted():
+    window = _parse('start=2026-10-19T13:00Z&end=2026-11-02T00:00Z').window
+    assert len(window.nights) == 14
 
 
 @pytest.mark.parametrize(

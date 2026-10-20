@@ -746,7 +746,7 @@ def _catalogs(
     record_oid = _column(ObjectCrossmatchRecord, 'alert')
     # Each object's current record and matched catalogs are read once, by hash
     # join over the window, then fanned out per catalog; a per-(object,
-    # catalog) lookup was the dominant cost at 31 nights.
+    # catalog) lookup was the dominant cost over long windows.
     rows = _fetch(
         window_sql
         + f'''

@@ -377,7 +377,8 @@ def _summary_description() -> str:
         '(YYYY-MM-DD, the UTC date of a time minus 12 hours), and objects fall '
         'into nights by their observation time. For "last night" or "tonight" '
         'call with no window; for "this week" or "last week" use last_nights=7; '
-        'for "last month" use last_nights=31. Never convert nights to the '
+        'for longer periods such as "last month", split them into spans of '
+        f'at most {max_nights} nights and add the results. Never convert nights to the '
         "user's local time zone; Rubin observes from Chile and nights are named "
         f'in UTC. At most {max_nights} nights per call. Catalog names: Gaia DR3 '
         'is gaia_dr3, DES is des_y6_gold, DELVE is delve_dr3_gold, SkyMapper is '
@@ -409,7 +410,7 @@ def _summary_schema() -> dict[str, Any]:
                 'type': 'integer', 'minimum': 1, 'maximum': max_nights,
                 'description': (
                     f'The N most recent Rubin nights, 1 to {max_nights} '
-                    '(7 for a week, 31 for a month).'
+                    '(7 for a week).'
                 ),
             },
             START_PARAM: {
