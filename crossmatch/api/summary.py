@@ -742,32 +742,49 @@ def _catalogs(
     names = [str(cat['name']) for cat in settings.CROSSMATCH_CATALOGS]
     matches = CatalogMatch._meta.db_table
     match_oid = _column(CatalogMatch, 'alert')
+    records = ObjectCrossmatchRecord._meta.db_table
+    record_oid = _column(ObjectCrossmatchRecord, 'alert')
+    # Each object's current record and matched catalogs are read once, by hash
+    # join over the window, then fanned out per catalog; a per-(object,
+    # catalog) lookup was the dominant cost at 31 nights.
     rows = _fetch(
         window_sql
         + f'''
+        , obj AS (
+            SELECT w.oid, rec.catalog_outcomes, mc.cats
+            FROM w
+            LEFT JOIN (
+                SELECT DISTINCT ON (r.{record_oid}) r.{record_oid} AS oid,
+                       r.catalog_outcomes
+                FROM {records} r JOIN w ON w.oid = r.{record_oid}
+                ORDER BY r.{record_oid}, r.match_version DESC
+            ) rec ON rec.oid = w.oid
+            LEFT JOIN (
+                SELECT m.{match_oid} AS oid, array_agg(DISTINCT m.catalog_name) AS cats
+                FROM {matches} m JOIN w ON w.oid = m.{match_oid}
+                GROUP BY m.{match_oid}
+            ) mc ON mc.oid = w.oid
+            WHERE w.status IN (%s, %s)
+        )
         SELECT c.name, CASE
-            WHEN EXISTS (SELECT 1 FROM {matches} m
-                         WHERE m.{match_oid} = w.oid AND m.catalog_name = c.name)
-                THEN %s
-            WHEN rec.catalog_outcomes IS NULL THEN %s
-            WHEN rec.catalog_outcomes -> c.name IS NULL THEN %s
-            WHEN rec.catalog_outcomes ->> c.name = %s THEN %s
-            ELSE rec.catalog_outcomes ->> c.name
+            WHEN c.name = ANY(obj.cats) THEN %s
+            WHEN obj.catalog_outcomes IS NULL THEN %s
+            WHEN obj.catalog_outcomes -> c.name IS NULL THEN %s
+            WHEN obj.catalog_outcomes ->> c.name = %s THEN %s
+            ELSE obj.catalog_outcomes ->> c.name
         END, count(*)
-        FROM w CROSS JOIN unnest(%s::text[]) AS c(name)
-        {_current_record_sql()}
-        WHERE w.status IN (%s, %s)
+        FROM obj CROSS JOIN unnest(%s::text[]) AS c(name)
         GROUP BY 1, 2
         ''',
         [
             *params,
+            *_CROSSMATCHED,
             COINCIDENT,
             ReadTimeCatalogOutcome.NOT_RECORDED.value,
             ReadTimeCatalogOutcome.NOT_IN_SERVICE_AT_CROSSMATCH.value,
             CatalogSearchOutcome.SEARCHED.value,
             SEARCHED_NO_MATCH,
             names,
-            *_CROSSMATCHED,
         ],
     )
     by_catalog = {name: dict.fromkeys(CATALOG_BUCKETS, 0) for name in names}
