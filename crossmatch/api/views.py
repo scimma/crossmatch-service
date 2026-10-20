@@ -8,14 +8,11 @@ layer so it stays reusable by future endpoints and a Python client.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from typing import Any
 
 from django.core.exceptions import RequestDataTooBig
 from django.db import DatabaseError
 from django.http import HttpRequest, JsonResponse
-from django.utils.dateparse import parse_datetime
-from django.utils.timezone import is_naive, make_aware
 
 from core.log import get_logger
 from api.contract import ErrorCode, error_response
@@ -27,31 +24,9 @@ from api.lookup import get_object, lookup_objects, parse_lookup_body
 from api.openapi import build_document
 from api.positions import cone_search, resolve_tns
 from api.service import InvalidQuery, recent_crossmatches
+from api.timeparse import parse_timestamp
 
 logger = get_logger(__name__)
-
-
-def _parse_timestamp(raw: str, field: str) -> datetime:
-    """Parse an ISO-8601 timestamp, treating a naive value as UTC.
-
-    Args:
-        raw: The raw query-string value.
-        field: The parameter name, for the error message.
-
-    Returns:
-        An aware ``datetime`` in UTC.
-
-    Raises:
-        InvalidQuery: If the value is not a parseable ISO-8601 timestamp.
-    """
-    parsed = parse_datetime(raw)
-    if parsed is None:
-        raise InvalidQuery(
-            f"{field} is not a valid ISO-8601 timestamp: {raw!r}", param=field
-        )
-    if is_naive(parsed):
-        parsed = make_aware(parsed, timezone.utc)
-    return parsed
 
 
 def _parse_page_size(raw: str) -> int:
@@ -117,9 +92,9 @@ def recent_crossmatches_view(request: HttpRequest) -> JsonResponse:
     try:
         kwargs: dict = {}
         if 'start' in params:
-            kwargs['start'] = _parse_timestamp(params['start'], 'start')
+            kwargs['start'] = parse_timestamp(params['start'], 'start')
         if 'end' in params:
-            kwargs['end'] = _parse_timestamp(params['end'], 'end')
+            kwargs['end'] = parse_timestamp(params['end'], 'end')
         if 'time_field' in params:
             kwargs['time_field'] = params['time_field']
         if 'detail' in params:
