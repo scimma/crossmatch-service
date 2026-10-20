@@ -136,12 +136,11 @@ def test_ping_returns_an_empty_result(client):
 # --- tools/list ---
 
 @pytest.mark.django_db
-def test_tools_list_returns_four_tools_with_titles_annotations_and_schemas(client):
+def test_tools_list_returns_every_tool_with_titles_annotations_and_schemas(client):
     resp = rpc(client, 'tools/list')
 
     assert resp.status_code == 200
     tools = resp.json()['result']['tools']
-    assert len(tools) == 4
     assert {tool['name'] for tool in tools} == TOOL_NAMES
     for tool in tools:
         assert tool['title']

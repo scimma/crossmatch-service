@@ -24,14 +24,7 @@ from api.lookup import get_object, lookup_objects, parse_lookup_body
 from api.openapi import build_document
 from api.positions import cone_search, resolve_tns
 from api.service import InvalidQuery, recent_crossmatches
-from api.summary import (
-    BROKER_PARAM,
-    CATALOG_MATCH_PARAM,
-    CATALOG_PARAM,
-    TOP_N_PARAM,
-    WINDOW_PARAMS,
-    summarize_window,
-)
+from api.summary import SUMMARY_PARAMS, summarize_window
 from api.timeparse import parse_timestamp
 
 logger = get_logger(__name__)
@@ -276,12 +269,6 @@ def resolve_tns_view(request: HttpRequest, name: str) -> JsonResponse:
     return JsonResponse(result)
 
 
-#: The query parameters ``GET api/summary`` accepts; any other is a 400.
-SUMMARY_PARAMS = frozenset(
-    (*WINDOW_PARAMS, BROKER_PARAM, CATALOG_PARAM, CATALOG_MATCH_PARAM, TOP_N_PARAM)
-)
-
-
 @api_guard(isolation='repeatable_read')
 def summary_view(request: HttpRequest) -> JsonResponse:
     """GET the window summary: object counts and outcomes for one window (R1, R17).
@@ -311,8 +298,8 @@ def summary_view(request: HttpRequest) -> JsonResponse:
     if unsupported:
         logger.info('summary unsupported parameter', params=unsupported)
         raise ApiError(
-            'summary accepts only night, last_nights, start, end, broker, '
-            f'catalog, catalog_match, and top_n. Unsupported: {", ".join(unsupported)}',
+            f'summary accepts only {", ".join(SUMMARY_PARAMS)}. '
+            f'Unsupported: {", ".join(unsupported)}',
             code=ErrorCode.UNSUPPORTED_PARAMETER,
             status=400,
             param=unsupported[0] if len(unsupported) == 1 else None,

@@ -43,8 +43,11 @@ from api.summary import (
     NIGHT_PARAM,
     START_PARAM,
     TOP_N_PARAM,
+    SUMMARY_PARAMS,
     WINDOW_PARAMS,
     broker_names,
+    catalog_names,
+    max_nights as summary_max_nights,
     parse_summary_params,
     summarize_window,
 )
@@ -345,28 +348,13 @@ def _run_describe(guard: RequestGuard, _parsed: None) -> RunResult:
 
 # --- summarize_rubin_transients_by_night ---
 
-#: The arguments the summary tool passes to ``parse_summary_params``.
-_SUMMARY_ARGUMENTS = (
-    NIGHT_PARAM, LAST_NIGHTS_PARAM, START_PARAM, END_PARAM,
-    BROKER_PARAM, CATALOG_PARAM, CATALOG_MATCH_PARAM, TOP_N_PARAM,
-)
-
-
 def _now() -> datetime:
     """The query moment, read once per call (a seam for tests)."""
     return django_timezone.now()
 
 
-def _max_nights() -> int:
-    return int(settings.SUMMARY_MAX_NIGHTS)
-
-
-def _catalog_names() -> list[str]:
-    return [str(cat['name']) for cat in settings.CROSSMATCH_CATALOGS]
-
-
 def _summary_description() -> str:
-    max_nights = _max_nights()
+    max_nights = summary_max_nights()
     return (
         'Count the Rubin Observatory transients this crossmatch service received '
         'over one Rubin observing night or a span of nights: how many distinct '
@@ -394,7 +382,7 @@ def _summary_description() -> str:
 
 
 def _summary_schema() -> dict[str, Any]:
-    max_nights = _max_nights()
+    max_nights = summary_max_nights()
     max_objects = int(settings.MCP_MAX_OBJECTS)
     return {
         'type': 'object',
@@ -429,7 +417,7 @@ def _summary_schema() -> dict[str, Any]:
                 'description': 'Only objects this broker delivered.',
             },
             CATALOG_PARAM: {
-                'type': 'string', 'enum': _catalog_names(),
+                'type': 'string', 'enum': catalog_names(),
                 'description': (
                     'Only objects with (or, with catalog_match=without, '
                     'without) a coincident source in this catalog.'
@@ -453,7 +441,7 @@ def _summary_schema() -> dict[str, Any]:
 def _summary_retry(exc: ApiError) -> str:
     """A retry shape for a rejected summary argument, by the parameter named."""
     named = exc.params or ([exc.param] if exc.param is not None else [])
-    max_nights = _max_nights()
+    max_nights = summary_max_nights()
     if exc.code == ErrorCode.FILTERS_SPAN_CATALOGS:
         return 'Retry with a single catalog.'
     forms = {
@@ -490,7 +478,7 @@ def _parse_summary(arguments: dict[str, Any]) -> tuple[dict[str, Any], datetime]
         ToolArgumentError: For any argument the API rejects, naming the limit
             and how to retry.
     """
-    params = {name: arguments.get(name) for name in _SUMMARY_ARGUMENTS}
+    params = {name: arguments.get(name) for name in SUMMARY_PARAMS}
     now = _now()
     try:
         parse_summary_params(params, now=now)

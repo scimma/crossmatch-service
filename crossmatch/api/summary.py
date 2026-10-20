@@ -201,7 +201,8 @@ def default_night(now: datetime) -> date:
     return (now.astimezone(timezone.utc) - _rollover()).date()
 
 
-def _max_nights() -> int:
+def max_nights() -> int:
+    """The most Rubin nights one summary may cover (``SUMMARY_MAX_NIGHTS``)."""
     return int(settings.SUMMARY_MAX_NIGHTS)
 
 
@@ -264,7 +265,7 @@ def _parse_night(raw: Any, now: datetime) -> SummaryWindow:
 
 def _parse_last_nights(raw: Any, now: datetime) -> SummaryWindow:
     """The ``last_nights`` form: N nights ending at the default night."""
-    count = _parse_int(raw, LAST_NIGHTS_PARAM, _max_nights())
+    count = _parse_int(raw, LAST_NIGHTS_PARAM, max_nights())
     last = default_night(now)
     first = last - timedelta(days=count - 1)
     return SummaryWindow(
@@ -286,7 +287,7 @@ def _parse_span(raw_start: Any, raw_end: Any, now: datetime) -> SummaryWindow:
     # Half-open: the last instant inside the span is just before ``end``.
     last = day_obs(end - timedelta(microseconds=1))
     touched = (last - first).days + 1
-    maximum = _max_nights()
+    maximum = max_nights()
     if touched > maximum:
         raise InvalidQuery(
             f'start to end touches {touched} Rubin nights; the maximum is '
@@ -358,6 +359,21 @@ def broker_names() -> list[str]:
     return [cut['broker'] for cut in reliability_cuts()]
 
 
+def catalog_names() -> list[str]:
+    """The configured catalog names, in ``CROSSMATCH_CATALOGS`` order."""
+    return [str(cat['name']) for cat in settings.CROSSMATCH_CATALOGS]
+
+
+#: Every parameter the summary accepts, in a stable order.
+SUMMARY_PARAMS = (
+    *WINDOW_PARAMS,
+    BROKER_PARAM,
+    CATALOG_PARAM,
+    CATALOG_MATCH_PARAM,
+    TOP_N_PARAM,
+)
+
+
 def _parse_broker(raw: Any) -> str:
     """A broker name, lowercased with non-alphanumerics removed (KTD8).
 
@@ -395,7 +411,7 @@ def parse_filters(params: Mapping[str, Any]) -> SummaryFilters:
     raw_broker = params.get(BROKER_PARAM)
     broker = _parse_broker(raw_broker) if raw_broker is not None else None
 
-    configured = [cat['name'] for cat in settings.CROSSMATCH_CATALOGS]
+    configured = catalog_names()
     raw_catalogs = _values(params, CATALOG_PARAM)
     for value in raw_catalogs:
         if not isinstance(value, str) or value not in configured:
@@ -739,7 +755,7 @@ def _catalogs(
     record does not name is ``not_in_service_at_crossmatch``, ``searched`` is
     ``searched_no_match``, and any other stored outcome is its own bucket.
     """
-    names = [str(cat['name']) for cat in settings.CROSSMATCH_CATALOGS]
+    names = catalog_names()
     matches = CatalogMatch._meta.db_table
     match_oid = _column(CatalogMatch, 'alert')
     records = ObjectCrossmatchRecord._meta.db_table
@@ -766,14 +782,18 @@ def _catalogs(
             ) mc ON mc.oid = w.oid
             WHERE w.status IN (%s, %s)
         )
+        , combos AS (
+            SELECT obj.catalog_outcomes, obj.cats, count(*) AS objects
+            FROM obj GROUP BY 1, 2
+        )
         SELECT c.name, CASE
-            WHEN c.name = ANY(obj.cats) THEN %s
-            WHEN obj.catalog_outcomes IS NULL THEN %s
-            WHEN obj.catalog_outcomes -> c.name IS NULL THEN %s
-            WHEN obj.catalog_outcomes ->> c.name = %s THEN %s
-            ELSE obj.catalog_outcomes ->> c.name
-        END, count(*)
-        FROM obj CROSS JOIN unnest(%s::text[]) AS c(name)
+            WHEN c.name = ANY(combos.cats) THEN %s
+            WHEN combos.catalog_outcomes IS NULL THEN %s
+            WHEN combos.catalog_outcomes -> c.name IS NULL THEN %s
+            WHEN combos.catalog_outcomes ->> c.name = %s THEN %s
+            ELSE combos.catalog_outcomes ->> c.name
+        END, sum(combos.objects)
+        FROM combos CROSS JOIN unnest(%s::text[]) AS c(name)
         GROUP BY 1, 2
         ''',
         [

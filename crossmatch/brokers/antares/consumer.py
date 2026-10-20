@@ -19,8 +19,8 @@ from core.log import get_logger
 logger = get_logger(__name__)
 
 BROKER_NAME = 'antares'
-_BACKOFF_INITIAL = 1  # seconds
-_BACKOFF_MAX = 60  # seconds
+_BACKOFF_INITIAL = 1    # seconds
+_BACKOFF_MAX = 60       # seconds
 
 
 def consume_alerts():

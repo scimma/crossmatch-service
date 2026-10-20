@@ -81,6 +81,7 @@ from api.summary import (
     FORM_SPAN,
     UNIT_DESCRIPTION,
     broker_names,
+    catalog_names,
 )
 from core import provenance
 from core.models import Alert, CutEnforcedBy, CutStatus
@@ -1867,7 +1868,7 @@ def _summary_schemas() -> dict[str, Any]:
         'type': ['number', 'null'], 'x-unit': 'probability', 'minimum': 0, 'maximum': 1,
     }
     night = {'type': 'string', 'format': 'date', 'description': 'A dayObs date.'}
-    catalogs = [str(cat['name']) for cat in settings.CROSSMATCH_CATALOGS]
+    catalogs = catalog_names()
     brokers = broker_names()
     basis_values = [*Alert.EventTimeBasis.values, BASIS_NOT_RECORDED]
     basis_lines = [
@@ -2476,7 +2477,7 @@ def _paths() -> dict[str, Any]:
                         'catalog',
                         {
                             'type': 'string',
-                            'enum': [str(cat['name']) for cat in settings.CROSSMATCH_CATALOGS],
+                            'enum': catalog_names(),
                         },
                         'Only crossmatched objects with (or, with '
                         'catalog_match=without, without) a coincident source '

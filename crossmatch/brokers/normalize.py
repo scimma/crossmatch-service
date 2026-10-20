@@ -181,6 +181,11 @@ def normalize_lasair(raw_alert: dict) -> dict:
     }
 
 
+def _source_mjd(source: dict) -> float | None:
+    """A diaSource's midpoint MJD-TAI (either schema spelling), or None."""
+    return _mjd(source.get('midpointMjdTai') or source.get('midPointTai'))
+
+
 def normalize_pittgoogle(alert) -> dict:
     """Normalize a Pitt-Google alert to the internal canonical format.
 
@@ -201,13 +206,13 @@ def normalize_pittgoogle(alert) -> dict:
     dia_object = payload['diaObject']
     dia_source = payload['diaSource']
 
-    source_mjd = _mjd(dia_source.get('midpointMjdTai') or dia_source.get('midPointTai'))
+    source_mjd = _source_mjd(dia_source)
     history_mjds = []
     history = payload.get('prvDiaSources')
     if isinstance(history, list):
         for entry in history:
             if isinstance(entry, dict):
-                mjd = _mjd(entry.get('midpointMjdTai') or entry.get('midPointTai'))
+                mjd = _source_mjd(entry)
                 if mjd is not None:
                     history_mjds.append(mjd)
 
