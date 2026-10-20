@@ -560,3 +560,89 @@ def test_key_column_outside_payload_columns_is_rejected():
         _validate_key_columns([{
             'name': 't', 'payload_columns': ['parallax'], 'key_columns': ['PARALLAX'],
         }])
+
+
+# --- window summary (U6 of alert window statistics: R16, R19; KTD11) ---
+
+def _summary_fixture(count=12):
+    """``count`` objects in the frozen night of ``test_summary_service``."""
+    from tests.test_summary_service import _obj
+
+    ids = [BASE_ID + 900 + n for n in range(count)]
+    for n, oid in enumerate(ids):
+        _obj(oid=oid, reliability=0.99 - n * 0.01, brokers=('lasair', 'antares'),
+             matches=('gaia_dr3',) if n % 2 else ())
+    return ids
+
+
+def _window_body(query=''):
+    from django.http import QueryDict
+
+    from api.summary import summarize_window
+    from tests.test_summary_service import NOW
+
+    return summarize_window(QueryDict(query), now=NOW)
+
+
+@pytest.mark.django_db
+def test_summary_projection_leads_with_the_answer_metadata_and_copies_the_counts(
+    django_assert_num_queries,
+):
+    from chat_mcp.projection import project_summary
+
+    ids = _summary_fixture(3)
+    body = _window_body('top_n=5')
+
+    with django_assert_num_queries(0):
+        projection = project_summary(body)
+
+    assert list(projection)[:6] == ['unit', 'clock', 'window', 'filters', 'as_of', 'notes']
+    for key in ('unit', 'clock', 'window', 'filters', 'as_of', 'notes'):
+        assert projection[key] == body[key]
+    assert projection['objects_total'] == body['totals']['objects'] == 3
+    assert projection['nights'] == body['totals']['nights']
+    assert projection['brokers'] == body['brokers']
+    assert projection['catalogs'] == body['catalogs']
+    assert projection['basis'] == body['basis']
+    reliability = projection['reliability']
+    for key in ('min', 'median', 'max', 'no_score'):
+        assert reliability[key] == body['reliability'][key]
+    assert reliability['histogram'] == [h['objects'] for h in body['reliability']['histogram']]
+    assert projection['request']['url'] == settings.MCP_API_BASE_URL + body['request']
+    assert projection['truncated'] is False
+    assert projection['top_returned'] == 3
+    assert [t['diaObjectId'] for t in projection['top']] == [str(i) for i in ids]
+    for chat, api in zip(projection['top'], body['top']):
+        assert isinstance(chat['diaObjectId'], str)
+        assert chat['diaObjectId'] == api['diaObjectId_str']
+        for key in ('reliability', 'first_broker', 'brokers', 'observed_at', 'night', 'status'):
+            assert chat[key] == api[key]
+        assert chat['links']['lasair'] == settings.LASAIR_OBJECT_URL_TEMPLATE.format(
+            diaObjectId=chat['diaObjectId'])
+        assert chat['links']['antares']
+        assert 'lookup_rubin_transients' in chat['next_step']
+        assert projection['status_meanings'][chat['status']]
+    assert 'not every object' in projection['top_note']
+    json.loads(to_text(projection))
+
+
+@pytest.mark.django_db
+def test_summary_over_the_size_cap_drops_top_entries_from_the_end():
+    from chat_mcp.projection import project_summary, to_text as text_of
+
+    ids = _summary_fixture(12)
+    body = _window_body('top_n=12')
+    full = text_of(project_summary(body))
+    cap = len(full) - 1200
+
+    with override_settings(MCP_MAX_RESULT_CHARS=cap):
+        projection = project_summary(body)
+
+    assert len(text_of(projection)) <= cap
+    kept = [t['diaObjectId'] for t in projection['top']]
+    assert 0 < len(kept) < 12
+    assert kept == [str(i) for i in ids[:len(kept)]]
+    assert projection['top_returned'] == len(kept)
+    assert projection['truncated'] is True
+    assert projection['truncation']['reasons'] == ['chat_size_limit']
+    assert projection['objects_total'] == 12

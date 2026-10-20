@@ -1,4 +1,4 @@
-"""U6: the three MCP tools through ``POST /mcp`` (R1-R4, R8, R13, R15; KTD5,
+"""U6: the MCP tools through ``POST /mcp`` (R1-R4, R8, R13, R15; KTD5,
 KTD14, KTD15; F1).
 
 Each tool call runs under the request guard and answers with one text block
@@ -296,3 +296,138 @@ def test_each_tool_call_logs_one_line_without_the_session_id(client):
             assert field in line
     flat = json.dumps(lines, default=str)
     assert session_id not in flat and token not in flat
+
+
+# --- summarize_rubin_transients_by_night (alert window statistics U6) ---
+
+SUMMARY_TOOL = 'summarize_rubin_transients_by_night'
+
+
+@pytest.fixture
+def frozen_now(monkeypatch):
+    """Pin the tool's clock to the summary-service fixture's ``NOW``."""
+    from tests.test_summary_service import NOW
+
+    monkeypatch.setattr('chat_mcp.tools._now', lambda: NOW)
+    return NOW
+
+
+def _summary_objects(count=3):
+    from tests.test_summary_service import _obj
+
+    ids = [BASE_ID + 700 + n for n in range(count)]
+    for n, oid in enumerate(ids):
+        _obj(oid=oid, reliability=0.9 - n * 0.1, brokers=('pittgoogle',),
+             matches=('des_y6_gold',) if n == 0 else ())
+    return ids
+
+
+@pytest.mark.django_db
+@override_settings(MCP_MAX_OBJECTS=7, SUMMARY_MAX_NIGHTS=12)
+def test_summary_schema_enums_and_maximums_come_from_settings(client):
+    from api.summary import broker_names
+
+    resp = client.post(MCP_URL, json.dumps(
+        {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'},
+    ), content_type='application/json')
+    tools = {t['name']: t for t in resp.json()['result']['tools']}
+
+    schema = tools[SUMMARY_TOOL]['inputSchema']['properties']
+    assert schema['broker']['enum'] == broker_names()
+    from django.conf import settings
+    assert schema['catalog']['enum'] == [c['name'] for c in settings.CROSSMATCH_CATALOGS]
+    assert schema['catalog_match']['enum'] == ['with', 'without']
+    assert schema['top_n']['maximum'] == 7
+    assert schema['last_nights']['maximum'] == 12
+    description = tools[SUMMARY_TOOL]['description']
+    for phrase in ('last_nights=7', 'last_nights=31', 'gaia_dr3', 'skymapper_dr4',
+                   'Pitt-Google', 'lookup_rubin_transients', 'time zone'):
+        assert phrase in description
+
+
+@pytest.mark.django_db(transaction=True)
+def test_summary_with_no_arguments_answers_the_default_night(client, frozen_now):
+    ids = _summary_objects()
+
+    result = call_tool(client, SUMMARY_TOOL, {})
+
+    assert result['isError'] is False
+    got = answer(result)
+    assert got['window']['form'] == 'default'
+    assert got['window']['nights'] == ['2026-11-09']
+    assert got['objects_total'] == 3
+    assert [t['diaObjectId'] for t in got['top']] == [str(i) for i in ids]
+    for entry in got['top']:
+        assert isinstance(entry['diaObjectId'], str)
+        assert entry['links']['lasair'] and entry['links']['antares']
+
+
+@pytest.mark.django_db(transaction=True)
+def test_summary_tool_counts_equal_the_service_body_and_its_request(client, frozen_now):
+    from urllib.parse import urlsplit
+
+    from api.summary import summarize_window
+
+    _summary_objects(4)
+    arguments = {'last_nights': 3, 'broker': 'Pitt-Google', 'top_n': 2}
+
+    got = answer(call_tool(client, SUMMARY_TOOL, arguments))
+    body = summarize_window(arguments, now=frozen_now)
+
+    assert got['objects_total'] == body['totals']['objects'] == 4
+    assert got['nights'] == body['totals']['nights']
+    assert got['brokers'] == body['brokers']
+    assert got['catalogs'] == body['catalogs']
+    assert got['basis'] == body['basis']
+    assert got['reliability']['no_score'] == body['reliability']['no_score']
+    assert got['reliability']['histogram'] == [
+        h['objects'] for h in body['reliability']['histogram']
+    ]
+    assert [t['diaObjectId'] for t in got['top']] == [
+        t['diaObjectId_str'] for t in body['top']
+    ]
+    url = urlsplit(got['request']['url'])
+    assert f'{url.path}?{url.query}' == body['request']
+    assert got['filters'] == body['filters']
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('arguments, limit', [
+    ({'top_n': 21}, '20'),
+    ({'last_nights': 60}, '31'),
+    ({'start': '2026-09-01T00:00:00Z', 'end': '2026-11-01T00:00:00Z'}, '31'),
+])
+def test_summary_over_a_limit_is_an_error_naming_it(client, frozen_now, arguments, limit):
+    result = call_tool(client, SUMMARY_TOOL, arguments)
+
+    assert result['isError'] is True
+    error = answer(result)['error']
+    assert error['code'] == 'invalid_arguments'
+    assert limit in error['message']
+    assert 'Retry' in error['message']
+
+
+def test_instructions_route_count_questions_to_the_summary_tool():
+    from chat_mcp.views import INSTRUCTIONS
+
+    assert SUMMARY_TOOL in INSTRUCTIONS
+    assert 'last night' in INSTRUCTIONS
+
+
+@pytest.mark.django_db(transaction=True)
+def test_summary_call_logs_the_tool_counts_and_outcome(client, frozen_now):
+    _summary_objects(3)
+
+    with capture_logs() as logs:
+        call_tool(client, SUMMARY_TOOL, {'top_n': 2})
+        call_tool(client, SUMMARY_TOOL, {'top_n': 0})
+
+    ok_line, invalid_line = tool_logs(logs)
+    assert ok_line['tool'] == SUMMARY_TOOL
+    assert ok_line['outcome'] == 'ok'
+    assert ok_line['objects_total'] == 3
+    assert ok_line['top_returned'] == 2
+    assert ok_line['nights'] == 1
+    assert ok_line['truncated'] is False
+    assert invalid_line['tool'] == SUMMARY_TOOL
+    assert invalid_line['outcome'] == 'invalid_arguments'

@@ -45,7 +45,10 @@ INSTRUCTIONS = (
     'SkyMapper DR4 sources coincide with a transient, looked up by TNS name or '
     'diaObjectId (lookup_rubin_transients) or by sky position '
     '(search_rubin_transients_near_position). Use describe_crossmatch_service '
-    'to explain coverage or why an object is absent. Always pass diaObjectIds '
+    'to explain coverage or why an object is absent. For how many objects '
+    'arrived, from which broker, last night or this week, use '
+    'summarize_rubin_transients_by_night; pass the diaObjectIds it lists to '
+    'lookup_rubin_transients for their coincident sources. Always pass diaObjectIds '
     'as strings. Offer the TNS, Lasair and ANTARES links in each answer for '
     'light curves and classifications, which this service does not hold.'
 )
