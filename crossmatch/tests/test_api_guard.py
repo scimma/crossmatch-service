@@ -7,10 +7,11 @@ production URL exists only for tests. Overrun tests cancel statements on the
 test connection, so they use ``transaction=True``.
 """
 
+import threading
 import time
 
 import pytest
-from django.db import DatabaseError, OperationalError, connection
+from django.db import DatabaseError, OperationalError, connection, transaction
 from django.http import HttpRequest, JsonResponse
 from django.test import override_settings
 from django.urls import include, path
@@ -18,6 +19,7 @@ from structlog.testing import capture_logs
 
 from api.errors import ApiError
 from api.guard import RequestGuard, api_guard, check_deadline, run_guarded, sql_phase
+from core.db import IsolationLevelError, read_only_transaction
 from core.models import Alert
 from tests.factories import AlertFactory
 
@@ -111,7 +113,39 @@ def _ok_view(request: HttpRequest) -> JsonResponse:
     return JsonResponse({'ok': True, 'pad': 'x' * 100})
 
 
+def _show_transaction_mode() -> dict[str, str]:
+    with sql_phase():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT current_setting('transaction_isolation'), "
+                "current_setting('transaction_read_only')"
+            )
+            isolation, read_only = cursor.fetchone()
+    return {'isolation': isolation, 'read_only': read_only}
+
+
+@api_guard(isolation='repeatable_read')
+def _repeatable_read_mode_view(request: HttpRequest) -> JsonResponse:
+    return JsonResponse(_show_transaction_mode())
+
+
+@api_guard
+def _default_mode_view(request: HttpRequest) -> JsonResponse:
+    return JsonResponse(_show_transaction_mode())
+
+
+@api_guard(isolation='repeatable_read')
+def _repeatable_read_long_statement_view(request: HttpRequest) -> JsonResponse:
+    with sql_phase():
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT pg_sleep(10)')
+    return JsonResponse({'ok': True})
+
+
 urlpatterns = [
+    path('rr-mode', _repeatable_read_mode_view),
+    path('default-mode', _default_mode_view),
+    path('rr-long', _repeatable_read_long_statement_view),
     path('show-timeout', _show_timeout_view),
     path('show-timeout-twice', _show_timeout_twice_view),
     path('write', _write_view),
@@ -350,3 +384,82 @@ def test_run_guarded_runs_read_only():
     with pytest.raises(DatabaseError):
         run_guarded(RequestGuard(2), AlertFactory)
     assert Alert.objects.count() == 0
+
+
+# -- Opt-in REPEATABLE READ: one snapshot per guarded call (U2, KTD4) -------
+
+
+@pytest.mark.django_db(transaction=True)
+@guard_urls
+def test_a_repeatable_read_view_runs_repeatable_read_and_read_only(client):
+    resp = client.get('/rr-mode')
+
+    assert resp.status_code == 200
+    assert resp.json() == {'isolation': 'repeatable read', 'read_only': 'on'}
+
+
+@pytest.mark.django_db(transaction=True)
+@guard_urls
+def test_a_default_view_still_runs_read_committed(client):
+    resp = client.get('/default-mode')
+
+    assert resp.status_code == 200
+    assert resp.json() == {'isolation': 'read committed', 'read_only': 'on'}
+
+
+@pytest.mark.django_db(transaction=True)
+@guard_urls
+@override_settings(API_REQUEST_BUDGET_SECONDS=0.3)
+def test_the_statement_timeout_still_applies_under_repeatable_read(client):
+    started = time.monotonic()
+    resp = client.get('/rr-long')
+
+    _assert_too_expensive(resp)
+    assert time.monotonic() - started < 2.0
+
+
+def _commit_alert_from_another_connection() -> None:
+    """Insert and commit one alert on a separate thread's own connection."""
+
+    def insert() -> None:
+        try:
+            AlertFactory()
+        finally:
+            connection.close()
+
+    worker = threading.Thread(target=insert)
+    worker.start()
+    worker.join()
+
+
+def _count_twice_around_a_concurrent_commit() -> tuple[int, int]:
+    with sql_phase():
+        before = Alert.objects.count()
+    _commit_alert_from_another_connection()
+    with sql_phase():
+        after = Alert.objects.count()
+    return before, after
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ('isolation', 'expected'),
+    [('repeatable_read', (0, 0)), (None, (0, 1))],
+)
+def test_repeatable_read_reads_share_one_snapshot(isolation, expected):
+    # Read committed (the control) sees the concurrent commit on its second
+    # read; repeatable read does not.
+    counts = run_guarded(
+        RequestGuard(5), _count_twice_around_a_concurrent_commit, isolation=isolation
+    )
+
+    assert counts == expected
+    assert Alert.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_repeatable_read_inside_an_open_atomic_block_is_a_clear_error():
+    with transaction.atomic():
+        with pytest.raises(IsolationLevelError, match='outermost'):
+            with read_only_transaction(isolation='repeatable_read'):
+                pass
