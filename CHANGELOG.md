@@ -14,9 +14,17 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+### Added
+
+- `GET /api/summary` answers "what came in" questions over Rubin observing nights: the number of distinct objects per night, per delivering broker (with the overlap between brokers), per catalog match outcome, the reliability distribution, and the most reliable objects. A window is one night (`night=YYYY-MM-DD`, a Rubin dayObs), the most recent nights (`last_nights=N`), or a UTC `start`/`end` span, up to 14 nights (`SUMMARY_MAX_NIGHTS`); with no window it covers the latest night whose observing has begun. Optional `broker`, `catalog` and `catalog_match=with|without` filters narrow every number, and a "without a match" answer reports each reason (searched with nothing found, outside the footprint, read failed, and so on) separately. Every answer names its unit (objects, not alerts or deliveries), its clock (observation time), its window and filters, the moment it was computed, and the request that reproduces it; all numbers come from one database snapshot. `/api/describe` publishes the night limit as `max_summary_nights`.
+- The chat connector gains a fourth tool, `summarize_rubin_transients_by_night`, which projects the summary for Claude.ai and ChatGPT: "last night" needs no date math, "this week" is `last_nights=7`, and the most reliable objects carry string diaObjectIds, Lasair and ANTARES links, and a hint to look them up.
+- New objects record how their observation time was obtained (`event_time_basis`: first detection, later detection, broker receive, or ingest time; migration `0013`, a nullable column with no backfill). Summaries count objects per basis so answers say which objects may sit in a later night than their first detection.
+
 ### Changed
 
 - The ANTARES consumer uses antares-client 2.0.2, which talks to ANTARES's v2 API. ANTARES stops supporting its v1 API on 2026-11-04, and the consumer fetched each streamed locus's alerts over v1, so without this upgrade ANTARES ingest stops at the cutoff. The upgrade drops marshmallow and marshmallow-jsonapi from the lock and moves no other pin.
+- ANTARES-delivered objects are now placed by the earliest Rubin detection in their ANTARES locus (`oldest_alert_observation_time`, or the earliest detection row of the locus lightcurve) instead of ANTARES's receive time, and Pitt-Google-delivered objects by the earliest detection their alert carries. Other surveys' history in a locus is ignored. Objects already stored keep their existing times.
+- An impossible date in a `recent-crossmatches` `start`/`end` (for example month 13) now returns `400 invalid_parameter` instead of a server error.
 
 ### Fixed
 
