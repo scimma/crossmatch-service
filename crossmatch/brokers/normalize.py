@@ -27,13 +27,19 @@ def _mjd(value) -> float | None:
         value: A candidate MJD from a broker payload, of any type.
 
     Returns:
-        The MJD as a float, or None for missing, non-numeric, or non-finite
-        values (bools are rejected).
+        The MJD as a float, or None for missing, non-numeric, non-finite, or
+        out-of-range values (bools are rejected).
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     value = float(value)
-    return value if math.isfinite(value) else None
+    if not math.isfinite(value):
+        return None
+    try:
+        _mjd_to_datetime(value)
+    except (OverflowError, ValueError):
+        return None
+    return value
 
 
 def _mjd_to_datetime(mjd: float) -> datetime:

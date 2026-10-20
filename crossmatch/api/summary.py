@@ -279,13 +279,21 @@ def _parse_last_nights(raw: Any, now: datetime) -> SummaryWindow:
 def _parse_span(raw_start: Any, raw_end: Any, now: datetime) -> SummaryWindow:
     """The ``start`` + ``end`` form: a half-open UTC span."""
     span_params = [START_PARAM, END_PARAM]
-    start = parse_timestamp(raw_start, START_PARAM).astimezone(timezone.utc)
-    end = parse_timestamp(raw_end, END_PARAM).astimezone(timezone.utc)
+    try:
+        start = parse_timestamp(raw_start, START_PARAM).astimezone(timezone.utc)
+        end = parse_timestamp(raw_end, END_PARAM).astimezone(timezone.utc)
+        first = day_obs(start)
+        # Half-open: the last instant inside the span is just before ``end``.
+        last = day_obs(end - timedelta(microseconds=1))
+        night_start(first)
+        night_end(last)
+    except OverflowError:
+        raise InvalidQuery(
+            'start and end must lie within the supported date range',
+            params=span_params,
+        ) from None
     if end <= start:
         raise InvalidQuery('end must be after start', params=span_params)
-    first = day_obs(start)
-    # Half-open: the last instant inside the span is just before ``end``.
-    last = day_obs(end - timedelta(microseconds=1))
     touched = (last - first).days + 1
     maximum = max_nights()
     if touched > maximum:

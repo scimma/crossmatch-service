@@ -407,6 +407,18 @@ def test_summary_over_a_limit_is_an_error_naming_it(client, frozen_now, argument
     assert 'Retry' in error['message']
 
 
+@pytest.mark.django_db
+def test_summary_year_one_span_is_a_tool_argument_error(client, frozen_now):
+    result = call_tool(
+        client,
+        SUMMARY_TOOL,
+        {'start': '0001-01-01T00:00:00Z', 'end': '0001-01-02T00:00:00Z'},
+    )
+
+    assert result['isError'] is True
+    assert answer(result)['error']['code'] == 'invalid_arguments'
+
+
 def test_instructions_route_count_questions_to_the_summary_tool():
     from chat_mcp.views import INSTRUCTIONS
 

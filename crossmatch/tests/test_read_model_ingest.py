@@ -274,6 +274,20 @@ def test_antares_lightcurve_without_detections_falls_through_to_alert_midpoint()
     assert canonical["event_time_basis"] == Alert.EventTimeBasis.LATER_DETECTION
 
 
+def test_out_of_range_mjds_fall_through_instead_of_raising():
+    # A finite but impossible MJD must not drop the delivery.
+    raw = _antares_raw()
+    raw["lsst_diaSource_midpointMjdTai"] = 59970.0
+    canonical = normalize_antares(raw, locus_first_detection_mjd=1e20)
+    assert canonical["event_time"] == _mjd(59970.0)
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.LATER_DETECTION
+
+    payload = _pittgoogle_payload()
+    payload["prvDiaSources"] = [{"midpointMjdTai": -1e9}]
+    canonical = normalize_pittgoogle(_PittGoogleAlert(payload))
+    assert canonical["event_time"] == _mjd(60000.0)
+
+
 def test_antares_locus_extraction_never_raises():
     class _Broken:
         @property

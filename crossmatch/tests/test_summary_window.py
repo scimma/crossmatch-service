@@ -323,3 +323,16 @@ def test_query_is_frozen():
     query = _parse('')
     with pytest.raises(AttributeError):
         query.top_n = 3
+
+
+@pytest.mark.parametrize(
+    'query',
+    [
+        'start=0001-01-01T00:00:00Z&end=0001-01-02T00:00:00Z',
+        'start=0001-01-01T01:00:00%2B05:00&end=0001-01-02T00:00:00Z',
+    ],
+)
+def test_span_outside_the_date_range_is_invalid_not_a_crash(query):
+    exc = _error(query)
+    assert exc.code == ErrorCode.INVALID_PARAMETER
+    assert exc.params == ['start', 'end']
