@@ -16,7 +16,10 @@ or time.
 ### Alert
 A transient-source detection ingested from a Broker, carrying a sky position (right
 ascension and declination, in degrees) and a Rubin object identifier. Alerts are the
-input stream the service crossmatches and publishes results for.
+input stream the service crossmatches and publishes results for. The service keeps
+one Alert per Rubin object, not per detection: repeat detections of the same object, and
+repeat deliveries from the same Broker, add nothing, so counts of Alerts are counts of
+objects.
 
 An Alert moves through a status lifecycle as the pipeline processes it: *ingested* on
 arrival, *queued* when selected into a crossmatch batch, *matched* once that batch's
@@ -43,6 +46,13 @@ above that floor: ANTARES and Lasair enforce it in their own broker-side filters
 the Pitt-Google subscription enforces the service's `MIN_DIASOURCE_RELIABILITY`. It is the ranking basis for "most likely transient" queries. The value
 is per-diaSource and, where the read model persists it, is captured at an object's first
 detection.
+
+### Observing night
+A Rubin night of observation, named by its dayObs date: the calendar date in UTC minus
+12 hours, so one night never straddles two names. An Alert belongs to a night by its first
+detection's observation time, not by when the service ingested it; "last night" means the
+most recent observing night. A recent night stays provisional while late broker deliveries
+can still add Alerts to it.
 
 ### Broker
 An upstream service that delivers the Vera C. Rubin Observatory alert stream — ANTARES,
