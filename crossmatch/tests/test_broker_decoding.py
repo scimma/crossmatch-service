@@ -38,31 +38,47 @@ class _KafkaMessage:
         return self._value
 
 
-def _antares_locus():
-    """Decode the locus fixture through antares-client's stream decoder."""
+def _antares_locus(message=None):
+    """Decode a locus message through antares-client's stream decoder."""
     from antares_client import stream
 
-    raw = zlib.compress(stream.bson.dumps(_fixture("antares_locus.json")))
+    if message is None:
+        message = _fixture("antares_locus.json")
+    raw = zlib.compress(stream.bson.dumps(message))
     return stream._parse_message(_KafkaMessage(raw))
 
 
-def _antares_alerts(*_args, **_kwargs):
-    """Stand-in for the client's REST fetch of a locus's alerts (no network)."""
-    from antares_client._api.schemas import _AlertSchema
+def _antares_alerts(name="antares_alerts.json"):
+    """Build the client's Alert models from an alerts fixture (API order)."""
+    from antares_client.models import Alert as AntaresAlert
 
-    return iter(_AlertSchema(many=True).load(_fixture("antares_alerts.json")))
+    return [
+        AntaresAlert(
+            alert_id=item["id"],
+            mjd=item["attributes"]["mjd"],
+            properties=item["attributes"]["properties"],
+        )
+        for item in _fixture(name)["data"]
+    ]
+
+
+def _no_network():
+    """Fail any HTTP request the ANTARES client would make."""
+    return mock.patch(
+        "httpx.Client.send", side_effect=AssertionError("unexpected HTTP request")
+    )
 
 
 @pytest.mark.django_db
 def test_antares_locus_decodes_normalizes_and_ingests():
     locus = _antares_locus()
 
-    with mock.patch(
-        "antares_client.models._list_resources", side_effect=_antares_alerts
+    with _no_network(), mock.patch(
+        "antares_client.search.get_locus_alerts", return_value=_antares_alerts()
     ) as fetch:
         raw = locus.alerts[0].properties
 
-    fetch.assert_called_once()
+    fetch.assert_called_once_with("ANT2026abcdefg")
     canonical = normalize_antares(raw)
     assert canonical["lsst_diaObject_diaObjectId"] == 170433143923278190
     assert canonical["ra_deg"] == 238.986105
@@ -71,15 +87,23 @@ def test_antares_locus_decodes_normalizes_and_ingests():
     assert alert.lsst_diaSource_diaSourceId == 170433143923278191
 
 
-def test_antares_lightcurve_parses_under_pandas3():
-    lightcurve = _antares_locus().lightcurve
+def test_antares_newer_stream_format_decodes():
+    """2.x also decodes the top-level message shape that 1.14 rejected."""
+    attributes = _fixture("antares_locus.json")["data"]["attributes"]
+    message = {
+        "id": "ANT2026abcdefg",
+        "ra": attributes["ra"],
+        "dec": attributes["dec"],
+        "properties": attributes["properties"],
+        "tags": [],
+        "catalogs": [],
+    }
 
-    assert list(lightcurve.columns)[:3] == ["alert_id", "ant_mjd", "ant_survey"]
-    assert len(lightcurve) == 2
-    assert lightcurve["ant_passband"].tolist() == ["g", "r"]
-    # pandas 3 reads strings as its string dtype, not object.
-    assert lightcurve["ant_passband"].dtype != object
-    assert lightcurve["ant_mag"].isna().tolist() == [False, True]
+    locus = _antares_locus(message)
+
+    assert locus.locus_id == "ANT2026abcdefg"
+    assert (locus.ra, locus.dec) == (attributes["ra"], attributes["dec"])
+    assert locus.properties == attributes["properties"]
 
 
 @pytest.mark.django_db
