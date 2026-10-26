@@ -9,7 +9,7 @@ import time
 from antares_client import StreamingClient
 from django.conf import settings
 from brokers import ingest_alert
-from brokers.normalize import normalize_antares
+from brokers.normalize import normalize_antares, select_antares_rubin_alert
 from core.log import get_logger
 
 logger = get_logger(__name__)
@@ -43,15 +43,14 @@ def consume_alerts():
             logger.info('Listening for ANTARES alerts...')
             for topic, locus in client.iter():
                 try:
-                    newest_alert = locus.alerts[0]
-                    raw = newest_alert.properties
-                    if 'lsst_diaObject_diaObjectId' not in raw:
+                    rubin_alert = select_antares_rubin_alert(locus.alerts)
+                    if rubin_alert is None:
                         logger.info(
                             'Skipping alert without lsst_diaObject_diaObjectId',
                             locus_id=locus.locus_id,
                         )
                         continue
-                    canonical = normalize_antares(raw)
+                    canonical = normalize_antares(rubin_alert.properties)
                     ingest_alert(canonical, broker=BROKER_NAME)
                     backoff = _BACKOFF_INITIAL
                 except Exception as err:

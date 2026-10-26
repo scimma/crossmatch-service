@@ -15,7 +15,12 @@ from unittest import mock
 import pytest
 
 from brokers import ingest_alert
-from brokers.normalize import normalize_antares, normalize_lasair, normalize_pittgoogle
+from brokers.normalize import (
+    normalize_antares,
+    normalize_lasair,
+    normalize_pittgoogle,
+    select_antares_rubin_alert,
+)
 from core.models import Alert
 
 FIXTURES = Path(__file__).parent / "fixtures" / "brokers"
@@ -85,6 +90,39 @@ def test_antares_locus_decodes_normalizes_and_ingests():
     assert ingest_alert(canonical, "antares") is True
     alert = Alert.objects.get(lsst_diaObject_diaObjectId=170433143923278190)
     assert alert.lsst_diaSource_diaSourceId == 170433143923278191
+
+
+def test_antares_rubin_alert_is_newest_rubin_not_first_or_last():
+    """ANTARES lists a locus's alerts oldest-first, often ZTF at both ends."""
+    alerts = _antares_alerts("antares_alerts_ztf_history.json")
+
+    chosen = select_antares_rubin_alert(alerts)
+
+    assert chosen.alert_id == "lsst:170525491642502484"
+    assert chosen.properties["lsst_diaSource_diaSourceId"] == 170525491642502484
+
+
+def test_antares_rubin_alert_tie_takes_later_in_api_order():
+    from antares_client.models import Alert as AntaresAlert
+
+    first = AntaresAlert("lsst:1", 61185.35, {"lsst_diaObject_diaObjectId": 7})
+    second = AntaresAlert("lsst:2", 61185.35, {"lsst_diaObject_diaObjectId": 7})
+
+    assert select_antares_rubin_alert([first, second]) is second
+
+
+def test_antares_rubin_alert_single_rubin_alert():
+    alerts = _antares_alerts()
+
+    assert select_antares_rubin_alert(alerts) is alerts[0]
+
+
+def test_antares_rubin_alert_none_without_rubin_alerts():
+    alerts = _antares_alerts("antares_alerts_ztf_history.json")
+    ztf_only = [a for a in alerts if a.alert_id.startswith("ztf")]
+
+    assert select_antares_rubin_alert(ztf_only) is None
+    assert select_antares_rubin_alert([]) is None
 
 
 def test_antares_newer_stream_format_decodes():
