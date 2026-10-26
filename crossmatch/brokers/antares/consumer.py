@@ -22,9 +22,9 @@ _BACKOFF_MAX = 60       # seconds
 def consume_alerts():
     """Connect to the ANTARES streaming broker and ingest alerts.
 
-    Uses StreamingClient.iter() which yields (topic, locus) tuples.
-    On error, reconnects with exponential backoff matching the Lasair
-    consumer pattern.
+    Polls StreamingClient for (topic, locus) tuples. A message the client
+    cannot decode is skipped on the same client; any other streaming error
+    reconnects with exponential backoff matching the Lasair consumer pattern.
     """
     backoff = _BACKOFF_INITIAL
     while True:
@@ -41,7 +41,17 @@ def consume_alerts():
                 group=settings.ANTARES_GROUP_ID,
             )
             logger.info('Listening for ANTARES alerts...')
-            for topic, locus in client.iter():
+            while True:
+                try:
+                    topic, locus = client.poll()
+                except ValueError as err:
+                    # antares-client 2.x raises ValueError for a message it
+                    # cannot decode (1.14 skipped such loci itself). The
+                    # consumer has already moved past it, so keep polling.
+                    logger.warning(
+                        'Skipping undecodable ANTARES message', error=str(err)
+                    )
+                    continue
                 try:
                     rubin_alert = select_antares_rubin_alert(locus.alerts)
                     if rubin_alert is None:

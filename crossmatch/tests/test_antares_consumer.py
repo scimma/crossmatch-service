@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+from structlog.testing import capture_logs
 
 from brokers.antares import consumer
 from core.models import AlertDelivery
@@ -59,12 +60,16 @@ def _alerts(name):
 
 
 class _FakeClient:
-    """Plays a scripted sequence of poll() outcomes, then stops the loop."""
+    """Plays a scripted sequence of poll() outcomes, then stops the loop.
+
+    Every client the consumer builds (including after a reconnect) shares the
+    one script, so a reconnect continues where the previous client stopped.
+    """
 
     instances = []
 
     def __init__(self, script):
-        self._script = list(script)
+        self._script = script
         _FakeClient.instances.append(self)
 
     def poll(self, timeout=None):
@@ -75,13 +80,10 @@ class _FakeClient:
             raise step
         return step
 
-    def iter(self, limit=None):
-        while True:
-            yield self.poll()
-
 
 def _run(script, alerts):
     _FakeClient.instances = []
+    script = list(script)
     with mock.patch.object(
         consumer, "StreamingClient", side_effect=lambda **_: _FakeClient(script)
     ), mock.patch(
@@ -116,3 +118,42 @@ def test_locus_without_rubin_alert_is_skipped():
         _run([("topic", _locus())], ztf_only)
 
     ingest.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_undecodable_message_is_skipped_on_the_same_client():
+    """R5: 2.x raises ValueError for a message it cannot decode; skip it in place."""
+    undecodable = ValueError("Cannot decode Kafka message")
+
+    with capture_logs() as logs:
+        sleep = _run([undecodable, ("topic", _locus())], _alerts("antares_alerts.json"))
+
+    assert len(_FakeClient.instances) == 1
+    sleep.assert_not_called()
+    assert AlertDelivery.objects.filter(broker="antares").count() == 1
+    assert [e["log_level"] for e in logs if "undecodable" in e["event"]] == ["warning"]
+
+
+def test_transport_error_reconnects_with_backoff():
+    from antares_client.exceptions import AntaresException
+
+    with capture_logs() as logs:
+        sleep = _run([AntaresException("broker down")], [])
+
+    assert len(_FakeClient.instances) == 2
+    sleep.assert_called_once_with(consumer._BACKOFF_INITIAL)
+    assert any("ANTARES streaming error" in e["event"] for e in logs)
+
+
+@pytest.mark.django_db
+def test_ingest_error_keeps_polling_the_same_client():
+    script = [("topic", _locus()), ("topic", _locus())]
+
+    with mock.patch.object(
+        consumer, "ingest_alert", side_effect=[RuntimeError("db"), True]
+    ) as ingest, capture_logs() as logs:
+        _run(script, _alerts("antares_alerts.json"))
+
+    assert ingest.call_count == 2
+    assert len(_FakeClient.instances) == 1
+    assert any("Error ingesting ANTARES alert" in e["event"] for e in logs)
