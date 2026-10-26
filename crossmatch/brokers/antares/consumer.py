@@ -46,8 +46,7 @@ def consume_alerts():
                     topic, locus = client.poll()
                 except ValueError as err:
                     # antares-client 2.x raises ValueError for a message it
-                    # cannot decode (1.14 skipped such loci itself). The
-                    # consumer has already moved past it, so keep polling.
+                    # cannot decode.
                     logger.warning(
                         'Skipping undecodable ANTARES message', error=str(err)
                     )
