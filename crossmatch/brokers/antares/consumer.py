@@ -9,7 +9,7 @@ import time
 from antares_client import StreamingClient
 from django.conf import settings
 from brokers import ingest_alert
-from brokers.normalize import normalize_antares
+from brokers.normalize import normalize_antares, select_antares_rubin_alert
 from core.log import get_logger
 
 logger = get_logger(__name__)
@@ -22,9 +22,9 @@ _BACKOFF_MAX = 60       # seconds
 def consume_alerts():
     """Connect to the ANTARES streaming broker and ingest alerts.
 
-    Uses StreamingClient.iter() which yields (topic, locus) tuples.
-    On error, reconnects with exponential backoff matching the Lasair
-    consumer pattern.
+    Polls StreamingClient for (topic, locus) tuples. A message the client
+    cannot decode is skipped on the same client; any other streaming error
+    reconnects with exponential backoff matching the Lasair consumer pattern.
     """
     backoff = _BACKOFF_INITIAL
     while True:
@@ -41,17 +41,25 @@ def consume_alerts():
                 group=settings.ANTARES_GROUP_ID,
             )
             logger.info('Listening for ANTARES alerts...')
-            for topic, locus in client.iter():
+            while True:
                 try:
-                    newest_alert = locus.alerts[0]
-                    raw = newest_alert.properties
-                    if 'lsst_diaObject_diaObjectId' not in raw:
+                    topic, locus = client.poll()
+                except ValueError as err:
+                    # antares-client 2.x raises ValueError for a message it
+                    # cannot decode.
+                    logger.warning(
+                        'Skipping undecodable ANTARES message', error=str(err)
+                    )
+                    continue
+                try:
+                    rubin_alert = select_antares_rubin_alert(locus.alerts)
+                    if rubin_alert is None:
                         logger.info(
                             'Skipping alert without lsst_diaObject_diaObjectId',
                             locus_id=locus.locus_id,
                         )
                         continue
-                    canonical = normalize_antares(raw)
+                    canonical = normalize_antares(rubin_alert.properties)
                     ingest_alert(canonical, broker=BROKER_NAME)
                     backoff = _BACKOFF_INITIAL
                 except Exception as err:

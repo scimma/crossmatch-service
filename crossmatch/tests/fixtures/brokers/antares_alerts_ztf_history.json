@@ -1,0 +1,60 @@
+{
+  "data": [
+    {
+      "type": "alert",
+      "id": "ztf_upper_limit:ZTF18abiqvfb-907441145415",
+      "attributes": {
+        "mjd": 58661.441145800054,
+        "processed_at": "2019-06-27T10:35:14+00:00",
+        "properties": {
+          "ztf_object_id": "ZTF18abiqvfb",
+          "ztf_diffmaglim": 20.267
+        }
+      }
+    },
+    {
+      "type": "alert",
+      "id": "lsst:170446371625109043",
+      "attributes": {
+        "mjd": 61185.35,
+        "processed_at": "2026-08-20T08:24:00+00:00",
+        "properties": {
+          "lsst_diaObject_diaObjectId": 170446371625109043,
+          "lsst_diaObject_ra": 110.596570,
+          "lsst_diaObject_dec": -11.321831,
+          "lsst_diaSource_diaSourceId": 170446371625109043,
+          "lsst_diaSource_reliability": 0.71,
+          "ant_time_received": 1787214240
+        }
+      }
+    },
+    {
+      "type": "alert",
+      "id": "lsst:170525491642502484",
+      "attributes": {
+        "mjd": 61203.28,
+        "processed_at": "2026-09-07T06:43:00+00:00",
+        "properties": {
+          "lsst_diaObject_diaObjectId": 170446371625109043,
+          "lsst_diaObject_ra": 110.596572,
+          "lsst_diaObject_dec": -11.321829,
+          "lsst_diaSource_diaSourceId": 170525491642502484,
+          "lsst_diaSource_reliability": 0.88,
+          "ant_time_received": 1788763380
+        }
+      }
+    },
+    {
+      "type": "alert",
+      "id": "ztf_candidate:3585552932715015004",
+      "attributes": {
+        "mjd": 61339.55293980008,
+        "processed_at": "2027-01-21T13:16:14+00:00",
+        "properties": {
+          "ztf_object_id": "ZTF18abiqvfb",
+          "ztf_magpsf": 17.78
+        }
+      }
+    }
+  ]
+}

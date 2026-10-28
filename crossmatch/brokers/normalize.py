@@ -7,6 +7,30 @@ from datetime import datetime, timedelta, timezone
 _MJD_EPOCH = datetime(1858, 11, 17, tzinfo=timezone.utc)
 
 
+def select_antares_rubin_alert(alerts: list) -> object | None:
+    """Return the newest Rubin alert on an ANTARES locus, or None.
+
+    ANTARES lists a locus's alerts oldest-first, and a locus can hold years
+    of other surveys' history (e.g. ZTF) at either end, so neither the first
+    nor the last alert is reliably the Rubin one. Among alerts whose
+    properties carry ``lsst_diaObject_diaObjectId``, pick the greatest
+    ``mjd``; on a tie, the one later in the API's order.
+
+    Args:
+        alerts: The locus's antares-client Alert models, in API order.
+
+    Returns:
+        The chosen Alert, or None when no alert is a Rubin alert.
+    """
+    chosen = None
+    for alert in alerts:
+        if 'lsst_diaObject_diaObjectId' not in (alert.properties or {}):
+            continue
+        if chosen is None or alert.mjd >= chosen.mjd:
+            chosen = alert
+    return chosen
+
+
 def normalize_antares(raw_alert: dict) -> dict:
     """Normalize an ANTARES alert to the internal canonical format.
 

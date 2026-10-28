@@ -14,6 +14,15 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+### Changed
+
+- The ANTARES consumer uses antares-client 2.0.2, which talks to ANTARES's v2 API. ANTARES stops supporting its v1 API on 2026-11-04, and the consumer fetched each streamed locus's alerts over v1, so without this upgrade ANTARES ingest stops at the cutoff. The upgrade drops marshmallow and marshmallow-jsonapi from the lock and moves no other pin.
+
+### Fixed
+
+- The ANTARES consumer no longer skips Rubin alerts on loci with older ZTF history. ANTARES lists a locus's alerts oldest-first, and the consumer read the first one as the newest, so any locus whose oldest alert was from ZTF was dropped as having no `lsst_diaObject_diaObjectId` (on PROD from 2026-10-14 to 2026-10-26: 4,209 skips against 9 ANTARES deliveries). It now ingests the locus's newest alert that carries a diaObjectId.
+- A stream message that antares-client cannot decode is now skipped on the same connection. Under 2.x such a message tore down the ANTARES Kafka client and reconnected with backoff.
+
 ## [0.16.2] - 2026-10-13
 
 ### Fixed
