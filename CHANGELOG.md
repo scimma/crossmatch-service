@@ -14,6 +14,8 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-28
+
 ### Added
 
 - `GET /api/summary` answers "what came in" questions over Rubin observing nights: the number of distinct objects per night, per delivering broker (with the overlap between brokers), per catalog match outcome, the reliability distribution, and the most reliable objects. A window is one night (`night=YYYY-MM-DD`, a Rubin dayObs), the most recent nights (`last_nights=N`), or a UTC `start`/`end` span, up to 14 nights (`SUMMARY_MAX_NIGHTS`); with no window it covers the latest night whose observing has begun. Optional `broker`, `catalog` and `catalog_match=with|without` filters narrow every number, and a "without a match" answer reports each reason (searched with nothing found, outside the footprint, read failed, and so on) separately. Every answer names its unit (objects, not alerts or deliveries), its clock (observation time), its window and filters, the moment it was computed, and the request that reproduces it; all numbers come from one database snapshot. `/api/describe` publishes the night limit as `max_summary_nights`.
@@ -274,7 +276,8 @@ Initial release of the crossmatch service.
 - Postgres init race condition on startup.
 - diaSourceId reliability filtering.
 
-[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.16.2...HEAD
+[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/scimma/crossmatch-service/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/scimma/crossmatch-service/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/scimma/crossmatch-service/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/scimma/crossmatch-service/compare/v0.15.0...v0.16.0
