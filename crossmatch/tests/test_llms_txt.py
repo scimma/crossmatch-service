@@ -78,7 +78,9 @@ def test_llms_txt_links_use_https_behind_the_tls_proxy(client):
     assert all(url.startswith('http://') for _, url in _links(plain))
 
 
-@pytest.mark.django_db
+# transaction=True: the summary route reads one REPEATABLE READ snapshot,
+# which must be the outermost transaction.
+@pytest.mark.django_db(transaction=True)
 def test_llms_txt_links_resolve_to_live_routes(client):
     links = _links(client.get(LLMS).content.decode())
     assert links
@@ -191,6 +193,13 @@ def test_llms_txt_gives_the_absolute_https_mcp_url_behind_the_tls_proxy(client):
         assert snippet in text, snippet
     for tool in client.get('/api/describe').json()['mcp']['tools']:
         assert tool['name'] in text, tool
+
+
+def test_chat_setup_intro_states_no_fixed_tool_count():
+    """The tool list grows (the window summary joined later); the intro must not count it."""
+    intro = docs.reference('http://testserver')['chat_connector']['intro']
+    assert not re.search(r'\b(three|four|five|\d+) read-only tools\b', intro)
+    assert 'read-only tools' in intro
 
 
 def test_markdown_and_html_reference_carry_the_same_chat_setup_section(client):

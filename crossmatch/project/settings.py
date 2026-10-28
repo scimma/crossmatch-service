@@ -825,6 +825,23 @@ MCP_MAX_OBJECTS = int(os.environ.get('MCP_MAX_OBJECTS', '20'))
 MCP_MATCHES_PER_CATALOG = int(os.environ.get('MCP_MATCHES_PER_CATALOG', '3'))
 MCP_MAX_RESULT_CHARS = int(os.environ.get('MCP_MAX_RESULT_CHARS', '30000'))
 MCP_API_BASE_URL = os.environ.get('MCP_API_BASE_URL', 'https://crossmatch.scimma.org')
+
+# Window summary (api/summary.py; KTD2, KTD3, KTD10), read at call time.
+#   - SUMMARY_MAX_NIGHTS: Rubin nights (dayObs dates) one summary may cover; a
+#     span counts every night it touches. 14 keeps a filtered summary near
+#     2.5 s at ~35k objects/night; 31 nights measured 4.2-5.1 s against the
+#     5 s API_REQUEST_BUDGET_SECONDS.
+#   - SUMMARY_NIGHT_ROLLOVER_HOURS: night D has begun once the UTC clock passes
+#     D 00:00Z plus this many hours (23 = D 23:00Z, when observing starts); the
+#     default window is the latest begun night.
+#   - SUMMARY_PROVISIONAL_DAYS: a night is provisional while it ended less than
+#     this many days ago (covers Lasair's 90th-percentile delivery delay).
+#   - SUMMARY_DEFAULT_TOP_N: most-reliable objects listed when the caller gives
+#     no top_n; the maximum is MCP_MAX_OBJECTS.
+SUMMARY_MAX_NIGHTS = int(os.environ.get('SUMMARY_MAX_NIGHTS', '14'))
+SUMMARY_NIGHT_ROLLOVER_HOURS = int(os.environ.get('SUMMARY_NIGHT_ROLLOVER_HOURS', '23'))
+SUMMARY_PROVISIONAL_DAYS = int(os.environ.get('SUMMARY_PROVISIONAL_DAYS', '6'))
+SUMMARY_DEFAULT_TOP_N = int(os.environ.get('SUMMARY_DEFAULT_TOP_N', '10'))
 # MCP endpoint transport (KTD3, KTD13).
 #   - MCP_ALLOWED_ORIGINS: comma-separated browser origins allowed to call
 #     /mcp. A request carrying any other Origin header gets 403 (the transport

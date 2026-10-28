@@ -31,6 +31,7 @@ TOOL_NAMES = {
     'lookup_rubin_transients',
     'search_rubin_transients_near_position',
     'describe_crossmatch_service',
+    'summarize_rubin_transients_by_night',
 }
 READ_ONLY_ANNOTATIONS = {
     'readOnlyHint': True,
@@ -135,7 +136,7 @@ def test_ping_returns_an_empty_result(client):
 # --- tools/list ---
 
 @pytest.mark.django_db
-def test_tools_list_returns_three_tools_with_titles_annotations_and_schemas(client):
+def test_tools_list_returns_every_tool_with_titles_annotations_and_schemas(client):
     resp = rpc(client, 'tools/list')
 
     assert resp.status_code == 200

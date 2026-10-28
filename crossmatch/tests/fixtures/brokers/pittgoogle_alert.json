@@ -1,4 +1,8 @@
 {
   "diaObject": {"diaObjectId": 170433143923278192, "ra": 150.25, "dec": 2.5},
-  "diaSource": {"diaSourceId": 170433143923278193, "midpointMjdTai": 60941.25, "reliability": 0.81}
+  "diaSource": {"diaSourceId": 170433143923278193, "midpointMjdTai": 60941.25, "reliability": 0.81},
+  "prvDiaSources": [
+    {"diaSourceId": 170433143923278180, "midpointMjdTai": 60939.5},
+    {"diaSourceId": 170433143923278181, "midpointMjdTai": 60940.75}
+  ]
 }

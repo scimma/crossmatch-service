@@ -8,14 +8,11 @@ layer so it stays reusable by future endpoints and a Python client.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from typing import Any
 
 from django.core.exceptions import RequestDataTooBig
 from django.db import DatabaseError
 from django.http import HttpRequest, JsonResponse
-from django.utils.dateparse import parse_datetime
-from django.utils.timezone import is_naive, make_aware
 
 from core.log import get_logger
 from api.contract import ErrorCode, error_response
@@ -27,31 +24,10 @@ from api.lookup import get_object, lookup_objects, parse_lookup_body
 from api.openapi import build_document
 from api.positions import cone_search, resolve_tns
 from api.service import InvalidQuery, recent_crossmatches
+from api.summary import SUMMARY_PARAMS, summarize_window
+from api.timeparse import parse_timestamp
 
 logger = get_logger(__name__)
-
-
-def _parse_timestamp(raw: str, field: str) -> datetime:
-    """Parse an ISO-8601 timestamp, treating a naive value as UTC.
-
-    Args:
-        raw: The raw query-string value.
-        field: The parameter name, for the error message.
-
-    Returns:
-        An aware ``datetime`` in UTC.
-
-    Raises:
-        InvalidQuery: If the value is not a parseable ISO-8601 timestamp.
-    """
-    parsed = parse_datetime(raw)
-    if parsed is None:
-        raise InvalidQuery(
-            f"{field} is not a valid ISO-8601 timestamp: {raw!r}", param=field
-        )
-    if is_naive(parsed):
-        parsed = make_aware(parsed, timezone.utc)
-    return parsed
 
 
 def _parse_page_size(raw: str) -> int:
@@ -117,9 +93,9 @@ def recent_crossmatches_view(request: HttpRequest) -> JsonResponse:
     try:
         kwargs: dict = {}
         if 'start' in params:
-            kwargs['start'] = _parse_timestamp(params['start'], 'start')
+            kwargs['start'] = parse_timestamp(params['start'], 'start')
         if 'end' in params:
-            kwargs['end'] = _parse_timestamp(params['end'], 'end')
+            kwargs['end'] = parse_timestamp(params['end'], 'end')
         if 'time_field' in params:
             kwargs['time_field'] = params['time_field']
         if 'detail' in params:
@@ -291,6 +267,45 @@ def resolve_tns_view(request: HttpRequest, name: str) -> JsonResponse:
         response=request.GET.get('response'),
     )
     return JsonResponse(result)
+
+
+@api_guard(isolation='repeatable_read')
+def summary_view(request: HttpRequest) -> JsonResponse:
+    """GET the window summary: object counts and outcomes for one window (R1, R17).
+
+    Query params (all optional): one window form, ``night`` (a dayObs date),
+    ``last_nights`` (1 to ``SUMMARY_MAX_NIGHTS``), or ``start`` + ``end``
+    (ISO-8601 UTC, half-open), defaulting to the latest begun Rubin night;
+    ``broker``; ``catalog`` with ``catalog_match`` (``with`` | ``without``);
+    and ``top_n``. Every statement reads one REPEATABLE READ snapshot (KTD4).
+
+    Any other parameter is a structured ``400 unsupported_parameter``, so a
+    filter or option the summary does not apply is never silently ignored.
+
+    Returns:
+        A ``JsonResponse``: 200 with the summary, 400 naming the parameter
+        (``invalid_parameter``, ``unsupported_parameter``,
+        ``filters_span_catalogs``), 405 for a non-GET method, or a guard error
+        (400 ``query_too_expensive``, 503 ``service_unavailable``).
+
+    Raises:
+        ApiError: Rendered by the guard as the error response.
+    """
+    if request.method != 'GET':
+        raise _method_not_allowed()
+    params = request.GET
+    unsupported = [name for name in params if name not in SUMMARY_PARAMS]
+    if unsupported:
+        logger.info('summary unsupported parameter', params=unsupported)
+        raise ApiError(
+            f'summary accepts only {", ".join(SUMMARY_PARAMS)}. '
+            f'Unsupported: {", ".join(unsupported)}',
+            code=ErrorCode.UNSUPPORTED_PARAMETER,
+            status=400,
+            param=unsupported[0] if len(unsupported) == 1 else None,
+            params=unsupported if len(unsupported) > 1 else None,
+        )
+    return JsonResponse(summarize_window(params))
 
 
 @api_guard(map_unavailable=False)

@@ -6,11 +6,16 @@ first-seen reliability + computed healpix_ipix at ingest.
 - AE3 (storage half): a payload lacking the key persists reliability=None.
 """
 
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
+
+import pandas as pd
 import pytest
 from django.utils import timezone
 
 from brokers import ingest_alert
 from brokers.normalize import (
+    antares_locus_first_detection_mjd,
     normalize_antares,
     normalize_lasair,
     normalize_pittgoogle,
@@ -140,3 +145,192 @@ def test_out_of_range_coordinate_stores_null_ipix_without_dropping_alert():
     )
     alert = Alert.objects.get(lsst_diaObject_diaObjectId=9_600_000_001)
     assert alert.healpix_ipix is None
+
+
+# ── R20 / KTD9: event time and its observation-time basis ────────────────────
+
+_EPOCH = datetime(1858, 11, 17, tzinfo=dt_timezone.utc)
+
+
+def _mjd(days):
+    return _EPOCH + timedelta(days=days)
+
+
+class _Locus:
+    """Minimal stand-in for an antares-client Locus (properties + lightcurve)."""
+
+    def __init__(self, properties=None, lightcurve=None):
+        self.properties = properties or {}
+        self.lightcurve = lightcurve
+
+
+def _lightcurve(rows):
+    return pd.DataFrame(rows, columns=["alert_id", "ant_mjd", "ant_mag"])
+
+
+def test_lasair_event_time_is_first_detection():
+    canonical = normalize_lasair(_lasair_raw())
+    assert canonical["event_time"] == _mjd(60000.0)
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.FIRST_DETECTION
+
+
+def test_pittgoogle_object_first_detection_wins():
+    payload = _pittgoogle_payload()
+    payload["diaObject"]["firstDiaSourceMjdTai"] = 59990.0
+    payload["prvDiaSources"] = [{"midpointMjdTai": 59995.0}]
+    canonical = normalize_pittgoogle(_PittGoogleAlert(payload))
+    assert canonical["event_time"] == _mjd(59990.0)
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.FIRST_DETECTION
+
+
+def test_pittgoogle_history_gives_earliest_midpoint_as_first_detection():
+    # Covers AE10 (second object): history shows an earlier detection.
+    payload = _pittgoogle_payload()
+    payload["prvDiaSources"] = [
+        {"midpointMjdTai": 59998.5},
+        {"midpointMjdTai": 59997.25},
+    ]
+    canonical = normalize_pittgoogle(_PittGoogleAlert(payload))
+    assert canonical["event_time"] == _mjd(59997.25)
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.FIRST_DETECTION
+
+
+def test_pittgoogle_without_history_uses_diasource_as_later_detection():
+    # Covers AE10 (first object): no history, triggering detection only.
+    for history in (None, []):
+        payload = _pittgoogle_payload()
+        payload["prvDiaSources"] = history
+        canonical = normalize_pittgoogle(_PittGoogleAlert(payload))
+        assert canonical["event_time"] == _mjd(60000.0)
+        assert canonical["event_time_basis"] == Alert.EventTimeBasis.LATER_DETECTION
+
+
+def test_pittgoogle_without_midpoint_or_history_uses_ingest_time():
+    payload = _pittgoogle_payload()
+    del payload["diaSource"]["midpointMjdTai"]
+    before = timezone.now()
+    canonical = normalize_pittgoogle(_PittGoogleAlert(payload))
+    assert canonical["event_time"] >= before
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.INGEST_TIME
+
+
+def test_pittgoogle_malformed_history_falls_back_without_raising():
+    for history in (["junk", {"midpointMjdTai": "x"}, {"other": 1}, None], "junk", {"a": 1}):
+        payload = _pittgoogle_payload()
+        payload["prvDiaSources"] = history
+        canonical = normalize_pittgoogle(_PittGoogleAlert(payload))
+        assert canonical["event_time"] == _mjd(60000.0)
+        assert canonical["event_time_basis"] == Alert.EventTimeBasis.LATER_DETECTION
+
+
+def test_antares_locus_first_detection_from_oldest_observation_time():
+    locus = _Locus({"oldest_alert_id": "lsst:1", "oldest_alert_observation_time": 59950.5})
+    mjd = antares_locus_first_detection_mjd(locus)
+    assert mjd == 59950.5
+    canonical = normalize_antares(_antares_raw(), locus_first_detection_mjd=mjd)
+    assert canonical["event_time"] == _mjd(59950.5)
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.FIRST_DETECTION
+
+
+def test_antares_locus_first_detection_from_lightcurve_detections():
+    locus = _Locus(lightcurve=_lightcurve([
+        ("lsst:2", 59961.0, 21.5),
+        ("lsst:1", 59960.0, 22.0),
+    ]))
+    assert antares_locus_first_detection_mjd(locus) == 59960.0
+
+
+def test_antares_lightcurve_skips_earlier_upper_limit_and_forced_rows():
+    locus = _Locus(lightcurve=_lightcurve([
+        ("lsst:0", 59950.0, None),
+        ("ztf_upper_limit:5", 59951.0, 19.0),
+        ("lsst_forced_source:7", 59952.0, 23.0),
+        ("lsst:1", 59960.0, 22.0),
+    ]))
+    assert antares_locus_first_detection_mjd(locus) == 59960.0
+
+
+def test_antares_ignores_other_surveys_history():
+    # A locus can also hold ZTF history from years before Rubin; it must never
+    # place a Rubin object.
+    locus = _Locus(
+        {"oldest_alert_id": "ztf_candidate:9", "oldest_alert_observation_time": 58000.0},
+        lightcurve=_lightcurve([
+            ("ztf_candidate:9", 58000.0, 18.0),
+            ("lsst:1", 59960.0, 22.0),
+        ]),
+    )
+    assert antares_locus_first_detection_mjd(locus) == 59960.0
+
+
+def test_antares_lightcurve_without_detections_falls_through_to_alert_midpoint():
+    locus = _Locus(lightcurve=_lightcurve([("lsst:0", 59950.0, None)]))
+    mjd = antares_locus_first_detection_mjd(locus)
+    assert mjd is None
+    raw = _antares_raw()
+    raw["lsst_diaSource_midpointMjdTai"] = 59970.0
+    canonical = normalize_antares(raw, locus_first_detection_mjd=mjd)
+    assert canonical["event_time"] == _mjd(59970.0)
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.LATER_DETECTION
+
+
+def test_out_of_range_mjds_fall_through_instead_of_raising():
+    # A finite but impossible MJD must not drop the delivery.
+    raw = _antares_raw()
+    raw["lsst_diaSource_midpointMjdTai"] = 59970.0
+    canonical = normalize_antares(raw, locus_first_detection_mjd=1e20)
+    assert canonical["event_time"] == _mjd(59970.0)
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.LATER_DETECTION
+
+    payload = _pittgoogle_payload()
+    payload["prvDiaSources"] = [{"midpointMjdTai": -1e9}]
+    canonical = normalize_pittgoogle(_PittGoogleAlert(payload))
+    assert canonical["event_time"] == _mjd(60000.0)
+
+
+def test_antares_locus_extraction_never_raises():
+    class _Broken:
+        @property
+        def properties(self):
+            raise RuntimeError("boom")
+
+        @property
+        def lightcurve(self):
+            raise RuntimeError("boom")
+
+    assert antares_locus_first_detection_mjd(_Broken()) is None
+    assert antares_locus_first_detection_mjd(_Locus(lightcurve=pd.DataFrame())) is None
+
+
+def test_antares_alert_midpoint_then_receive_time():
+    raw = _antares_raw()
+    raw["ant_mjd"] = 59971.0
+    canonical = normalize_antares(raw)
+    assert canonical["event_time"] == _mjd(59971.0)
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.LATER_DETECTION
+
+    canonical = normalize_antares(_antares_raw())
+    assert canonical["event_time"] == datetime.fromtimestamp(1_700_000_000.0, tz=dt_timezone.utc)
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.BROKER_RECEIVE
+
+
+@pytest.mark.django_db
+def test_event_time_and_basis_are_frozen_first_seen():
+    first = _canonical()
+    first["event_time"] = _mjd(60000.0)
+    first["event_time_basis"] = Alert.EventTimeBasis.LATER_DETECTION
+    ingest_alert(first, "pittgoogle")
+    second = _canonical()
+    second["event_time"] = _mjd(59990.0)
+    second["event_time_basis"] = Alert.EventTimeBasis.FIRST_DETECTION
+    assert ingest_alert(second, "lasair") is True
+    alert = Alert.objects.get(lsst_diaObject_diaObjectId=9_500_000_001)
+    assert alert.event_time == _mjd(60000.0)
+    assert alert.event_time_basis == Alert.EventTimeBasis.LATER_DETECTION
+
+
+@pytest.mark.django_db
+def test_canonical_without_basis_stores_null():
+    ingest_alert(_canonical(), "lasair")
+    alert = Alert.objects.get(lsst_diaObject_diaObjectId=9_500_000_001)
+    assert alert.event_time_basis is None

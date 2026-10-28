@@ -24,7 +24,10 @@ service_unavailable`` with ``Retry-After`` (``retryable: true``). Both bodies
 carry fixed messages; the raw exception text, which can name the database host
 and port, goes only to the log. A view that must report an outage itself (the
 status endpoint) passes ``map_unavailable=False`` and the connection error
-propagates to it. An ``ApiError`` raised by the view becomes its error response.
+propagates to it. A view whose statements must all read one snapshot passes
+``isolation='repeatable_read'`` (KTD4 of the alert window statistics plan);
+every other route keeps the read committed default. An ``ApiError`` raised by
+the view becomes its error response.
 
 Each request logs one ``api request`` line with its phase timings: SQL seconds
 and phase count, Python seconds (the rest of the request), total seconds, and
@@ -54,7 +57,7 @@ from django.http import HttpRequest, HttpResponse
 
 from api.contract import ErrorCode, error_response
 from api.errors import ApiError
-from core.db import read_only_transaction, set_statement_timeout
+from core.db import Isolation, read_only_transaction, set_statement_timeout
 from core.log import get_logger
 
 logger = get_logger(__name__)
@@ -230,6 +233,7 @@ def run_guarded(
     *,
     map_unavailable: bool = True,
     check_result: Callable[[T], bool] | None = None,
+    isolation: Isolation | None = None,
 ) -> T:
     """Run ``fn`` under ``guard``: the request budget and a read-only transaction.
 
@@ -250,6 +254,9 @@ def run_guarded(
         check_result: When given, the final deadline check runs only if it
             returns true for the result (``api_guard`` skips it for error
             responses).
+        isolation: When set (``'repeatable_read'``), the transaction runs at
+            that isolation level, so all of ``fn``'s statements read one
+            snapshot; it must then be the outermost transaction.
 
     Returns:
         What ``fn`` returned.
@@ -259,10 +266,11 @@ def run_guarded(
             on a connection error (when ``map_unavailable``), or one raised by
             ``fn``.
         DatabaseError: Any other database error, unchanged.
+        IsolationLevelError: If ``isolation`` is set inside an open atomic block.
     """
     token = _current.set(guard)
     try:
-        with read_only_transaction(guard.remaining()):
+        with read_only_transaction(guard.remaining(), isolation=isolation):
             result = fn()
         if check_result is None or check_result(result):
             guard.check_deadline()
@@ -285,23 +293,29 @@ def api_guard(
     view: Callable[..., HttpResponse] | None = None,
     *,
     map_unavailable: bool = True,
+    isolation: Isolation | None = None,
 ) -> Any:
     """Decorate an API view to run under the per-request cost bound.
 
     Usable bare (``@api_guard``) or with options
-    (``@api_guard(map_unavailable=False)``).
+    (``@api_guard(map_unavailable=False)``,
+    ``@api_guard(isolation='repeatable_read')``).
 
     Args:
         view: The view function.
         map_unavailable: When false, connection errors that are not budget
             overruns propagate to the caller instead of becoming a 503 (for the
             status endpoint, which reports availability itself).
+        isolation: When set (``'repeatable_read'``), the view's queries all read
+            one snapshot; see ``run_guarded``.
 
     Returns:
         The wrapped view, or a decorator when called with options only.
     """
     if view is None:
-        return functools.partial(api_guard, map_unavailable=map_unavailable)
+        return functools.partial(
+            api_guard, map_unavailable=map_unavailable, isolation=isolation
+        )
 
     @functools.wraps(view)
     def wrapped(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -313,6 +327,7 @@ def api_guard(
                     lambda: view(request, *args, **kwargs),
                     map_unavailable=map_unavailable,
                     check_result=lambda resp: resp.status_code < 400,
+                    isolation=isolation,
                 )
             except ApiError as exc:
                 response = error_response(exc)

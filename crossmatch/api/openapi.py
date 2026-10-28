@@ -34,6 +34,7 @@ from api.contract import (
     InputStatus,
     ObjectStatus,
     QualifiesReason,
+    SummaryCatalogOutcome,
 )
 from api.discovery import (
     COINCIDENCE_CAVEAT,
@@ -68,8 +69,22 @@ from api.positions import (
     TRUNCATION_VALUES,
 )
 from api.service import DEFAULT_WINDOW_HOURS
+from api.summary import (
+    BASIS_NOT_RECORDED,
+    CATALOG_BUCKETS,
+    CATALOG_MATCH_VALUES,
+    CLOCK_DESCRIPTION,
+    COINCIDENT,
+    FORM_DEFAULT,
+    FORM_LAST_NIGHTS,
+    FORM_NIGHT,
+    FORM_SPAN,
+    UNIT_DESCRIPTION,
+    broker_names,
+    catalog_names,
+)
 from core import provenance
-from core.models import CutEnforcedBy, CutStatus
+from core.models import Alert, CutEnforcedBy, CutStatus
 
 _REF = '#/components/schemas/'
 
@@ -268,6 +283,11 @@ def _components(current: dict[str, Any]) -> dict[str, Any]:
                 CutStatus.values,
                 "How the reported value of a broker's reliability cut is known.",
             ),
+            'SummaryCatalogOutcome': _code_enum(
+                SummaryCatalogOutcome.values,
+                'Per-catalog outcome buckets only the window summary reports; '
+                'its other buckets reuse ObjectStatus and CatalogOutcome codes.',
+            ),
             'CatalogRelease': {
                 'type': 'object',
                 'required': ['name', 'release'],
@@ -354,6 +374,7 @@ def _components(current: dict[str, Any]) -> dict[str, Any]:
             **_lookup_schemas(),
             **_filter_schemas(),
             **_discovery_schemas(),
+            **_summary_schemas(),
         },
     }
 
@@ -1743,6 +1764,7 @@ def _discovery_schemas() -> dict[str, Any]:
                         'request_budget_seconds', 'max_ids', 'max_positions',
                         'max_cone_radius_arcsec', 'max_objects_per_position',
                         'max_objects_per_request', 'recent_crossmatches',
+                        'max_summary_nights',
                     ],
                     'additionalProperties': False,
                     'properties': {
@@ -1776,6 +1798,15 @@ def _discovery_schemas() -> dict[str, Any]:
                                     'type': 'integer', 'x-unit': 'h', 'minimum': 0,
                                 },
                             },
+                        },
+                        'max_summary_nights': {
+                            'type': 'integer',
+                            'x-unit': COUNT,
+                            'minimum': 0,
+                            'description': (
+                                'Most Rubin nights (dayObs dates) one window '
+                                'summary may cover.'
+                            ),
                         },
                     },
                 },
@@ -1824,6 +1855,299 @@ def _discovery_schemas() -> dict[str, Any]:
                         'crossmatch provenance; objects crossmatched earlier '
                         'report it as not recorded.'
                     ),
+                },
+            },
+        },
+    }
+
+
+def _summary_schemas() -> dict[str, Any]:
+    """Schemas of the window summary body (``api/summary.py``; R1, R19)."""
+    count = {'type': 'integer', 'x-unit': COUNT, 'minimum': 0}
+    probability = {
+        'type': ['number', 'null'], 'x-unit': 'probability', 'minimum': 0, 'maximum': 1,
+    }
+    night = {'type': 'string', 'format': 'date', 'description': 'A dayObs date.'}
+    catalogs = catalog_names()
+    brokers = broker_names()
+    basis_values = [*Alert.EventTimeBasis.values, BASIS_NOT_RECORDED]
+    basis_lines = [
+        'Which time placed an object in its night (its stored event_time).',
+        '',
+        *(
+            f'- `{value}`: {Alert.EventTimeBasis(value).label}'
+            for value in Alert.EventTimeBasis.values
+        ),
+        f'- `{BASIS_NOT_RECORDED}`: stored before the basis was recorded.',
+    ]
+    return {
+        'EventTimeBasis': {
+            'type': 'string', 'enum': basis_values, 'description': '\n'.join(basis_lines),
+        },
+        'SummaryResponse': {
+            'type': 'object',
+            'description': (
+                'Every statistic for one window, read from one database '
+                'snapshot. Counts are of distinct Rubin objects.'
+            ),
+            'required': [
+                'provenance', 'unit', 'clock', 'window', 'filters', 'as_of',
+                'request', 'notes', 'totals', 'brokers', 'catalogs',
+                'reliability', 'top', 'basis',
+            ],
+            'additionalProperties': False,
+            'properties': {
+                'provenance': _ref('Provenance'),
+                'unit': {
+                    'type': 'object',
+                    'description': UNIT_DESCRIPTION,
+                    'required': ['counts', 'description'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'counts': {'type': 'string'},
+                        'description': {'type': 'string'},
+                    },
+                },
+                'clock': {
+                    'type': 'object',
+                    'description': CLOCK_DESCRIPTION,
+                    'required': ['field', 'timezone', 'description'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'field': {'type': 'string', 'enum': ['event_time']},
+                        'timezone': {'type': 'string'},
+                        'description': {'type': 'string'},
+                    },
+                },
+                'window': {
+                    'type': 'object',
+                    'description': (
+                        'The window used. start and end bound observation '
+                        'time, half-open, UTC.'
+                    ),
+                    'required': [
+                        'form', 'nights', 'start', 'end', 'first_night_partial',
+                        'last_night_partial',
+                    ],
+                    'additionalProperties': False,
+                    'properties': {
+                        'form': {
+                            'type': 'string',
+                            'enum': [FORM_DEFAULT, FORM_NIGHT, FORM_LAST_NIGHTS, FORM_SPAN],
+                        },
+                        'nights': {'type': 'array', 'items': night},
+                        'start': {'type': 'string', 'format': 'date-time'},
+                        'end': {'type': 'string', 'format': 'date-time'},
+                        'first_night_partial': {'type': 'boolean'},
+                        'last_night_partial': {'type': 'boolean'},
+                    },
+                },
+                'filters': {
+                    'type': 'object',
+                    'description': 'The filters applied; null when not given.',
+                    'required': ['broker', 'catalog', 'catalog_match'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'broker': {'type': ['string', 'null'], 'enum': [*brokers, None]},
+                        'catalog': {'type': ['string', 'null'], 'enum': [*catalogs, None]},
+                        'catalog_match': {
+                            'type': ['string', 'null'],
+                            'enum': [*CATALOG_MATCH_VALUES, None],
+                        },
+                    },
+                },
+                'as_of': {
+                    'type': 'string',
+                    'format': 'date-time',
+                    'description': 'When the summary was computed.',
+                },
+                'request': {
+                    'type': 'string',
+                    'description': (
+                        'The relative REST request reproducing this window and '
+                        'these filters, with clock-relative windows pinned.'
+                    ),
+                },
+                'notes': {
+                    'type': 'object',
+                    'description': 'Caveats that apply to this answer.',
+                    'required': ['late_deliveries'],
+                    'additionalProperties': False,
+                    'properties': {
+                        name: {'type': 'string'}
+                        for name in (
+                            'late_deliveries', 'reliability_capture', 'basis',
+                            'empty_window',
+                        )
+                    },
+                },
+                'totals': {
+                    'type': 'object',
+                    'required': ['objects', 'nights'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'objects': count,
+                        'nights': {
+                            'type': 'array',
+                            'items': {
+                                'type': 'object',
+                                'required': ['night', 'objects', 'provisional', 'partial'],
+                                'additionalProperties': False,
+                                'properties': {
+                                    'night': night,
+                                    'objects': count,
+                                    'provisional': {
+                                        'type': 'boolean',
+                                        'description': (
+                                            'Ended recently; late deliveries '
+                                            'are still expected.'
+                                        ),
+                                    },
+                                    'partial': {
+                                        'type': 'boolean',
+                                        'description': 'The window cuts this night.',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                'brokers': {
+                    'type': 'object',
+                    'description': (
+                        'Objects per delivering broker (an object counts toward '
+                        'each), and objects delivered by more than one.'
+                    ),
+                    'required': ['objects', 'multi_broker'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'objects': {
+                            'type': 'object',
+                            'required': brokers,
+                            'additionalProperties': False,
+                            'properties': {broker: count for broker in brokers},
+                        },
+                        'multi_broker': count,
+                    },
+                },
+                'catalogs': {
+                    'type': 'object',
+                    'required': ['by_catalog', 'crossmatch_pending'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'by_catalog': {
+                            'type': 'object',
+                            'description': (
+                                'Crossmatched objects per outcome, per catalog. '
+                                f'With catalog_match=without, {COINCIDENT} is '
+                                'omitted and the reasons are given instead.'
+                            ),
+                            'propertyNames': {'enum': catalogs},
+                            'additionalProperties': {
+                                'type': 'object',
+                                'required': [b for b in CATALOG_BUCKETS if b != COINCIDENT],
+                                'additionalProperties': False,
+                                'properties': {
+                                    bucket: {
+                                        **count,
+                                        'description': CODE_DESCRIPTIONS[bucket],
+                                    }
+                                    for bucket in CATALOG_BUCKETS
+                                },
+                            },
+                        },
+                        'crossmatch_pending': {
+                            **count,
+                            'description': (
+                                'Objects not yet crossmatched; in no catalog '
+                                'bucket and in neither catalog-filter result.'
+                            ),
+                        },
+                    },
+                },
+                'reliability': {
+                    'type': 'object',
+                    'description': (
+                        'Distribution of stored reliability; objects with none '
+                        'are counted in no_score only.'
+                    ),
+                    'required': ['min', 'median', 'max', 'histogram', 'no_score'],
+                    'additionalProperties': False,
+                    'properties': {
+                        'min': probability,
+                        'median': probability,
+                        'max': probability,
+                        'histogram': {
+                            'type': 'array',
+                            'items': {
+                                'type': 'object',
+                                'required': ['low', 'high', 'objects'],
+                                'additionalProperties': False,
+                                'properties': {
+                                    'low': {**probability, 'type': 'number'},
+                                    'high': {**probability, 'type': 'number'},
+                                    'objects': count,
+                                },
+                            },
+                        },
+                        'no_score': count,
+                    },
+                },
+                'top': {
+                    'type': 'array',
+                    'description': (
+                        'The most reliable objects, ties by diaObjectId. Pass '
+                        'diaObjectId_str to lookup_objects for detail.'
+                    ),
+                    'items': {
+                        'type': 'object',
+                        'required': [
+                            'diaObjectId', 'diaObjectId_str', 'reliability',
+                            'first_broker', 'brokers', 'observed_at', 'night',
+                            'status',
+                        ],
+                        'additionalProperties': False,
+                        'properties': {
+                            'diaObjectId': _ref('DiaObjectId'),
+                            'diaObjectId_str': _ref('DiaObjectIdStr'),
+                            'reliability': probability,
+                            'first_broker': {
+                                'type': ['string', 'null'],
+                                'description': (
+                                    'The broker whose score was captured.'
+                                ),
+                            },
+                            'brokers': {'type': 'array', 'items': {'type': 'string'}},
+                            'observed_at': {'type': 'string', 'format': 'date-time'},
+                            'night': night,
+                            'status': _ref('ObjectStatus'),
+                        },
+                    },
+                },
+                'basis': {
+                    'type': 'object',
+                    'description': 'Objects per EventTimeBasis.',
+                    'required': basis_values,
+                    'propertyNames': _ref('EventTimeBasis'),
+                    'additionalProperties': count,
+                },
+                'latest_object': {
+                    'description': (
+                        'Only for an empty window: the most recent object the '
+                        'service holds, ignoring filters; null when none.'
+                    ),
+                    'oneOf': [
+                        {'type': 'null'},
+                        {
+                            'type': 'object',
+                            'required': ['observed_at', 'night'],
+                            'additionalProperties': False,
+                            'properties': {
+                                'observed_at': {'type': 'string', 'format': 'date-time'},
+                                'night': night,
+                            },
+                        },
+                    ],
                 },
             },
         },
@@ -2092,6 +2416,95 @@ def _paths() -> dict[str, Any]:
                         _ref('Error'),
                         'Invalid name, radius_arcsec, detail, filter, or '
                         'response; filters_span_catalogs; or query_too_expensive.',
+                    ),
+                    '405': _json(_ref('Error'), 'Method not allowed.'),
+                    '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),
+                },
+            },
+        },
+        '/api/summary': {
+            'get': {
+                'operationId': 'summarize_rubin_transients_by_night',
+                'summary': 'Count Rubin objects over a Rubin night or span, with outcomes.',
+                'description': (
+                    'Distinct Rubin objects whose observation time falls in the '
+                    'window: totals per night, per broker, per-catalog match '
+                    'outcomes, the reliability distribution, the top_n most '
+                    'reliable objects, and how each object was placed in its '
+                    'night, all from one snapshot. Give at most one window '
+                    'form: night, last_nights, or start and end. With none, '
+                    'the latest Rubin night that has begun. A window covers '
+                    f'at most {_int_setting("SUMMARY_MAX_NIGHTS")} nights. Any '
+                    'night can still gain objects from late deliveries. Other '
+                    'parameters are a 400 unsupported_parameter. '
+                    + COINCIDENCE_CAVEAT
+                ),
+                'parameters': [
+                    _query_param(
+                        'night',
+                        {'type': 'string', 'format': 'date'},
+                        'One Rubin night by dayObs (YYYY-MM-DD, the UTC date of '
+                        'a time minus 12 hours; spans dayObs 12:00Z to the next '
+                        "day's 12:00Z). Must have begun.",
+                    ),
+                    _query_param(
+                        'last_nights',
+                        {
+                            'type': 'integer', 'x-unit': COUNT, 'minimum': 1,
+                            'maximum': _int_setting('SUMMARY_MAX_NIGHTS'),
+                        },
+                        'The N most recent nights, ending at the latest begun night.',
+                    ),
+                    _query_param(
+                        'start',
+                        {'type': 'string', 'format': 'date-time'},
+                        'Span start (inclusive), ISO-8601; naive means UTC. '
+                        'Requires end.',
+                    ),
+                    _query_param(
+                        'end',
+                        {'type': 'string', 'format': 'date-time'},
+                        'Span end (exclusive), ISO-8601. Requires start.',
+                    ),
+                    _query_param(
+                        'broker',
+                        {'type': 'string'},
+                        'Only objects this broker delivered: one of '
+                        f'{", ".join(broker_names())}; case and punctuation '
+                        'are ignored (Pitt-Google works).',
+                    ),
+                    _query_param(
+                        'catalog',
+                        {
+                            'type': 'string',
+                            'enum': catalog_names(),
+                        },
+                        'Only crossmatched objects with (or, with '
+                        'catalog_match=without, without) a coincident source '
+                        'in this catalog. Repeating it is filters_span_catalogs.',
+                    ),
+                    _query_param(
+                        'catalog_match',
+                        {'type': 'string', 'enum': list(CATALOG_MATCH_VALUES)},
+                        'with (default) or without; requires catalog.',
+                    ),
+                    _query_param(
+                        'top_n',
+                        {
+                            'type': 'integer', 'x-unit': COUNT, 'minimum': 1,
+                            'maximum': _int_setting('MCP_MAX_OBJECTS'),
+                        },
+                        'Most reliable objects to list (default '
+                        f'{_int_setting("SUMMARY_DEFAULT_TOP_N")}).',
+                    ),
+                ],
+                'responses': {
+                    '200': _json(_ref('SummaryResponse'), 'The summary.'),
+                    '400': _json(
+                        _ref('Error'),
+                        'invalid_parameter (param or params names it), '
+                        'unsupported_parameter, filters_span_catalogs, or '
+                        'query_too_expensive.',
                     ),
                     '405': _json(_ref('Error'), 'Method not allowed.'),
                     '503': _json(_ref('Error'), 'Service unavailable; see Retry-After.'),

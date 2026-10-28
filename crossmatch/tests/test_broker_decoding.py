@@ -7,8 +7,10 @@ ingest_alert. Fixtures are schema-faithful rather than recorded: retention has
 nulled stored broker payloads.
 """
 
+import io
 import json
 import zlib
+from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -16,6 +18,8 @@ import pytest
 
 from brokers import ingest_alert
 from brokers.normalize import (
+    _MJD_EPOCH,
+    antares_locus_first_detection_mjd,
     normalize_antares,
     normalize_lasair,
     normalize_pittgoogle,
@@ -43,12 +47,14 @@ class _KafkaMessage:
         return self._value
 
 
-def _antares_locus(message=None):
+def _antares_locus(message=None, drop_oldest=False):
     """Decode a locus message through antares-client's stream decoder."""
     from antares_client import stream
 
     if message is None:
         message = _fixture("antares_locus.json")
+    if drop_oldest:
+        del message["data"]["attributes"]["properties"]["oldest_alert_observation_time"]
     raw = zlib.compress(stream.bson.dumps(message))
     return stream._parse_message(_KafkaMessage(raw))
 
@@ -84,12 +90,34 @@ def test_antares_locus_decodes_normalizes_and_ingests():
         raw = locus.alerts[0].properties
 
     fetch.assert_called_once_with("ANT2026abcdefg")
-    canonical = normalize_antares(raw)
+    first_mjd = antares_locus_first_detection_mjd(locus)
+    assert first_mjd == 60940.1
+    canonical = normalize_antares(raw, locus_first_detection_mjd=first_mjd)
     assert canonical["lsst_diaObject_diaObjectId"] == 170433143923278190
     assert canonical["ra_deg"] == 238.986105
     assert ingest_alert(canonical, "antares") is True
     alert = Alert.objects.get(lsst_diaObject_diaObjectId=170433143923278190)
     assert alert.lsst_diaSource_diaSourceId == 170433143923278191
+    assert alert.event_time == _MJD_EPOCH + timedelta(days=60940.1)
+    assert alert.event_time_basis == Alert.EventTimeBasis.FIRST_DETECTION
+
+
+def test_antares_fetched_lightcurve_gives_first_detection_without_property():
+    """antares-client 2.x streams no lightcurve; the fallback fetches it (v2)."""
+    import pandas as pd
+
+    locus = _antares_locus(drop_oldest=True)
+    # The v2 locus endpoint returns the lightcurve as CSV, parsed with read_csv.
+    csv = _fixture("antares_locus.json")["data"]["attributes"]["lightcurve"]
+    fetched = mock.Mock(lightcurve=pd.read_csv(io.StringIO(csv)))
+
+    with _no_network(), mock.patch(
+        "antares_client.search.get_by_id", return_value=fetched
+    ) as fetch:
+        # The second lightcurve row has no magnitude (not a detection).
+        assert antares_locus_first_detection_mjd(locus) == 60940.1
+
+    fetch.assert_called_once_with("ANT2026abcdefg")
 
 
 def test_antares_rubin_alert_is_newest_rubin_not_first_or_last():
@@ -160,6 +188,8 @@ def test_pittgoogle_alert_decodes_normalizes_and_ingests():
 
     assert canonical["lsst_diaObject_diaObjectId"] == 170433143923278192
     assert canonical["reliability"] == 0.81
+    assert canonical["event_time"] == _MJD_EPOCH + timedelta(days=60939.5)
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.FIRST_DETECTION
     assert ingest_alert(canonical, "pittgoogle") is True
     assert Alert.objects.filter(lsst_diaObject_diaObjectId=170433143923278192).exists()
 
@@ -172,5 +202,6 @@ def test_lasair_alert_decodes_normalizes_and_ingests():
 
     assert canonical["lsst_diaObject_diaObjectId"] == 170433143923278194
     assert canonical["dec_deg"] == -45.25
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.FIRST_DETECTION
     assert ingest_alert(canonical, "lasair") is True
     assert Alert.objects.filter(lsst_diaObject_diaObjectId=170433143923278194).exists()

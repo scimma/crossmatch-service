@@ -117,6 +117,7 @@ def test_filterable_fields_carry_units_and_parameter_names(client):
     RECENT_CROSSMATCH_DEFAULT_PAGE_SIZE=21,
     RECENT_CROSSMATCH_MAX_PAGE_SIZE=210,
     RECENT_CROSSMATCH_MAX_WINDOW_HOURS=5,
+    SUMMARY_MAX_NIGHTS=9,
     CROSSMATCH_RADIUS_ARCSEC=1.5,
     TNS_MATCH_RADIUS_ARCSEC=3.0,
 )
@@ -135,6 +136,7 @@ def test_limits_and_radii_follow_live_settings(client, openapi_validate):
             'max_page_size': 210,
             'max_window_hours': 5,
         },
+        'max_summary_nights': 9,
     }
     assert body['crossmatch']['radius_arcsec'] == 1.5
     assert body['crossmatch']['nearest_source_per_catalog'] is True

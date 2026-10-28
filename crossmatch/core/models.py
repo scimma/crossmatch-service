@@ -45,6 +45,13 @@ class Alert(models.Model):
         MATCHED = 'MATCHED', _('matched')
         NOTIFIED = 'NOTIFIED', _('notified')
 
+    class EventTimeBasis(models.TextChoices):
+        """Which time a broker payload offered for ``event_time`` (see KTD9)."""
+        FIRST_DETECTION = 'first_detection', _('first detection')
+        LATER_DETECTION = 'later_detection', _('later detection')
+        BROKER_RECEIVE = 'broker_receive', _('broker receive')
+        INGEST_TIME = 'ingest_time', _('ingest time')
+
     def __str__(self):
         return (f'object_id: {self.lsst_diaObject_diaObjectId}, '
                 f'(RA, Dec): ({self.ra_deg}, {self.dec_deg})')
@@ -66,6 +73,9 @@ class Alert(models.Model):
     dec_deg = models.FloatField(null=False)
     # TIMESTAMPTZ NOT NULL    candidate/observation time
     event_time = models.DateTimeField(null=False)
+    # TEXT NULL    which time event_time came from, captured first-seen; NULL means
+    # the row was ingested before the basis was recorded (no backfill)
+    event_time_basis = models.TextField(choices=EventTimeBasis.choices, null=True)
     # TIMESTAMPTZ NOT NULL DEFAULT now()
     ingest_time = models.DateTimeField(null=False, auto_now_add=True)
     # INTEGER NOT NULL    alert schema version

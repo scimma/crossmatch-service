@@ -1,7 +1,7 @@
 """Compact chat projections of the API's own return values (KTD5, KTD9-KTD11).
 
-Each tool calls ``lookup_objects``, ``cone_search`` or ``describe_service``
-once; the functions here turn that return value into the compact answer the
+Each tool calls ``lookup_objects``, ``cone_search``, ``describe_service`` or
+``summarize_window`` once; the functions here turn that return value into the compact answer the
 tool sends as one JSON text block (``to_text``). They are pure: no database,
 no request. Every fact is copied from the API result, so a chat answer and an
 API response about the same object never disagree (R10).
@@ -10,6 +10,8 @@ API response about the same object never disagree (R10).
   object summary per Rubin object (R1, R5, R6, R8).
 * ``project_near_position``: the nearest objects around a position (R2).
 * ``project_coverage``: what the service covers and its current state (R3).
+* ``project_summary``: object counts over a Rubin night or span, with the
+  most reliable objects (window statistics R16, R19).
 
 Answers are capped by settings read at call time (KTD9): at most
 ``MCP_MAX_OBJECTS`` summaries, ``MCP_MATCHES_PER_CATALOG`` nearest sources per
@@ -600,3 +602,116 @@ def project_coverage(
         ),
         'does_not_answer': list(_DOES_NOT_ANSWER),
     }
+
+
+#: The leading block of a summary answer, copied from the API body (R19).
+_SUMMARY_LEAD = ('unit', 'clock', 'window', 'filters', 'as_of', 'notes')
+
+_SUMMARY_TOP_NOTE = (
+    'Only the top_n most reliable objects in the window are listed, not every '
+    'object; objects_total counts them all. Pass a diaObjectId (as a string) '
+    'to lookup_rubin_transients for its coincident catalog sources.'
+)
+
+_SUMMARY_NO_MATCH_NOTE = (
+    'Each no-match bucket of a catalog is a different reason; do not add them '
+    'into one "no match" total. crossmatch_pending objects are not yet '
+    'crossmatched and belong to no bucket.'
+)
+
+
+def _summary_request(path: str) -> dict[str, str]:
+    """The REST request reproducing a summary answer (R19).
+
+    Args:
+        path: The body's ``request``: built by ``api.summary`` only from
+            parsed values (dayObs dates, UTC instants, normalized broker and
+            configured catalog names), never from raw input.
+    """
+    return {
+        'note': (
+            'This request to the public API returns the same summary as JSON, '
+            'pinned to the nights this answer covers.'
+        ),
+        'url': f'{_base_url()}{path}',
+    }
+
+
+def _summary_top_entry(top: dict[str, Any]) -> dict[str, Any]:
+    """One most-reliable object, with links and the lookup hint (R16)."""
+    object_id = str(top['diaObjectId_str'])
+    return {
+        'diaObjectId': object_id,
+        'reliability': top['reliability'],
+        'first_broker': top['first_broker'],
+        'brokers': list(top['brokers']),
+        'observed_at': top['observed_at'],
+        'night': top['night'],
+        'status': top['status'],
+        'links': _links(object_id, None),
+        'next_step': (
+            f'lookup_rubin_transients with identifiers ["{object_id}"] for its '
+            'coincident sources'
+        ),
+    }
+
+
+def project_summary(body: dict[str, Any]) -> dict[str, Any]:
+    """Project the window-summary tool's answer (R16, R19; KTD11).
+
+    Args:
+        body: The ``summarize_window(...)`` body.
+
+    Returns:
+        The body's ``unit``, ``clock``, ``window``, ``filters``, ``as_of`` and
+        ``notes`` first; then ``objects_total``, ``nights``, ``brokers``,
+        ``catalogs`` (with a note on the no-match buckets), ``reliability``
+        (the histogram as object counts per tenth of [0, 1]), ``basis``,
+        ``latest_object`` (for an empty window), ``request`` (the REST URL
+        for the same summary), ``top_returned``, ``truncated``,
+        ``truncation`` (when cut: ``reasons``), ``top`` (string
+        ``diaObjectId``, links and a lookup hint each), ``top_note``, and the
+        ``status_meanings`` of the top objects. Over ``MCP_MAX_RESULT_CHARS``,
+        top entries are dropped from the end.
+    """
+    reliability = body['reliability']
+    entry: dict[str, Any] = {
+        'objects': [_summary_top_entry(top) for top in body['top']],
+    }
+
+    def assemble(reasons: list[str]) -> dict[str, Any]:
+        top = entry['objects']
+        projection: dict[str, Any] = {key: body[key] for key in _SUMMARY_LEAD}
+        projection.update({
+            'objects_total': body['totals']['objects'],
+            'nights': body['totals']['nights'],
+            'brokers': body['brokers'],
+            'catalogs': body['catalogs'],
+            'catalogs_note': _SUMMARY_NO_MATCH_NOTE,
+            'reliability': {
+                'min': reliability['min'],
+                'median': reliability['median'],
+                'max': reliability['max'],
+                'no_score': reliability['no_score'],
+                'histogram_bins': 'objects per tenth of [0, 1], lowest first',
+                'histogram': [b['objects'] for b in reliability['histogram']],
+            },
+            'basis': body['basis'],
+        })
+        if 'latest_object' in body:
+            projection['latest_object'] = body['latest_object']
+        projection.update({
+            'request': _summary_request(body['request']),
+            'top_returned': len(top),
+            'truncated': bool(reasons),
+        })
+        if reasons:
+            projection['truncation'] = {'reasons': list(reasons)}
+        projection['top'] = top
+        projection['top_note'] = _SUMMARY_TOP_NOTE
+        projection['status_meanings'] = {
+            t['status']: CODE_DESCRIPTIONS[t['status']] for t in top
+        }
+        return projection
+
+    return _fit([entry], assemble, [])

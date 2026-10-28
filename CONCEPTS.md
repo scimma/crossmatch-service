@@ -16,7 +16,10 @@ or time.
 ### Alert
 A transient-source detection ingested from a Broker, carrying a sky position (right
 ascension and declination, in degrees) and a Rubin object identifier. Alerts are the
-input stream the service crossmatches and publishes results for.
+input stream the service crossmatches and publishes results for. The service keeps
+one Alert per Rubin object, not per detection: repeat detections of the same object, and
+repeat deliveries from the same Broker, add nothing, so counts of Alerts are counts of
+objects.
 
 An Alert moves through a status lifecycle as the pipeline processes it: *ingested* on
 arrival, *queued* when selected into a crossmatch batch, *matched* once that batch's
@@ -41,8 +44,27 @@ diaSource is a genuine astrophysical transient rather than an imaging artifact. 
 minimum-reliability filter is applied before delivery, so delivered Alerts carry a score
 above that floor: ANTARES and Lasair enforce it in their own broker-side filters, while
 the Pitt-Google subscription enforces the service's `MIN_DIASOURCE_RELIABILITY`. It is the ranking basis for "most likely transient" queries. The value
-is per-diaSource and, where the read model persists it, is captured at an object's first
-detection.
+is per-diaSource and, where the read model persists it, is captured once, from the
+object's first delivery: the delivering broker's score at that time (for Lasair, its
+latest detection's score).
+
+### Observing night
+A Rubin night of observation, named by its dayObs date: the calendar date in UTC minus
+12 hours, so one night never straddles two names. An Alert belongs to a night by its stored
+observation time, not by when the service ingested it; "last night" means the most recent
+night whose observing has begun (the date rolls over at 12:00 UTC, but a night counts as
+begun only from about 23:00 UTC, when observing starts in Chile). Any night can still gain
+Alerts when a broker first delivers an object detected earlier; a recent night is flagged
+provisional while most of that growth is still expected.
+
+### Observation-time basis
+How an Alert's stored observation time was obtained, recorded at its first delivery:
+*first detection* (an object-level first-detection time or the earliest detection in the
+delivered history), *later detection* (only the detection that triggered delivery was
+available), *broker receive* (the broker's own receive time), or *ingest time* (no
+observation time at all). Alerts ingested before the basis was recorded have none. Only a
+first-detection basis guarantees the Alert sits in the night of its first detection; the
+others may place it in a later night.
 
 ### Broker
 An upstream service that delivers the Vera C. Rubin Observatory alert stream — ANTARES,
