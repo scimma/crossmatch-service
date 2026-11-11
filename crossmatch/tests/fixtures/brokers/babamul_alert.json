@@ -1,0 +1,35 @@
+{
+  "candid": 170433143923278197,
+  "objectId": "170433143923278196",
+  "candidate": {
+    "diaSourceId": 170433143923278197,
+    "visit": 2026103100123,
+    "detector": 42,
+    "diaObjectId": 170433143923278196,
+    "ssObjectId": null,
+    "midpointMjdTai": 60940.3,
+    "ra": 210.5,
+    "dec": -12.25,
+    "reliability": 0.83,
+    "jd": 2460940.8,
+    "jdstarthist": 2460000.5,
+    "band": "r"
+  },
+  "prv_candidates": [
+    {"jd": 2460939.9, "psfFlux": 1500.0, "psfFluxErr": 90.0, "band": "g", "ra": 210.5001, "dec": -12.2501},
+    {"jd": 2460939.6, "psfFlux": 1200.0, "psfFluxErr": 85.0, "band": "r", "ra": 210.4999, "dec": -12.2499}
+  ],
+  "fp_hists": [
+    {"jd": 2460900.5, "psfFlux": 10.0, "psfFluxErr": 80.0, "band": "r"}
+  ],
+  "survey_matches": {
+    "ztf": {
+      "objectId": "ZTF26aaaaaaa",
+      "ra": 210.5,
+      "dec": -12.25,
+      "prv_candidates": [
+        {"jd": 2460500.5, "psfFlux": 3000.0, "psfFluxErr": 100.0, "band": "r", "ra": 210.5, "dec": -12.25}
+      ]
+    }
+  }
+}

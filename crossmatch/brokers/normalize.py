@@ -243,3 +243,115 @@ def normalize_pittgoogle(alert) -> dict:
         'reliability': dia_source.get('reliability'),
         'payload': payload,
     }
+
+
+# Julian Date to MJD: MJD = JD - 2400000.5. Babamul carries prior detections
+# in JD, unlike the MJD-TAI the other brokers use.
+_JD_TO_MJD = 2400000.5
+
+
+def passes_reliability_cut(reliability, threshold: float) -> bool:
+    """Whether a diaSource reliability meets the service's cut.
+
+    Matches the Pitt-Google subscription filter: a missing, null, boolean,
+    non-numeric or non-finite score fails, as does any score below the
+    threshold.
+
+    Args:
+        reliability: The broker-reported reliability, of any type.
+        threshold: ``MIN_DIASOURCE_RELIABILITY``.
+
+    Returns:
+        True only for a finite number at or above ``threshold``.
+    """
+    if isinstance(reliability, bool) or not isinstance(reliability, (int, float)):
+        return False
+    return math.isfinite(reliability) and reliability >= threshold
+
+
+def _finite(value) -> float | None:
+    """Return ``value`` as a finite float, or None (bools rejected)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
+def _json_safe(value):
+    """Copy a decoded Avro value with non-finite floats as None and bytes dropped."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items() if not isinstance(v, bytes)}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value if not isinstance(v, bytes)]
+    return value
+
+
+def normalize_babamul(record: dict, topic: str) -> dict | None:
+    """Normalize a decoded Babamul LSST alert to the internal canonical format.
+
+    The alert's ``candidate`` is the triggering diaSource: it carries the
+    diaObjectId, the diaSource id, reliability and position. Babamul sends no
+    diaObject record, so the position is the diaSource's.
+
+    event_time is the earliest of the LSST prior detections (``prv_candidates``,
+    in JD) and the candidate midpoint when any prior detection is usable
+    (first_detection), else the candidate midpoint (later_detection), else now
+    (ingest_time). ``jdstarthist``, forced photometry and ``survey_matches``
+    are never used: on ZTF-matched topics they can carry ZTF history, which
+    must not date a Rubin object.
+
+    Args:
+        record: The decoded Avro record.
+        topic: The Kafka topic it arrived on, kept in the stored payload.
+
+    Returns:
+        The canonical dict, or None when the alert has no diaObjectId or no
+        finite position (a skip, not an error).
+    """
+    candidate = record.get('candidate') if isinstance(record, dict) else None
+    if not isinstance(candidate, dict):
+        return None
+    dia_object_id = candidate.get('diaObjectId')
+    ra = _finite(candidate.get('ra'))
+    dec = _finite(candidate.get('dec'))
+    if isinstance(dia_object_id, bool) or not isinstance(dia_object_id, int):
+        return None
+    if ra is None or dec is None:
+        return None
+
+    source_mjd = _mjd(candidate.get('midpointMjdTai'))
+    history_mjds = []
+    history = record.get('prv_candidates')
+    if isinstance(history, list):
+        for entry in history:
+            if isinstance(entry, dict):
+                jd = _finite(entry.get('jd'))
+                mjd = _mjd(jd - _JD_TO_MJD) if jd is not None else None
+                if mjd is not None:
+                    history_mjds.append(mjd)
+
+    if history_mjds:
+        earliest = min(history_mjds + ([source_mjd] if source_mjd is not None else []))
+        event_time, basis = _mjd_to_datetime(earliest), Basis.FIRST_DETECTION
+    elif source_mjd is not None:
+        event_time, basis = _mjd_to_datetime(source_mjd), Basis.LATER_DETECTION
+    else:
+        event_time, basis = datetime.now(tz=timezone.utc), Basis.INGEST_TIME
+
+    return {
+        'lsst_diaObject_diaObjectId': int(dia_object_id),
+        'ra_deg': ra,
+        'dec_deg': dec,
+        'lsst_diaSource_diaSourceId': candidate.get('diaSourceId'),
+        'event_time': event_time,
+        'event_time_basis': basis,
+        'reliability': _finite(candidate.get('reliability')),
+        'payload': {
+            'objectId': record.get('objectId', record.get('object_id')),
+            'candid': record.get('candid', record.get('_id')),
+            'topic': topic,
+            'candidate': _json_safe(candidate),
+        },
+    }
