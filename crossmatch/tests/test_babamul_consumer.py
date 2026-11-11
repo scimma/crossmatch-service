@@ -77,12 +77,35 @@ class _FakeConsumer:
         self.topics = None
         self.stored = []
         self.closed = False
+        self.paused = False
+        self.paused_polls = 0
+        self.pause_calls = []
+        self.resume_calls = []
+        self.seeks = []
+        self.during_pause = []
         _FakeConsumer.instances.append(self)
 
     def subscribe(self, topics):
         self.topics = topics
 
+    def assignment(self):
+        return ['assigned-partitions']
+
+    def pause(self, partitions):
+        self.paused = True
+        self.pause_calls.append(partitions)
+
+    def resume(self, partitions):
+        self.paused = False
+        self.resume_calls.append(partitions)
+
+    def seek(self, partition):
+        self.seeks.append((partition.topic, partition.partition, partition.offset))
+
     def poll(self, timeout=None):
+        if self.paused:
+            self.paused_polls += 1
+            return self.during_pause.pop(0) if self.during_pause else None
         if not self.script:
             raise _Stop()
         return self.script.pop(0)
@@ -224,6 +247,37 @@ def test_transient_db_error_retries_same_message_without_rebuild():
     assert [c.args[0] for c in sleep.call_args_list] == [1, 2]
     assert _FakeConsumer.instances[0].stored == [message.offset()]
     assert AlertDelivery.objects.filter(broker='babamul').count() == 1
+    # The partitions stay paused while the consumer keeps polling, so the group
+    # does not evict it during a long outage, then resume once ingest succeeds.
+    fake = _FakeConsumer.instances[0]
+    assert len(fake.pause_calls) == 1
+    assert fake.paused_polls == 2
+    assert len(fake.resume_calls) == 1 and fake.paused is False
+
+
+@pytest.mark.django_db
+@override_settings(**CREDENTIALS)
+def test_message_from_rebalanced_partition_during_db_retry_is_rewound():
+    message = _alert()
+    stray = _alert(diaObjectId=170433143923278200)
+    real_ingest = consumer.ingest_alert
+    calls = []
+
+    def flaky(canonical, broker):
+        calls.append(canonical['lsst_diaObject_diaObjectId'])
+        if len(calls) == 1:
+            _FakeConsumer.instances[0].during_pause.append(stray)
+            raise OperationalError('connection is closed')
+        return real_ingest(canonical, broker=broker)
+
+    with mock.patch.object(consumer, 'ingest_alert', side_effect=flaky):
+        _run([message])
+
+    fake = _FakeConsumer.instances[0]
+    assert fake.seeks == [(TOPIC, 0, stray.offset())]
+    assert len(fake.pause_calls) == 2
+    assert stray.offset() not in fake.stored
+    assert fake.stored == [message.offset()]
 
 
 @pytest.mark.django_db

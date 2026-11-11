@@ -17,7 +17,7 @@ import io
 import time
 
 import fastavro
-from confluent_kafka import Consumer, KafkaError
+from confluent_kafka import Consumer, KafkaError, TopicPartition
 from django.conf import settings
 from django.db import InterfaceError, OperationalError
 
@@ -96,21 +96,60 @@ def _check_error(err: KafkaError) -> None:
         logger.warning('Babamul Kafka error', error=err.str(), code=err.name())
 
 
-def _ingest_with_retry(canonical: dict) -> bool:
-    """Ingest, retrying transient database errors in place until it succeeds."""
+def _keep_alive(kafka) -> None:
+    """Poll once while partitions are paused, so the group keeps this member.
+
+    A partition assigned by a rebalance during the pause is not paused yet, so
+    a message from it is rewound to be read again later, and that partition is
+    paused too.
+    """
+    message = kafka.poll(0)
+    if message is None:
+        return
+    if message.error():
+        _check_error(message.error())
+        return
+    kafka.seek(TopicPartition(message.topic(), message.partition(), message.offset()))
+    kafka.pause(kafka.assignment())
+
+
+def _ingest_with_retry(canonical: dict, kafka) -> bool:
+    """Ingest, retrying transient database errors in place until it succeeds.
+
+    While it retries, the assigned partitions are paused and the consumer keeps
+    polling. Without the polls, an outage longer than max.poll.interval.ms
+    would evict the consumer, and a partition with no committed offset would
+    rejoin at the latest offset and skip the alerts that arrived meanwhile.
+
+    Args:
+        canonical: The normalized alert.
+        kafka: The consumer the alert came from.
+
+    Returns:
+        True for a new delivery, False for a repeat.
+    """
     backoff = _BACKOFF_INITIAL
-    while True:
-        try:
-            return ingest_alert(canonical, broker=BROKER_NAME)
-        except (OperationalError, InterfaceError) as err:
-            logger.warning(
-                'Database unavailable, retrying Babamul alert', error=str(err)
-            )
-            time.sleep(backoff)
-            backoff = min(backoff * 2, _BACKOFF_MAX)
+    paused = False
+    try:
+        while True:
+            try:
+                return ingest_alert(canonical, broker=BROKER_NAME)
+            except (OperationalError, InterfaceError) as err:
+                logger.warning(
+                    'Database unavailable, retrying Babamul alert', error=str(err)
+                )
+                if not paused:
+                    kafka.pause(kafka.assignment())
+                    paused = True
+                time.sleep(backoff)
+                _keep_alive(kafka)
+                backoff = min(backoff * 2, _BACKOFF_MAX)
+    finally:
+        if paused:
+            kafka.resume(kafka.assignment())
 
 
-def _handle(message) -> str:
+def _handle(message, kafka) -> str:
     """Process one message and return its final outcome."""
     topic = message.topic()
     try:
@@ -130,7 +169,7 @@ def _handle(message) -> str:
         canonical['reliability'], settings.MIN_DIASOURCE_RELIABILITY
     ):
         return 'below_cut'
-    return 'ingested' if _ingest_with_retry(canonical) else 'duplicate'
+    return 'ingested' if _ingest_with_retry(canonical, kafka) else 'duplicate'
 
 
 def _consumer_config(errors: list) -> dict:
@@ -192,7 +231,7 @@ def consume_alerts():
                     continue
                 backoff = _BACKOFF_INITIAL
                 try:
-                    outcome = _handle(message)
+                    outcome = _handle(message, kafka)
                 except Exception as err:
                     logger.error(
                         'Error ingesting Babamul alert',

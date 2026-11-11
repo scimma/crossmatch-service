@@ -213,6 +213,8 @@
   value: {{ .Values.lasair_consumer.topic | quote }}
 - name: PITTGOOGLE_TOPIC
   value: {{ .Values.pittgoogle_consumer.topic | quote }}
+- name: BABAMUL_TOPICS
+  value: {{ .Values.babamul_consumer.topics | quote }}
 - name: HOPSKOTCH_BROKER_URL
   value: {{ .Values.hopskotch.broker_url | quote }}
 - name: HOPSKOTCH_TOPIC
