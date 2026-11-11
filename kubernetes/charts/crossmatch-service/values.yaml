@@ -45,6 +45,26 @@ lasair_consumer:
       cpu: '2'
       memory: 2Gi
 
+babamul_consumer:
+  # Off by default: needs the 'babamul' secret (BABAMUL_KAFKA_USERNAME,
+  # BABAMUL_KAFKA_PASSWORD). The same value sets BABAMUL_ENABLED for the
+  # workloads that report broker lists, so they agree with the consumer.
+  enabled: false
+  replicaCount: 1
+  service:
+    host: "babamul-consumer"
+  kafka_server: "kaboom.caltech.edu:9093"
+  topics: "babamul.lsst.no-ztf-match.hosted,babamul.lsst.no-ztf-match.hostless,babamul.lsst.no-ztf-match.unknown,babamul.lsst.ztf-match.hosted,babamul.lsst.ztf-match.hostless,babamul.lsst.ztf-match.unknown"
+  # Suffix; the consumer prefixes it with the Babamul username.
+  group_id: "scimma-crossmatch-prod"
+  resources:
+    requests:
+      cpu: '500m'
+      memory: 100Mi
+    limits:
+      cpu: '2'
+      memory: 2Gi
+
 broker_filter:
   # Broker-agnostic; see scimma_crossmatch_service_design.md §2.2.
   # Minimum reliability score (latest diaSource) admitted to ingest.

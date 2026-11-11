@@ -11,7 +11,7 @@
 #   source: plain | secret
 #   secret: <secret name>     (only when source: secret)
 #   components: workloads that MUST receive the var
-#                (antares-consumer, lasair-consumer, pittgoogle-consumer,
+#                (antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer,
 #                 celery-worker, celery-beat, flower, postgres)
 #
 # This contract governs the application's own workloads only. The third-party
@@ -24,66 +24,66 @@ vars:
   - name: DJANGO_SECRET_KEY
     source: secret
     secret: django
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, flower]
   - name: DJANGO_SUPERUSER_PASSWORD
     source: secret
     secret: django
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, flower]
   - name: DJANGO_SUPERUSER_USERNAME
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, flower]
   - name: DJANGO_SUPERUSER_EMAIL
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, flower]
   - name: DJANGO_DEBUG
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, flower]
   - name: LOG_LEVEL
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, flower]
   - name: DEV_MODE
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, celery-beat, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, celery-beat, flower]
   - name: MAKE_MIGRATIONS
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, celery-beat, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, celery-beat, flower]
   - name: APP_ROOT_DIR
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, celery-beat, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, celery-beat, flower]
 
   # --- Database ---
   - name: DATABASE_HOST
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, celery-beat, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, celery-beat, flower]
   - name: DATABASE_PORT
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, celery-beat, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, celery-beat, flower]
   - name: DATABASE_USER
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, celery-beat, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, celery-beat, flower]
   - name: DATABASE_DB
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, celery-beat, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, celery-beat, flower]
   - name: DATABASE_PASSWORD
     source: secret
     secret: database
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, celery-beat, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, celery-beat, flower]
 
   # --- Valkey (message broker / result backend) ---
   - name: VALKEY_SERVICE
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, celery-beat, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, celery-beat, flower]
   - name: VALKEY_PORT
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, celery-beat, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, celery-beat, flower]
 
   # --- Celery ---
   - name: CELERY_TASK_TIME_LIMIT
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, flower]
   - name: CELERY_TASK_SOFT_TIME_LIMIT
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, flower]
   - name: CELERY_CONCURRENCY
     source: plain
     components: [celery-worker]
@@ -92,10 +92,10 @@ vars:
     components: [celery-worker]
   - name: DASK_SCHEDULER_ADDRESS
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, flower]
   - name: DASK_VERSION_CHECK_TIMEOUT_SECONDS
     source: plain
-    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, celery-worker, flower]
+    components: [antares-consumer, lasair-consumer, pittgoogle-consumer, babamul-consumer, celery-worker, flower]
 
   # --- ANTARES consumer ---
   - name: ANTARES_API_KEY
@@ -126,11 +126,12 @@ vars:
 
   # --- Pitt-Google consumer ---
   # MIN_DIASOURCE_RELIABILITY is read in code ONLY by the pittgoogle consumer
-  # (builds the SMT UDF). antares does not read it; lasair's cut is enforced
-  # upstream by topic selection. Do not require it on other components.
+  # (builds the SMT UDF) and the babamul consumer (applies the cut per
+  # message). antares does not read it; lasair's cut is enforced upstream by
+  # topic selection. Do not require it on other components.
   - name: MIN_DIASOURCE_RELIABILITY
     source: plain
-    components: [pittgoogle-consumer]
+    components: [pittgoogle-consumer, babamul-consumer]
   - name: PITTGOOGLE_TOPIC
     source: plain
     components: [pittgoogle-consumer]
@@ -147,6 +148,30 @@ vars:
     source: secret
     secret: gcp-pittgoogle
     components: [pittgoogle-consumer]
+
+  # --- Babamul consumer ---
+  # BABAMUL_ENABLED is the one switch for Babamul: it reaches every component
+  # that reports provenance or broker lists, so they agree with the consumer.
+  - name: BABAMUL_ENABLED
+    source: plain
+    components: [babamul-consumer, celery-worker, celery-beat, flower]
+  - name: BABAMUL_KAFKA_SERVER
+    source: plain
+    components: [babamul-consumer]
+  - name: BABAMUL_KAFKA_USERNAME
+    source: secret
+    secret: babamul
+    components: [babamul-consumer]
+  - name: BABAMUL_KAFKA_PASSWORD
+    source: secret
+    secret: babamul
+    components: [babamul-consumer]
+  - name: BABAMUL_GROUP_ID
+    source: plain
+    components: [babamul-consumer]
+  - name: BABAMUL_TOPICS
+    source: plain
+    components: [babamul-consumer]
 
   # --- Hopskotch publish (celery worker) ---
   - name: HOPSKOTCH_BROKER_URL

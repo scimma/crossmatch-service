@@ -190,6 +190,50 @@ spec:
         {{- end }}
 {{- end }}
 
+{{- if .Values.babamul_consumer.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.babamul_consumer.service.host | quote }}
+  {{- with .Values.common.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.babamul_consumer.replicaCount }}
+  serviceName: {{ .Values.babamul_consumer.service.host | quote }}
+  selector:
+    matchLabels:
+      app: {{ .Values.babamul_consumer.service.host | quote }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.babamul_consumer.service.host | quote }}
+        app.kubernetes.io/component: babamul-consumer
+    spec:
+      containers:
+      - name: babamul-consumer
+        image: {{ .Values.common.image.repo }}:{{ .Values.common.image.tag }}
+        imagePullPolicy: {{ .Values.common.image.imagePullPolicy }}
+        command:
+        - /bin/bash
+        - -c
+        - bash entrypoints/run_babamul_ingest.sh
+        env:
+          {{- include "common.env" . | nindent 10 }}
+          {{- include "django.env" . | nindent 10 }}
+          {{- include "db.env" . | nindent 10 }}
+          {{- include "valkey.env" . | nindent 10 }}
+          {{- include "celery.env" . | nindent 10 }}
+          {{- include "broker_filter.env" . | nindent 10 }}
+          {{- include "babamul.env" . | nindent 10 }}
+        {{- with .Values.babamul_consumer.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+{{- end }}
+
 {{- if .Values.pittgoogle_consumer.enabled }}
 ---
 apiVersion: apps/v1

@@ -88,6 +88,27 @@
   value: {{ .Values.antares_consumer.group_id | quote }}
 {{- end }}
 
+{{- define "babamul.env" -}}
+- name: BABAMUL_ENABLED
+  value: {{ .Values.babamul_consumer.enabled | quote }}
+- name: BABAMUL_KAFKA_SERVER
+  value: {{ .Values.babamul_consumer.kafka_server | quote }}
+- name: BABAMUL_KAFKA_USERNAME
+  valueFrom:
+    secretKeyRef:
+      key: BABAMUL_KAFKA_USERNAME
+      name: babamul
+- name: BABAMUL_KAFKA_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      key: BABAMUL_KAFKA_PASSWORD
+      name: babamul
+- name: BABAMUL_TOPICS
+  value: {{ .Values.babamul_consumer.topics | quote }}
+- name: BABAMUL_GROUP_ID
+  value: {{ .Values.babamul_consumer.group_id | quote }}
+{{- end }}
+
 {{- define "broker_filter.env" -}}
 - name: MIN_DIASOURCE_RELIABILITY
   value: {{ .Values.broker_filter.min_diasource_reliability | quote }}
@@ -145,6 +166,8 @@
 {{- end }}
 
 {{- define "crossmatch.env" -}}
+- name: BABAMUL_ENABLED
+  value: {{ .Values.babamul_consumer.enabled | quote }}
 - name: GAIA_HATS_URL
   value: {{ .Values.crossmatch.gaia_hats_url | quote }}
 - name: DES_HATS_URL

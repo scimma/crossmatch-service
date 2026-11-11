@@ -14,6 +14,16 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+### Added
+
+- Babamul is a fourth alert broker, off by default and switched on per cluster with `BABAMUL_ENABLED`. A new consumer (`run_babamul_ingest`, workload `babamul-consumer`) reads six Babamul LSST Kafka topics: `babamul.lsst.{no-ztf-match,ztf-match}.{hosted,hostless,unknown}` (the `stellar` topics are not read). It applies the service's own reliability cut (`MIN_DIASOURCE_RELIABILITY`), as for Pitt-Google, because Babamul's topics are split by class rather than reliability. Babamul sends the triggering diaSource but no diaObject, so an object that Babamul delivers first is placed at that diaSource's position. Its time is the earliest LSST detection the alert carries.
+- With `BABAMUL_ENABLED` on, Babamul appears on the web brokers page, in `/api/summary` broker counts and the `broker` filter, in the reliability-cut provenance (as service-enforced), and in the chat connector. Chat answers link each object's Babamul page, which needs a free Babamul account. With it off, every surface reads exactly as before.
+- `crossmatch_babamul_messages_total{topic,outcome}` counts Babamul messages by outcome: `ingested`, `duplicate`, `below_cut`, `no_object`, `undecodable` or `error`.
+- Deploy note:
+  - The consumer needs a `babamul` secret with `BABAMUL_KAFKA_USERNAME` and `BABAMUL_KAFKA_PASSWORD` and a `BABAMUL_GROUP_ID` suffix, and it exits non-zero without them.
+  - Deliver `BABAMUL_ENABLED` to every workload that reports provenance, not only the consumer. Turning it on changes the reliability-cut table, so the next crossmatch batch on that cluster records a new provenance set. Objects crossmatched earlier keep the three-broker set.
+  - Locally, start the consumer with `docker compose --profile babamul`.
+
 ## [0.17.0] - 2026-10-28
 
 ### Added
