@@ -53,6 +53,7 @@ from api.summary import (
 )
 from chat_mcp.identifiers import Classified, classify_identifiers
 from chat_mcp.projection import (
+    join_names,
     link_names,
     link_note,
     project_coverage,
@@ -94,8 +95,7 @@ def _broker_labels() -> str:
 
 def _broker_ids() -> str:
     """The broker identifiers, e.g. 'antares, lasair or pittgoogle'."""
-    names = broker_names()
-    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} or {names[-1]}"
+    return join_names(broker_names(), 'or')
 
 #: What a tool's ``run`` returns: the projection, and counts for the log line.
 RunResult = tuple[dict[str, Any], dict[str, Any]]

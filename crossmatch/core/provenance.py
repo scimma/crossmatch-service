@@ -44,6 +44,11 @@ _BROKER_ENFORCED = ('antares', 'lasair')
 _SERVICE_ENFORCED = ('pittgoogle', 'babamul')
 
 
+def babamul_enabled() -> bool:
+    """Whether Babamul is a broker on this cluster (``BABAMUL_ENABLED``)."""
+    return bool(settings.BABAMUL_ENABLED)
+
+
 def _json_float(value: Any) -> float | None:
     """Coerce a numeric setting to a finite ``float``, or ``None`` if unset.
 
@@ -151,7 +156,7 @@ def reliability_cuts() -> list[dict[str, Any]]:
     """
     cuts = [_declared_cut(broker) for broker in _BROKER_ENFORCED]
     for broker in _SERVICE_ENFORCED:
-        if broker == 'babamul' and not getattr(settings, 'BABAMUL_ENABLED', False):
+        if broker == 'babamul' and not babamul_enabled():
             continue
         cuts.append({
             'broker': broker,

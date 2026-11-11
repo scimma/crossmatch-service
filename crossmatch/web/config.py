@@ -147,7 +147,7 @@ def brokers() -> Any:
                 'topic': _present(getattr(settings, 'PITTGOOGLE_TOPIC', None)),
             },
         ]
-        if getattr(settings, 'BABAMUL_ENABLED', False):
+        if provenance.babamul_enabled():
             topics = list(getattr(settings, 'BABAMUL_TOPICS', None) or [])
             rows.append({
                 'name': 'Babamul',

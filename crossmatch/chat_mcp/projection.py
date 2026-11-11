@@ -34,6 +34,7 @@ from django.conf import settings
 
 from api.contract import CODE_DESCRIPTIONS, InputStatus, ObjectStatus
 from api.discovery import COINCIDENCE_CAVEAT, NOT_IN_SERVICE_CAVEAT
+from core.provenance import babamul_enabled
 from chat_mcp.identifiers import (
     KIND_ID, KIND_PRECISION_LOST, KIND_TNS, KIND_UNRECOGNIZED, Classified, Identifier,
 )
@@ -82,22 +83,19 @@ TRUNCATED_OBJECTS = 'chat_object_limit'
 TRUNCATED_SIZE = 'chat_size_limit'
 TRUNCATED_API = 'api_listing_limit'
 
-#: Babamul's object pages sit behind its (free) login.
 BABAMUL_LINK_NOTE = "Babamul's object pages need a free Babamul account."
 
 
-def babamul_enabled() -> bool:
-    """Whether Babamul is a broker on this cluster (``BABAMUL_ENABLED``)."""
-    return bool(getattr(settings, 'BABAMUL_ENABLED', False))
-
-
-def _and_join(names: list[str]) -> str:
-    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+def join_names(names: list[str], conjunction: str = 'and') -> str:
+    """Join names as 'a, b and c' (or with another conjunction)."""
+    if len(names) == 1:
+        return names[0]
+    return f"{', '.join(names[:-1])} {conjunction} {names[-1]}"
 
 
 def link_names() -> str:
     """The object links each answer offers, e.g. 'TNS, Lasair and ANTARES'."""
-    return _and_join(['TNS', 'Lasair', 'ANTARES'] + (['Babamul'] if babamul_enabled() else []))
+    return join_names(['TNS', 'Lasair', 'ANTARES'] + (['Babamul'] if babamul_enabled() else []))
 
 
 def link_note() -> str:
