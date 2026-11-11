@@ -1,6 +1,6 @@
-# LSST Alert Matching Service Architecture (ANTARES + Lasair + Pitt-Google brokers × HATS catalogs)
+# LSST Alert Matching Service Architecture (ANTARES + Lasair + Pitt-Google + Babamul brokers × HATS catalogs)
 
-This document defines a Python-based service architecture that receives Rubin/LSST alerts from the **ANTARES**, **Lasair**, and **Pitt-Google** brokers, matches them against multiple HATS catalogs using **LSDB** (Gaia DR3, DES Y6 Gold, DELVE DR3 Gold, and SkyMapper DR4 today — see §7.3 for the authoritative roster and asymmetry callout), and records results for eventual **feedback to LSST** (return mechanism TBD).
+This document defines a Python-based service architecture that receives Rubin/LSST alerts from the **ANTARES**, **Lasair**, **Pitt-Google**, and **Babamul** brokers, matches them against multiple HATS catalogs using **LSDB** (Gaia DR3, DES Y6 Gold, DELVE DR3 Gold, and SkyMapper DR4 today — see §7.3 for the authoritative roster and asymmetry callout), and records results for eventual **feedback to LSST** (return mechanism TBD).
 
 It is an iteration of the original design, updated to:
 - Use **Celery** for work orchestration
@@ -13,7 +13,7 @@ It is an iteration of the original design, updated to:
 ## 1. Goals and Non-Goals
 
 ### Goals
-- Reliable ingestion of LSST alerts from **multiple brokers** (ANTARES + Lasair + Pitt-Google) for stream resilience and richer science filtering.
+- Reliable ingestion of LSST alerts from **multiple brokers** (ANTARES + Lasair + Pitt-Google + Babamul) for stream resilience and richer science filtering.
 - Idempotent processing (safe to retry alert ingest, match jobs, and notifications).
 - Horizontal scalability: multiple workers consuming queued crossmatch work.
 - Separation of concerns: ingest vs. schedule ingest vs. match vs. notify.
@@ -33,12 +33,14 @@ It is an iteration of the original design, updated to:
 
 **A. Broker-side Filters**
 
-All three brokers run their filter upstream of our ingest services, so
+ANTARES, Lasair and Pitt-Google run their filter upstream of our ingest services, so
 alerts that fail the rule are never delivered. ANTARES and Lasair filters
 live in the broker's own infrastructure; Pitt-Google's filter is a
 JavaScript Single Message Transform (SMT) User-Defined Function (UDF)
 that we attach to the Pub/Sub subscription in our own GCP project — also
 upstream of our subscriber, but configured by us rather than the broker.
+Babamul is the exception: its topics are split by class, not reliability,
+so our Babamul consumer applies the filter to each message it receives.
 All filters apply the broker filter standard defined in §2.2.
 
 **A1. ANTARES Filter (runs in ANTARES infrastructure)**
@@ -113,6 +115,13 @@ Three independent ingest services consume from separate broker streams and write
 - Records the delivery in `alert_deliveries` (broker=`'pittgoogle'`).
 - Enqueues a `crossmatch_alert` Celery task **only if the UPSERT created a new row** (i.e., another broker has not already delivered the same alert).
 
+**B4. Babamul Ingest Service** (enabled per cluster by `BABAMUL_ENABLED`)
+- Consumes six Babamul LSST Kafka topics (`babamul.lsst.{no-ztf-match,ztf-match}.{hosted,hostless,unknown}`; the `stellar` topics are not consumed) at `kaboom.caltech.edu:9093` over SASL_PLAINTEXT with SCRAM-SHA-512. The consumer group is the Babamul username followed by `BABAMUL_GROUP_ID`.
+- Each message is an Avro Object Container File holding one alert; the alert's `candidate` is the triggering diaSource. Babamul sends no diaObject record, so the stored position is the diaSource's.
+- **Applies the broker filter standard (§2.2) in the consumer**: an alert whose `candidate.reliability` is missing, null, non-finite or below `MIN_DIASOURCE_RELIABILITY` is dropped.
+- Event time comes only from LSST prior detections (`prv_candidates`, JD) and the candidate midpoint; `jdstarthist`, forced photometry and `survey_matches` are never used.
+- Records the delivery in `alert_deliveries` (broker=`'babamul'`). Offsets are stored only after a final outcome (at-least-once).
+
 **C. Crossmatch Workers (Celery workers; runs in our Kubernetes cluster; horizontally scaled)**
 - Consume batch crossmatch jobs from Celery.
 - Use LSDB to match alerts against all configured HATS catalogs via `lsdb.from_dataframe()` + `catalog.crossmatch()`. See §7.3 for the authoritative per-catalog roster.
@@ -139,12 +148,12 @@ Three independent ingest services consume from separate broker streams and write
 
 ### 2.2 Broker Filter Standard
 
-All three brokers (ANTARES, Lasair, Pitt-Google) apply the same filter
-rule upstream of our ingest services, so alerts that fail are never
-delivered. ANTARES and Lasair filters run in the broker's own
-infrastructure; Pitt-Google's filter is a JavaScript Single Message
-Transform (SMT) User-Defined Function (UDF) that we attach to the
-Pub/Sub subscription in our own GCP project. The rule is:
+Every broker (ANTARES, Lasair, Pitt-Google, Babamul) is held to the same
+filter rule, so alerts that fail are never ingested. ANTARES and Lasair
+filters run in the broker's own infrastructure; Pitt-Google's filter is a
+JavaScript Single Message Transform (SMT) User-Defined Function (UDF) that
+we attach to the Pub/Sub subscription in our own GCP project; Babamul's is
+applied by our consumer to each message. The rule is:
 
 > **The latest diaSource associated with the diaObject must have
 > `reliability >= 0.6`.**
@@ -166,6 +175,7 @@ Each broker exposes the field under its own alias:
 | ANTARES       | `lsst_diaSource_reliability` on the latest diaSource     |
 | Lasair        | `objects.latestR` (alias for the latest-diaSource value) |
 | Pitt-Google   | `data.diaSource.reliability` in the SMT UDF JS, where `data` is the JSON-parsed message payload (the alert's primary `diaSource` is by construction the latest detection in the LSST alert envelope) |
+| Babamul       | `candidate.reliability`, checked by our consumer (`candidate` is the alert's triggering diaSource) |
 
 Alerts whose latest diaSource has missing or null `reliability` fail the
 predicate and are dropped, consistent with the standard.
@@ -180,7 +190,8 @@ behaviour against real survey data.
 #### Configuration: `MIN_DIASOURCE_RELIABILITY`
 
 Broker clients implemented in **this codebase** (currently Pitt-Google in
-`crossmatch/brokers/pittgoogle/consumer.py`; future broker clients
+`crossmatch/brokers/pittgoogle/consumer.py` and Babamul in
+`crossmatch/brokers/babamul/consumer.py`; future broker clients
 should live under `crossmatch/brokers/<broker>/`) read the threshold
 from a single environment variable:
 
@@ -211,7 +222,7 @@ must be re-issued / re-created to use `>=` for consistency.
 
 1. LSST publishes alert packets → ANTARES receives.
 2. Our ANTARES filter selects a subset → ANTARES publishes to our subscription topic.
-3. **Any** ingest service (ANTARES, Lasair, or Pitt-Google) receives the alert:
+3. **Any** ingest service (ANTARES, Lasair, Pitt-Google, or Babamul) receives the alert:
    - UPSERT into `alerts` keyed by `lsst_diaObject_diaObjectId` (`ON CONFLICT DO NOTHING`)
    - INSERT into `alert_deliveries` recording the broker name and broker-specific envelope (`ON CONFLICT DO NOTHING`)
    - If the UPSERT created a new `alerts` row → submit Celery task `crossmatch_alert(lsst_diaObject_diaObjectId)`

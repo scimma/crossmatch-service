@@ -43,7 +43,7 @@ The LSST real/bogus score for a detection: a 0-to-1 estimate of the probability 
 diaSource is a genuine astrophysical transient rather than an imaging artifact. A
 minimum-reliability filter is applied before delivery, so delivered Alerts carry a score
 above that floor: ANTARES and Lasair enforce it in their own broker-side filters, while
-the Pitt-Google subscription enforces the service's `MIN_DIASOURCE_RELIABILITY`. It is the ranking basis for "most likely transient" queries. The value
+the Pitt-Google subscription and the Babamul consumer enforce the service's `MIN_DIASOURCE_RELIABILITY`. It is the ranking basis for "most likely transient" queries. The value
 is per-diaSource and, where the read model persists it, is captured once, from the
 object's first delivery: the delivering broker's score at that time (for Lasair, its
 latest detection's score).
@@ -68,7 +68,8 @@ others may place it in a later night.
 
 ### Broker
 An upstream service that delivers the Vera C. Rubin Observatory alert stream — ANTARES,
-Lasair, and Pitt-Google. Each Broker has its own ingestion and normalization path that
+Lasair, Pitt-Google, and Babamul (Babamul only on clusters where `BABAMUL_ENABLED` is set).
+Each Broker has its own ingestion and normalization path that
 maps its wire format onto the common Alert shape.
 
 ### HATS catalog

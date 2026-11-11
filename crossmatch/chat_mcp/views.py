@@ -28,7 +28,7 @@ from api.errors import ApiError, InvalidQuery
 from api.guard import RequestGuard
 from api.views import _json_body
 from chat_mcp import limits, protocol
-from chat_mcp.projection import to_text
+from chat_mcp.projection import link_names, link_note, to_text
 from chat_mcp.protocol import RpcError
 from chat_mcp.tools import TOOLS, ToolArgumentError
 from core import provenance
@@ -39,19 +39,23 @@ logger = get_logger(__name__)
 SERVER_NAME = 'scimma-rubin-crossmatch'
 SERVER_TITLE = 'SCiMMA Rubin Crossmatch'
 
-INSTRUCTIONS = (
-    'Answers questions about Rubin Observatory transients from the SCiMMA '
-    'crossmatch service: which Gaia DR3, DES Y6 Gold, DELVE DR3 Gold and '
-    'SkyMapper DR4 sources coincide with a transient, looked up by TNS name or '
-    'diaObjectId (lookup_rubin_transients) or by sky position '
-    '(search_rubin_transients_near_position). Use describe_crossmatch_service '
-    'to explain coverage or why an object is absent. For how many objects '
-    'arrived, from which broker, last night or this week, use '
-    'summarize_rubin_transients_by_night; pass the diaObjectIds it lists to '
-    'lookup_rubin_transients for their coincident sources. Always pass diaObjectIds '
-    'as strings. Offer the TNS, Lasair and ANTARES links in each answer for '
-    'light curves and classifications, which this service does not hold.'
-)
+
+def instructions() -> str:
+    """The server instructions sent at ``initialize``."""
+    return (
+        'Answers questions about Rubin Observatory transients from the SCiMMA '
+        'crossmatch service: which Gaia DR3, DES Y6 Gold, DELVE DR3 Gold and '
+        'SkyMapper DR4 sources coincide with a transient, looked up by TNS name or '
+        'diaObjectId (lookup_rubin_transients) or by sky position '
+        '(search_rubin_transients_near_position). Use describe_crossmatch_service '
+        'to explain coverage or why an object is absent. For how many objects '
+        'arrived, from which broker, last night or this week, use '
+        'summarize_rubin_transients_by_night; pass the diaObjectIds it lists to '
+        'lookup_rubin_transients for their coincident sources. Always pass diaObjectIds '
+        f'as strings. Offer the {link_names()} links in each answer for '
+        f'light curves and classifications, which this service does not hold.{link_note()}'
+    )
+
 
 #: ``outcome`` of a call whose arguments failed validation.
 OUTCOME_OK = 'ok'
@@ -117,7 +121,7 @@ def _initialize(params: dict[str, Any]) -> tuple[dict[str, Any], str]:
             'title': SERVER_TITLE,
             'version': provenance.service_version() or 'unknown',
         },
-        'instructions': INSTRUCTIONS,
+        'instructions': instructions(),
     }
     return result, protocol.issue_session_id()
 

@@ -133,7 +133,7 @@ def catalogs() -> Any:
 def brokers() -> Any:
     """Upstream brokers and their configured topics (unset -> NOT_CONFIGURED)."""
     try:
-        return [
+        rows = [
             {
                 'name': 'ANTARES',
                 'topic': _present(getattr(settings, 'ANTARES_TOPIC', None)),
@@ -147,6 +147,14 @@ def brokers() -> Any:
                 'topic': _present(getattr(settings, 'PITTGOOGLE_TOPIC', None)),
             },
         ]
+        if getattr(settings, 'BABAMUL_ENABLED', False):
+            topics = list(getattr(settings, 'BABAMUL_TOPICS', None) or [])
+            rows.append({
+                'name': 'Babamul',
+                'topic': _present(topics[0] if topics else None),
+                'topics': topics,
+            })
+        return rows
     except Exception as exc:  # noqa: BLE001
         logger.warning('web_config_brokers_unavailable', error=str(exc))
         return SectionUnavailable(reason='broker configuration could not be read')

@@ -420,10 +420,25 @@ def test_summary_year_one_span_is_a_tool_argument_error(client, frozen_now):
 
 
 def test_instructions_route_count_questions_to_the_summary_tool():
-    from chat_mcp.views import INSTRUCTIONS
+    from chat_mcp.views import instructions
 
-    assert SUMMARY_TOOL in INSTRUCTIONS
-    assert 'last night' in INSTRUCTIONS
+    assert SUMMARY_TOOL in instructions()
+    assert 'last night' in instructions()
+
+
+@pytest.mark.parametrize('enabled', [False, True])
+def test_tool_text_names_babamul_and_its_account_note_only_when_enabled(enabled):
+    from chat_mcp.tools import TOOLS
+    from chat_mcp.views import instructions
+
+    with override_settings(BABAMUL_ENABLED=enabled):
+        texts = [instructions()] + [tool.description() for tool in TOOLS.values()]
+        summary_enum = TOOLS[SUMMARY_TOOL].input_schema()['properties']['broker']['enum']
+
+    assert ('babamul' in summary_enum) is enabled
+    for text in texts:
+        assert ('Babamul' in text) is enabled, text[:80]
+    assert any('Babamul account' in text for text in texts) is enabled
 
 
 @pytest.mark.django_db(transaction=True)

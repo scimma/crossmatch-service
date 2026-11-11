@@ -171,6 +171,30 @@ def test_ae1_tns_name_with_gaia_match_gives_status_matches_brokers_and_links():
     assert projection['truncated'] is False
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize('enabled', [False, True])
+def test_babamul_link_only_when_babamul_is_enabled(enabled):
+    oid = BASE_ID + 41
+    crossmatched(oid, 150.0, 2.0, brokers=('lasair',))
+
+    with override_settings(BABAMUL_ENABLED=enabled):
+        projection, _ = lookup([str(oid)])
+        coverage = project_coverage(
+            describe_service(),
+            service_status(database_ok=True, snapshot_epoch=timezone.now()),
+            latest_ingest=None,
+        )
+        text = coverage['does_not_answer']
+
+    links = projection['results'][0]['objects'][0]['links']
+    if enabled:
+        assert links['babamul'] == f'https://babamul.caltech.edu/objects/LSST/{oid}'
+        assert any('Babamul' in line for line in text)
+    else:
+        assert 'babamul' not in links
+        assert not any('Babamul' in line for line in text)
+
+
 # --- AE7 ---
 
 @pytest.mark.django_db

@@ -82,14 +82,39 @@ TRUNCATED_OBJECTS = 'chat_object_limit'
 TRUNCATED_SIZE = 'chat_size_limit'
 TRUNCATED_API = 'api_listing_limit'
 
-_DOES_NOT_ANSWER = (
-    NOT_IN_SERVICE_CAVEAT,
-    COINCIDENCE_CAVEAT,
-    'The service does not hold Rubin light curves, photometry or '
-    'classifications; the brokers (Lasair, ANTARES, Pitt-Google) serve those.',
-    'TNS associations are positional and as of the TNS snapshot named in each '
-    'answer; the service does not query TNS live.',
-)
+#: Babamul's object pages sit behind its (free) login.
+BABAMUL_LINK_NOTE = "Babamul's object pages need a free Babamul account."
+
+
+def babamul_enabled() -> bool:
+    """Whether Babamul is a broker on this cluster (``BABAMUL_ENABLED``)."""
+    return bool(getattr(settings, 'BABAMUL_ENABLED', False))
+
+
+def _and_join(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def link_names() -> str:
+    """The object links each answer offers, e.g. 'TNS, Lasair and ANTARES'."""
+    return _and_join(['TNS', 'Lasair', 'ANTARES'] + (['Babamul'] if babamul_enabled() else []))
+
+
+def link_note() -> str:
+    """A sentence to append after naming the links ('' unless Babamul is on)."""
+    return f' {BABAMUL_LINK_NOTE}' if babamul_enabled() else ''
+
+
+def _does_not_answer() -> tuple[str, ...]:
+    brokers = ['Lasair', 'ANTARES', 'Pitt-Google'] + (['Babamul'] if babamul_enabled() else [])
+    return (
+        NOT_IN_SERVICE_CAVEAT,
+        COINCIDENCE_CAVEAT,
+        'The service does not hold Rubin light curves, photometry or '
+        f"classifications; the brokers ({', '.join(brokers)}) serve those.",
+        'TNS associations are positional and as of the TNS snapshot named in each '
+        'answer; the service does not query TNS live.',
+    )
 
 
 def to_text(projection: dict[str, Any]) -> str:
@@ -194,12 +219,15 @@ def _provenance_basis(
 
 
 def _links(object_id: str, tns_url: str | None) -> dict[str, str | None]:
-    """TNS, Lasair and ANTARES links for one object (R6, KTD11)."""
-    return {
+    """TNS, Lasair and ANTARES links for one object, plus Babamul when enabled."""
+    links = {
         'tns': tns_url,
         'lasair': settings.LASAIR_OBJECT_URL_TEMPLATE.format(diaObjectId=object_id),
         'antares': settings.ANTARES_OBJECT_URL_TEMPLATE.format(diaObjectId=object_id),
     }
+    if babamul_enabled():
+        links['babamul'] = settings.BABAMUL_OBJECT_URL_TEMPLATE.format(diaObjectId=object_id)
+    return links
 
 
 def _summary(
@@ -600,7 +628,7 @@ def project_coverage(
             'old, Rubin or its brokers have paused alerts or ingest has stalled, '
             'and objects alerted since then are not in the service yet.'
         ),
-        'does_not_answer': list(_DOES_NOT_ANSWER),
+        'does_not_answer': list(_does_not_answer()),
     }
 
 
