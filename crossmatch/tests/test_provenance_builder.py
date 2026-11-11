@@ -174,9 +174,45 @@ def test_declared_value_without_as_of_date_is_not_reported_as_declared():
     assert cut['min_reliability'] is None
 
 
+@override_settings(BABAMUL_ENABLED=False)
 def test_every_broker_reported_once_in_fixed_order():
     brokers = [c['broker'] for c in provenance.service_provenance()['reliability_cuts']]
     assert brokers == ['antares', 'lasair', 'pittgoogle']
+
+
+@override_settings(BABAMUL_ENABLED=True, MIN_DIASOURCE_RELIABILITY=0.6, **UNDECLARED)
+def test_enabled_babamul_is_reported_last_as_service_enforced():
+    cuts = provenance.service_provenance()['reliability_cuts']
+    assert [c['broker'] for c in cuts] == ['antares', 'lasair', 'pittgoogle', 'babamul']
+    assert cuts[-1] == {
+        'broker': 'babamul',
+        'min_reliability': 0.6,
+        'enforced_by': CutEnforcedBy.SERVICE.value,
+        'status': CutStatus.SERVICE_SETTING.value,
+        'as_of': None,
+    }
+
+
+def test_enabling_babamul_changes_the_provenance_content_hash():
+    from tasks.crossmatch import _provenance_content
+
+    with override_settings(BABAMUL_ENABLED=False):
+        _, disabled_hash = _provenance_content()
+    with override_settings(BABAMUL_ENABLED=True):
+        _, enabled_hash = _provenance_content()
+    assert enabled_hash != disabled_hash
+
+
+def test_babamul_topics_default_to_six_non_stellar_lsst_topics():
+    assert settings.BABAMUL_TOPICS == [
+        'babamul.lsst.no-ztf-match.hosted',
+        'babamul.lsst.no-ztf-match.hostless',
+        'babamul.lsst.no-ztf-match.unknown',
+        'babamul.lsst.ztf-match.hosted',
+        'babamul.lsst.ztf-match.hostless',
+        'babamul.lsst.ztf-match.unknown',
+    ]
+    assert not any('stellar' in topic for topic in settings.BABAMUL_TOPICS)
 
 
 # --- web tier reads through the builder (KTD8) --------------------------------

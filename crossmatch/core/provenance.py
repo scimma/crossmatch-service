@@ -41,7 +41,7 @@ PROVENANCE_RECORDING_RELEASE = '0.15.0'
 
 # Broker identifiers as stored in ``AlertDelivery.broker``, in reporting order.
 _BROKER_ENFORCED = ('antares', 'lasair')
-_SERVICE_ENFORCED = 'pittgoogle'
+_SERVICE_ENFORCED = ('pittgoogle', 'babamul')
 
 
 def _json_float(value: Any) -> float | None:
@@ -91,7 +91,7 @@ def crossmatch_radius_arcsec() -> float | None:
 
 
 def service_min_reliability() -> float | None:
-    """The reliability cut this service enforces itself (Pitt-Google path)."""
+    """The reliability cut this service enforces itself (Pitt-Google, Babamul)."""
     return _json_float(getattr(settings, 'MIN_DIASOURCE_RELIABILITY', None))
 
 
@@ -145,18 +145,21 @@ def reliability_cuts() -> list[dict[str, Any]]:
     """The reliability cut per broker and where it is enforced (R20).
 
     Returns:
-        One entry per broker (``antares``, ``lasair``, ``pittgoogle``), each with
-        ``broker``, ``min_reliability``, ``enforced_by``, ``status``, and
-        ``as_of``.
+        One entry per broker (``antares``, ``lasair``, ``pittgoogle``, and
+        ``babamul`` when ``BABAMUL_ENABLED``), each with ``broker``,
+        ``min_reliability``, ``enforced_by``, ``status``, and ``as_of``.
     """
     cuts = [_declared_cut(broker) for broker in _BROKER_ENFORCED]
-    cuts.append({
-        'broker': _SERVICE_ENFORCED,
-        'min_reliability': service_min_reliability(),
-        'enforced_by': CutEnforcedBy.SERVICE.value,
-        'status': CutStatus.SERVICE_SETTING.value,
-        'as_of': None,
-    })
+    for broker in _SERVICE_ENFORCED:
+        if broker == 'babamul' and not getattr(settings, 'BABAMUL_ENABLED', False):
+            continue
+        cuts.append({
+            'broker': broker,
+            'min_reliability': service_min_reliability(),
+            'enforced_by': CutEnforcedBy.SERVICE.value,
+            'status': CutStatus.SERVICE_SETTING.value,
+            'as_of': None,
+        })
     return cuts
 
 
