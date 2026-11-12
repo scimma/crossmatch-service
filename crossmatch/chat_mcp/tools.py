@@ -74,6 +74,7 @@ READ_ONLY_ANNOTATIONS = {
     'openWorldHint': False,
 }
 
+
 def catalog_names_text() -> str:
     """The release labels of the catalogs in service, as one phrase.
 
@@ -85,10 +86,7 @@ def catalog_names_text() -> str:
         For example ``'Gaia DR3, DES Y6 Gold and SkyMapper DR4'``.
     """
     releases = [str(c['release']) for c in settings.CROSSMATCH_CATALOGS]
-    if len(releases) > 1:
-        text = f"{', '.join(releases[:-1])} and {releases[-1]}"
-    else:
-        text = ''.join(releases)
+    text = join_names(releases) if releases else ''
     names = {str(c['name']) for c in settings.CROSSMATCH_CATALOGS}
     if {'euclid_dr1_mer_deep', 'euclid_dr1_mer_wide'} <= names:
         text += (
@@ -97,6 +95,8 @@ def catalog_names_text() -> str:
             'catalogs under different object_ids)'
         )
     return text
+
+
 def _catalog_ids() -> str:
     """``'<release> is <name>, ...'`` for the catalogs in service."""
     return ', '.join(

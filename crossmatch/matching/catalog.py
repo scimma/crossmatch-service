@@ -114,6 +114,11 @@ def _read_with_retry(read_fn, catalog_name: str):
 # Module-level cache: {catalog_name: lsdb_catalog}
 _catalog_cache = {}
 
+# Coverage maps built from a catalog's skymap: {catalog_name: (hc_structure,
+# moc)}. Tied to the cached catalog's structure, so it is read once per opened
+# catalog rather than once per batch.
+_skymap_moc_cache = {}
+
 # Alert-catalog column names. A requested catalog column matching one of these
 # would be renamed with a `_catalog` suffix by the crossmatch
 # (suffix_method='overlapping_columns'), which would break payload key mapping
@@ -202,7 +207,7 @@ def catalog_moc(catalog_config):
     Reads ``hc_structure.moc`` from the process-cached LSDB catalog, so after the
     catalog's first read this costs no I/O. A catalog built without a coverage
     map (IRSA's Euclid HATS builds) falls back to the populated pixels of its
-    HATS skymap, at the skymap's order. Runs in the Celery process, not on the
+    HATS skymap, at the skymap's order, built once per process. Runs in the Celery process, not on the
     Dask cluster.
 
     Args:
@@ -215,10 +220,15 @@ def catalog_moc(catalog_config):
         CatalogCoverageUnavailable: If the catalog has neither a coverage map
             nor a readable, non-empty skymap.
     """
+    name = catalog_config['name']
     structure = _get_catalog(catalog_config).hc_structure
     moc = structure.moc
     if moc is None:
-        moc = _skymap_moc(structure, catalog_config['name'])
+        cached_structure, moc = _skymap_moc_cache.get(name, (None, None))
+        if cached_structure is not structure:
+            moc = _skymap_moc(structure, name)
+            if moc is not None:
+                _skymap_moc_cache[name] = (structure, moc)
     if moc is None:
         raise CatalogCoverageUnavailable(
             f"{catalog_config['name']}: HATS catalog has no coverage map (moc) "

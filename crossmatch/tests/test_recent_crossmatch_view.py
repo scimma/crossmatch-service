@@ -349,8 +349,6 @@ def _assert_keeps(old, new, path='$', added=None):
     elif isinstance(old, list):
         assert isinstance(new, list) and len(new) == len(old), path
         if path.endswith('.matches'):
-            # Matches are now listed nearest first rather than by catalog name
-            # (contract 1.1.0); compare them as a set of entries.
             old, new = (sorted(lst, key=_match_order) for lst in (old, new))
         for i, (o, n) in enumerate(zip(old, new)):
             _assert_keeps(o, n, f'{path}[{i}]', added)

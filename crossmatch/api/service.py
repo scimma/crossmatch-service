@@ -286,8 +286,6 @@ def _load_matches(object_ids, detail, *, include_match_version=False):
             for a in TnsAssociation.objects.filter(alert_id__in=object_ids)
         }
 
-    # Nearest first across catalogs: a catalog that keeps every source within
-    # the radius can contribute several matches per object.
     rows = sorted(
         rows,
         key=lambda cm: (

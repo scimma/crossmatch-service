@@ -278,7 +278,7 @@ def compare_snapshots(baseline: dict, candidate: dict) -> Comparison:
     # A nearest catalog has one match per object, so a different source is a
     # SOURCE_CHANGED. An all catalog can have several, so each source is its
     # own key and a difference shows as only-in-baseline / only-in-candidate.
-    multi = {
+    multi_match_catalogs = {
         cfg.get("name")
         for ctx in (base_ctx, cand_ctx)
         for cfg in (ctx.get("crossmatch") or {}).get("catalogs") or []
@@ -290,7 +290,7 @@ def compare_snapshots(baseline: dict, candidate: dict) -> Comparison:
             (
                 m["dia_object_id"],
                 m["catalog"],
-                m["source_id"] if m["catalog"] in multi else None,
+                m["source_id"] if m["catalog"] in multi_match_catalogs else None,
             ): m
             for m in snapshot.get("matches", [])
         }
