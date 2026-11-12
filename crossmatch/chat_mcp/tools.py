@@ -79,21 +79,34 @@ def catalog_names_text() -> str:
     """The release labels of the catalogs in service, as one phrase.
 
     Read from settings at call time, so a catalog a cluster switches off is
-    not named. When the Euclid catalogs are in service, adds that they can
-    list several sources per object and that a galaxy can appear in both.
+    not named. Names the catalogs that keep every source within the radius
+    (match_mode 'all') as able to list several sources per object, and, when
+    both Euclid catalogs are in service, that a galaxy can appear in both.
 
     Returns:
         For example ``'Gaia DR3, DES Y6 Gold and SkyMapper DR4'``.
     """
     releases = [str(c['release']) for c in settings.CROSSMATCH_CATALOGS]
     text = join_names(releases) if releases else ''
+    multi = [
+        str(c['release'])
+        for c in settings.CROSSMATCH_CATALOGS
+        if c.get('match_mode', 'nearest') == 'all'
+    ]
+    notes = []
+    if multi:
+        notes.append(
+            f'{join_names(multi)} can list several coincident sources per '
+            'object, nearest first'
+        )
     names = {str(c['name']) for c in settings.CROSSMATCH_CATALOGS}
     if {'euclid_dr1_mer_deep', 'euclid_dr1_mer_wide'} <= names:
-        text += (
-            ' (each Euclid catalog can list several coincident sources per '
-            'object, nearest first, and the same galaxy can appear in both Euclid '
-            'catalogs under different object_ids)'
+        notes.append(
+            'the same galaxy can appear in both Euclid catalogs under '
+            'different object_ids'
         )
+    if notes:
+        text += f" ({'; '.join(notes)})"
     return text
 
 
