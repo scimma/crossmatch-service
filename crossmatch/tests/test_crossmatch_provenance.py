@@ -358,6 +358,11 @@ def test_catalog_moc_raises_when_catalog_has_no_coverage_map(monkeypatch):
     fake.hc_structure.moc = None
     monkeypatch.setattr(catalog_mod, "_get_catalog", lambda cfg: fake)
 
+    def _no_skymap(structure, order):
+        raise FileNotFoundError("skymap.fits")
+
+    monkeypatch.setattr(catalog_mod, "read_skymap", _no_skymap)
+
     with pytest.raises(CatalogCoverageUnavailable, match="gaia"):
         catalog_mod.catalog_moc(GAIA)
 
@@ -485,3 +490,46 @@ def test_compute_result_carries_search_outcomes(monkeypatch):
     }
     # compute_crossmatch writes nothing (the replay tool relies on this).
     assert not ObjectCrossmatchRecord.objects.exists()
+
+
+def test_catalog_moc_falls_back_to_the_skymap_when_there_is_no_coverage_map(
+    monkeypatch,
+):
+    """Catalogs built without a coverage map (Euclid's IRSA build) still get
+    one, from the populated pixels of their order-6 skymap."""
+    import numpy as np
+    from astropy import units as u
+    from hats.pixel_math.healpix_shim import radec2pix
+
+    fake = MagicMock()
+    fake.hc_structure.moc = None
+    monkeypatch.setattr(catalog_mod, "_get_catalog", lambda cfg: fake)
+    counts = np.zeros(12 * 4**6, dtype=np.int64)
+    counts[radec2pix(6, np.array([61.0]), np.array([-48.5]))[0]] = 1234
+    seen = []
+
+    def _skymap(structure, order):
+        seen.append((structure, order))
+        return counts
+
+    monkeypatch.setattr(catalog_mod, "read_skymap", _skymap)
+
+    moc = catalog_mod.catalog_moc(GAIA)
+
+    assert seen == [(fake.hc_structure, None)]
+    inside = moc.contains_lonlat(lon=[61.0, 0.0] * u.deg, lat=[-48.5, 0.0] * u.deg)
+    assert list(inside) == [True, False]
+
+
+def test_catalog_moc_with_an_empty_skymap_is_unavailable(monkeypatch):
+    import numpy as np
+
+    fake = MagicMock()
+    fake.hc_structure.moc = None
+    monkeypatch.setattr(catalog_mod, "_get_catalog", lambda cfg: fake)
+    monkeypatch.setattr(
+        catalog_mod, "read_skymap", lambda s, o: np.zeros(12 * 4**6, dtype=np.int64)
+    )
+
+    with pytest.raises(CatalogCoverageUnavailable, match="gaia"):
+        catalog_mod.catalog_moc(GAIA)

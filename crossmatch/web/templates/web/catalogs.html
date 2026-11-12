@@ -56,6 +56,16 @@
             {% for col in cat.published_columns %}<code>{{ col }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}
           </td>
         </tr>
+        <tr>
+          <th scope="row">Sources kept</th>
+          <td>{% if cat.match_mode == 'all' %}Every source within the radius, up to {{ cat.max_matches }} per alert, nearest first{% else %}The nearest source within the radius{% endif %}</td>
+        </tr>
+        {% if cat.credit %}
+        <tr>
+          <th scope="row">Credit</th>
+          <td>{{ cat.credit.text }}{% if cat.credit.url %} <a href="{{ cat.credit.url }}">{{ cat.credit.url }}</a>{% endif %}</td>
+        </tr>
+        {% endif %}
       </tbody>
     </table>
   </div>

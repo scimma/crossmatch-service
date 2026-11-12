@@ -575,6 +575,8 @@ def test_configured_key_columns_match_ktd10():
         'delve_dr3_gold': ['WAVG_MAG_PSF_G', 'WAVG_MAG_PSF_R', 'WAVG_MAG_PSF_I',
                            'EXT_MASH', 'DNF_Z'],
         'skymapper_dr4': ['g_psf', 'r_psf', 'class_star'],
+        'euclid_dr1_mer_deep': ['flux_vis_psf', 'point_like_prob', 'has_spectrum'],
+        'euclid_dr1_mer_wide': ['flux_vis_psf', 'point_like_prob', 'has_spectrum'],
     }
     assert {c['name']: c['key_columns'] for c in settings.CROSSMATCH_CATALOGS} == expected
 

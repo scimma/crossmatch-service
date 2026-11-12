@@ -333,3 +333,25 @@ def test_api_page_shows_the_absolute_https_mcp_url_and_setup_steps(client):
     assert 'Claude.ai' in body
     assert 'ChatGPT' in body
     assert 'Developer mode' in body
+
+
+_PAGE_BASE = {
+    'source_id_column': 'object_id', 'ra_column': 'ra', 'dec_column': 'dec',
+    'payload_columns': ['ra', 'dec'],
+}
+
+
+@override_settings(
+    CROSSMATCH_CATALOGS=[
+        {**_PAGE_BASE, 'name': 'euclid_deep', 'match_mode': 'all', 'max_matches': 10,
+         'credit': {'text': 'Euclid credit line.', 'url': 'https://example.org/euclid'}},
+        {**_PAGE_BASE, 'name': 'plain_cat'},
+    ]
+)
+def test_catalogs_page_shows_sources_kept_and_credit(client):
+    body = client.get(reverse('web:catalogs')).content.decode()
+    assert 'Every source within the radius, up to 10 per alert' in body
+    assert 'The nearest source within the radius' in body
+    assert 'Euclid credit line.' in body
+    assert 'href="https://example.org/euclid"' in body
+    assert body.count('Credit</th>') == 1

@@ -122,6 +122,9 @@ def catalogs() -> Any:
                 'published_columns': [
                     str(c).lower() for c in cat.get('payload_columns', [])
                 ],
+                'match_mode': cat.get('match_mode', 'nearest'),
+                'max_matches': cat.get('max_matches'),
+                'credit': cat.get('credit'),
             }
             for cat in raw
         ]

@@ -35,6 +35,8 @@ DEFAULT_ORDERS = {
     'des_y6_gold': 6,
     'delve_dr3_gold': 10,
     'skymapper_dr4': 8,
+    'euclid_dr1_mer_deep': 6,
+    'euclid_dr1_mer_wide': 6,
 }
 
 
@@ -273,9 +275,12 @@ def _import_settings(**env):
 
 
 def test_footprint_order_is_env_overridable():
-    result = _import_settings(DES_FOOTPRINT_MOC_ORDER='7', SKYMAPPER_FOOTPRINT_MOC_ORDER='')
+    result = _import_settings(
+        DES_FOOTPRINT_MOC_ORDER='7', SKYMAPPER_FOOTPRINT_MOC_ORDER='',
+        EUCLID_DR1_MER_WIDE_FOOTPRINT_MOC_ORDER='9',
+    )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == '[8, 7, 10, null]'
+    assert result.stdout.strip() == '[8, 7, 10, null, 6, 9]'
 
 
 @pytest.mark.parametrize('raw', ['30', '-1', 'eight'])

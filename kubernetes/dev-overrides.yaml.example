@@ -31,4 +31,6 @@ crossmatch:
   des_hats_url: "s3://stpubdata/mast/public/des/hats/des_y6_gold"
   delve_hats_url: "s3://stpubdata/mast/public/delve/hats/delve_dr3_gold"
   skymapper_hats_url: "https://data.lsdb.io/hats/skymapper_dr4/catalog"
+  euclid_dr1_mer_deep_hats_url: "s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_deep_survey"
+  euclid_dr1_mer_wide_hats_url: "s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_wide_survey"
   radius_arcsec: 1.0

@@ -3,8 +3,11 @@
 import time
 
 import lsdb
+import numpy as np
 import pandas as pd
 from celery.exceptions import SoftTimeLimitExceeded
+from hats.io.skymap import read_skymap
+from mocpy import MOC
 from django.conf import settings
 from core.log import get_logger
 
@@ -197,8 +200,10 @@ def catalog_moc(catalog_config):
     """Return the HATS coverage map (a ``mocpy.MOC``) of a configured catalog.
 
     Reads ``hc_structure.moc`` from the process-cached LSDB catalog, so after the
-    catalog's first read this costs no I/O. Runs in the Celery process, not on
-    the Dask cluster.
+    catalog's first read this costs no I/O. A catalog built without a coverage
+    map (IRSA's Euclid HATS builds) falls back to the populated pixels of its
+    HATS skymap, at the skymap's order. Runs in the Celery process, not on the
+    Dask cluster.
 
     Args:
         catalog_config: The catalog's ``CROSSMATCH_CATALOGS`` entry.
@@ -207,15 +212,51 @@ def catalog_moc(catalog_config):
         The catalog's coverage map.
 
     Raises:
-        CatalogCoverageUnavailable: If the catalog has no coverage map.
+        CatalogCoverageUnavailable: If the catalog has neither a coverage map
+            nor a readable, non-empty skymap.
     """
-    moc = _get_catalog(catalog_config).hc_structure.moc
+    structure = _get_catalog(catalog_config).hc_structure
+    moc = structure.moc
+    if moc is None:
+        moc = _skymap_moc(structure, catalog_config['name'])
     if moc is None:
         raise CatalogCoverageUnavailable(
-            f"{catalog_config['name']}: HATS catalog has no coverage map (moc); "
-            f"per-object footprint outcomes cannot be recorded for it"
+            f"{catalog_config['name']}: HATS catalog has no coverage map (moc) "
+            f"and no usable skymap; per-object footprint outcomes cannot be "
+            f"recorded for it"
         )
     return moc
+
+
+def _skymap_moc(structure, catalog_name: str) -> MOC | None:
+    """Build a coverage map from the populated pixels of a HATS skymap.
+
+    Args:
+        structure: The catalog's ``hc_structure``.
+        catalog_name: The catalog, for the log.
+
+    Returns:
+        The coverage map at the skymap's HEALPix order, or ``None`` when the
+        skymap cannot be read or has no populated pixel.
+    """
+    try:
+        counts = np.asarray(read_skymap(structure, None))
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception as exc:  # noqa: BLE001 -- reported as coverage unavailable
+        logger.warning('Catalog skymap unreadable', catalog=catalog_name,
+                       error=repr(exc))
+        return None
+    pixels = np.nonzero(counts > 0)[0]
+    if not len(pixels):
+        return None
+    order = int(round(np.log(len(counts) / 12) / np.log(4)))
+    logger.info('Catalog coverage map built from its skymap',
+                catalog=catalog_name, order=order, pixels=len(pixels))
+    return MOC.from_healpix_cells(
+        pixels.astype(np.uint64), np.full(len(pixels), order, dtype=np.uint8),
+        max_depth=order,
+    )
 
 
 def crossmatch_alerts(alerts_catalog, catalog_config):

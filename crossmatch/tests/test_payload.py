@@ -221,3 +221,25 @@ def test_pyarrow_backed_columns_publish_json_native():
     assert out == {"name": "obj-1", "mag": None, "n": 3, "ok": False}
     assert [type(out[k]) for k in ("name", "n", "ok")] == [str, int, bool]
     assert json.loads(json.dumps(out, allow_nan=False)) == out
+
+
+def test_euclid_flag_and_spectrum_columns_coerce_to_json():
+    """Euclid's int16 flags carry nulls (point_like_flag is never 0) and
+    has_spectrum is uint8; all must publish as JSON null or int."""
+    import json
+
+    import numpy as np
+    import pandas as pd
+
+    from matching.payload import build_catalog_payload
+
+    row = pd.DataFrame({
+        'point_like_flag': pd.array([None], dtype='Int16'),
+        'det_quality_flag': pd.array([4], dtype='Int16'),
+        'has_spectrum': np.array([1], dtype=np.uint8),
+    }).iloc[0]
+    payload = build_catalog_payload(
+        row, ['point_like_flag', 'det_quality_flag', 'has_spectrum']
+    )
+    assert payload == {'point_like_flag': None, 'det_quality_flag': 4, 'has_spectrum': 1}
+    json.dumps(payload, allow_nan=False)

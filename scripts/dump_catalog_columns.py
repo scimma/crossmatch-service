@@ -45,6 +45,14 @@ CATALOGS: dict[str, str] = {
     "skymapper_dr4": os.environ.get(
         "SKYMAPPER_HATS_URL", "https://data.lsdb.io/hats/skymapper_dr4/catalog"
     ),
+    "euclid_dr1_mer_deep": os.environ.get(
+        "EUCLID_DR1_MER_DEEP_HATS_URL",
+        "s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_deep_survey",
+    ),
+    "euclid_dr1_mer_wide": os.environ.get(
+        "EUCLID_DR1_MER_WIDE_HATS_URL",
+        "s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_wide_survey",
+    ),
 }
 
 
@@ -65,7 +73,9 @@ def resolve_catalog_root(fs, path: str) -> str:
     default = None
     for line in text.splitlines():
         line = line.strip()
-        if line.startswith("default_catalog="):
+        # HATS collections name their primary table hats_primary_table_url;
+        # older builds used default_catalog.
+        if line.startswith(("default_catalog=", "hats_primary_table_url=")):
             default = line.split("=", 1)[1].strip()
             break
     if default is not None:
