@@ -84,6 +84,40 @@ alerts through the real crossmatch compute step and diff the results:
 including the local Dask profile for trying it against real catalogs, is in
 `docs/runbooks/crossmatch-replay.md`.
 
+## Adding or measuring a catalog
+
+A catalog is one `CROSSMATCH_CATALOGS` entry in `crossmatch/project/settings.py`,
+plus its `*_HATS_URL` (and `*_RELEASE`) in compose, the env example, the in-repo
+chart, `kubernetes/dev-overrides.yaml.example` and `deploy-contract.yaml`. Generate
+its column reference with `scripts/dump_catalog_columns.py` and pick
+`payload_columns` from it (see
+`docs/solutions/conventions/catalog-specific-payload-columns.md`). Set
+`match_mode: 'all'` with `max_matches` only for a catalog that should keep every
+source within the radius.
+
+Rolling a new catalog out (the Euclid catalogs are the worked example):
+
+1. **Gitops, DEV.** Add the catalog's `*_hats_url` and `*_release` values to
+   `apps/crossmatch-service` and deliver them with the other catalogs through the
+   `provenance.env` helper. Only then bump `CONTRACT_REF` past the app commit that
+   added them to `deploy-contract.yaml`: the contract check fails on contract
+   variables the render does not deliver.
+2. **DEV.** Deploy the image. The first batch records a new provenance set. Watch
+   the worker logs for `crossmatch_match_cap_reached` and for
+   `Catalog coverage map built from its skymap`.
+3. **Measure one Rubin night** whose batches include alerts in the catalog's
+   footprint: `crossmatch_batch` runtime against the 480 s soft and 600 s hard
+   limits (a full 100k batch has measured 3.0-4.3 min), peak Dask worker memory
+   against its limit, and matches actually landing in the footprint.
+4. **PROD.** Promote with the gitops `docs/prod-promotion-runbook.md`.
+5. **Euclid Wide.** Today's Euclid-overlapping alerts sit in the Euclid Deep
+   Fields, so the DEV night reads few of Wide's large (about 1 GiB) partitions.
+   Repeat step 3 the first time PROD batches contain alerts in Wide-only coverage.
+   If Wide threatens the time limits, set `EUCLID_DR1_MER_WIDE_ENABLED=false` in
+   the PROD gitops values while the cause is investigated.
+6. The App dashboard's "matches / alert" panel counts matches, not objects, so it
+   rises once a catalog keeps several sources per alert.
+
 ## Continuous integration
 
 The `Tests` GitHub Actions workflow (`.github/workflows/test.yml`) runs the
