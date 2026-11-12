@@ -21,6 +21,7 @@ from brokers.normalize import (
     _MJD_EPOCH,
     antares_locus_first_detection_mjd,
     normalize_antares,
+    normalize_babamul,
     normalize_lasair,
     normalize_pittgoogle,
     select_antares_rubin_alert,
@@ -205,3 +206,25 @@ def test_lasair_alert_decodes_normalizes_and_ingests():
     assert canonical["event_time_basis"] == Alert.EventTimeBasis.FIRST_DETECTION
     assert ingest_alert(canonical, "lasair") is True
     assert Alert.objects.filter(lsst_diaObject_diaObjectId=170433143923278194).exists()
+
+
+@pytest.mark.django_db
+def test_babamul_alert_decodes_normalizes_and_ingests():
+    import fastavro
+
+    from tests.babamul_avro import encode, fixture_record
+
+    data = encode(fixture_record())
+    record = next(fastavro.reader(io.BytesIO(data)))
+
+    canonical = normalize_babamul(record, "babamul.lsst.no-ztf-match.hostless")
+
+    assert canonical["lsst_diaObject_diaObjectId"] == 170433143923278196
+    assert canonical["reliability"] == 0.83
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.FIRST_DETECTION
+    assert "cutoutScience" not in canonical["payload"]
+    json.dumps(canonical["payload"], allow_nan=False)
+    assert ingest_alert(canonical, "babamul") is True
+    alert = Alert.objects.get(lsst_diaObject_diaObjectId=170433143923278196)
+    assert alert.lsst_diaSource_diaSourceId == 170433143923278197
+    assert (alert.ra_deg, alert.dec_deg) == (210.5, -12.25)

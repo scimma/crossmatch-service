@@ -133,7 +133,7 @@ class AlertDelivery(models.Model):
         on_delete=models.CASCADE,
         db_column='lsst_diaobject_diaobjectid',
     )
-    # 'antares' | 'lasair'
+    # 'antares' | 'lasair' | 'pittgoogle' | 'babamul'
     broker = models.TextField(null=False)
     ingest_time = models.DateTimeField(null=False, auto_now_add=True)
 

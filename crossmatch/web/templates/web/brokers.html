@@ -38,7 +38,7 @@
       <tr>
         <th scope="row">{{ broker.name }}</th>
         <td>
-          {% if broker.topic|is_configured %}<code>{{ broker.topic }}</code>{% else %}<span class="config-unset">not configured</span>{% endif %}
+          {% if broker.topics %}{% for topic in broker.topics %}<code>{{ topic }}</code>{% if not forloop.last %}<br>{% endif %}{% endfor %}{% elif broker.topic|is_configured %}<code>{{ broker.topic }}</code>{% else %}<span class="config-unset">not configured</span>{% endif %}
         </td>
       </tr>
       {% endfor %}

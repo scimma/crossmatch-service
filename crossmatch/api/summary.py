@@ -123,7 +123,8 @@ class SummaryFilters:
     """Validated summary filters; ``None`` means not filtered.
 
     Attributes:
-        broker: Normalized broker name (``antares``, ``lasair``, ``pittgoogle``).
+        broker: Normalized broker name (``antares``, ``lasair``, ``pittgoogle``,
+            ``babamul``).
         catalog: A ``CROSSMATCH_CATALOGS`` name.
         catalog_match: ``with`` or ``without``; set exactly when ``catalog`` is.
     """

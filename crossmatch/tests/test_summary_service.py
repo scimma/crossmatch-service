@@ -520,3 +520,32 @@ def test_latest_object_ignores_filters_and_is_absent_when_window_has_objects():
 
     assert 'latest_object' not in _summary('night=2026-11-09')
     assert 'empty_window' not in _summary('night=2026-11-09')['notes']
+
+
+@pytest.mark.django_db
+def test_enabled_babamul_is_counted_and_filterable(settings):
+    settings.BABAMUL_ENABLED = True
+    _obj(brokers=('babamul',))
+    _obj(brokers=('lasair',))
+
+    body = _summary('night=2026-11-09')
+    assert body['brokers']['objects'] == {
+        'antares': 0, 'lasair': 1, 'pittgoogle': 0, 'babamul': 1,
+    }
+    filtered = _summary('night=2026-11-09&broker=Babamul')
+    assert filtered['totals']['objects'] == 1
+    assert filtered['top'][0]['brokers'] == ['babamul']
+
+
+@pytest.mark.django_db
+def test_disabled_babamul_leaves_per_broker_counts_but_totals_count_stored_alerts(settings):
+    from api.errors import InvalidQuery
+
+    settings.BABAMUL_ENABLED = False
+    _obj(brokers=('babamul',))
+
+    body = _summary('night=2026-11-09')
+    assert 'babamul' not in body['brokers']['objects']
+    assert body['totals']['objects'] == 1
+    with pytest.raises(InvalidQuery):
+        _summary('night=2026-11-09&broker=babamul')

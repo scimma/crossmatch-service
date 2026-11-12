@@ -194,6 +194,22 @@ def test_brokers_page_lists_brokers_and_threshold(client):
     assert '0.6' in body
 
 
+@override_settings(BABAMUL_ENABLED=False)
+def test_brokers_page_omits_babamul_when_disabled(client):
+    body = client.get(reverse('web:brokers')).content.decode()
+    assert 'Babamul' not in body
+
+
+@override_settings(BABAMUL_ENABLED=True)
+def test_brokers_page_lists_babamul_and_its_topics_when_enabled(client):
+    from django.conf import settings
+
+    body = client.get(reverse('web:brokers')).content.decode()
+    assert 'Babamul' in body
+    for topic in settings.BABAMUL_TOPICS:
+        assert f'<code>{topic}</code>' in body
+
+
 def test_brokers_table_is_accessible(client):
     """The broker/topic table has scoped headers and a caption (R7)."""
     body = client.get(reverse('web:brokers')).content.decode()

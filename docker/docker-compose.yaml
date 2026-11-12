@@ -127,6 +127,49 @@ services:
       - ../crossmatch:/opt/crossmatch
       - ${GCP_KEY_FILE:-./secrets/gcp-pittgoogle-key.json}:/var/run/secrets/gcp/key.json:ro
 
+  babamul-consumer:
+    image: 585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev
+    platform: linux/x86_64
+    # Opt-in: needs Babamul credentials. Start with --profile babamul.
+    profiles:
+      - babamul
+    networks:
+      - internal
+    build:
+      context: ../crossmatch
+      dockerfile: ../docker/Dockerfile
+      args:
+        UID: "${USERID:-1000}"
+    command: bash entrypoints/run_babamul_ingest.sh
+    environment:
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      DEV_MODE: "${DEV_MODE:-true}"
+      # Django base configuration
+      DJANGO_SUPERUSER_PASSWORD: "${DJANGO_SUPERUSER_PASSWORD:-password}"
+      DJANGO_SUPERUSER_USERNAME: "${DJANGO_SUPERUSER_USERNAME:-admin}"
+      DJANGO_SUPERUSER_EMAIL: "${DJANGO_SUPERUSER_EMAIL:-test@example.com}"
+      # Django database configuration
+      DATABASE_HOST: "${DATABASE_HOST:-django-db}"
+      DATABASE_PORT: "${DATABASE_PORT:-5432}"
+      DATABASE_DB: "${DATABASE_DB:-scimma_crossmatch_service}"
+      DATABASE_USER: "${DATABASE_USER:-crossmatch_service_admin}"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:-password}"
+      VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
+      VALKEY_PORT: "${VALKEY_PORT:-6379}"
+      APP_ROOT_DIR: "${APP_ROOT_DIR:-/opt}"
+      # Babamul broker configuration
+      BABAMUL_ENABLED: "${BABAMUL_ENABLED:-false}"
+      BABAMUL_KAFKA_SERVER: "${BABAMUL_KAFKA_SERVER:-kaboom.caltech.edu:9093}"
+      BABAMUL_KAFKA_USERNAME: "${BABAMUL_KAFKA_USERNAME:-}"
+      BABAMUL_KAFKA_PASSWORD: "${BABAMUL_KAFKA_PASSWORD:-}"
+      # Distinct from the DEV/PROD suffixes so a laptop never shares their group.
+      BABAMUL_GROUP_ID: "${BABAMUL_GROUP_ID:-scimma-crossmatch-local}"
+      # Babamul's topics are not reliability-filtered; the consumer applies the cut.
+      MIN_DIASOURCE_RELIABILITY: "${MIN_DIASOURCE_RELIABILITY:-0.6}"
+    volumes:
+      - ../crossmatch:/opt/crossmatch
+
   celery-worker:
     image: 585193511743.dkr.ecr.us-west-2.amazonaws.com/scimma/crossmatch-service:dev
     platform: linux/x86_64
@@ -156,6 +199,8 @@ services:
           cpus: "${CELERY_WORKER_LIMIT_CPUS:-4.0}"
           memory: ${CELERY_WORKER_LIMIT_MEMORY:-4G}
     environment:
+      # One switch for Babamul everywhere it is named (provenance, brokers).
+      BABAMUL_ENABLED: "${BABAMUL_ENABLED:-false}"
       # Dev environment settings
       DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
       DEV_MODE: "${DEV_MODE:-true}" # Enable Django dev server instead of uvicorn
@@ -217,6 +262,8 @@ services:
         UID: "${USERID:-1000}"
     command: bash entrypoints/run_celery_beat.sh
     environment:
+      # One switch for Babamul everywhere it is named (provenance, brokers).
+      BABAMUL_ENABLED: "${BABAMUL_ENABLED:-false}"
       DJANGO_DEBUG: "${DJANGO_DEBUG:-true}"
       DEV_MODE: "${DEV_MODE:-true}" # Enable Django dev server instead of uvicorn
       CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-INFO}
@@ -260,6 +307,8 @@ services:
     ports:
       - 127.0.0.1:${FLOWER_PORT:-8888}:${FLOWER_PORT:-8888}
     environment:
+      # One switch for Babamul everywhere it is named (provenance, brokers).
+      BABAMUL_ENABLED: "${BABAMUL_ENABLED:-false}"
       # Message broker configuration
       VALKEY_SERVICE: "${VALKEY_SERVICE:-redis}"
       VALKEY_PORT: "${VALKEY_PORT:-6379}"
@@ -289,6 +338,8 @@ services:
     ports:
       - 127.0.0.1:${WEB_PORT:-8000}:8000
     environment:
+      # One switch for Babamul everywhere it is named (provenance, brokers).
+      BABAMUL_ENABLED: "${BABAMUL_ENABLED:-false}"
       # Public frontend runs like prod (no debug settings dump). ALLOWED_HOSTS
       # default already includes localhost/127.0.0.1 for local access.
       DJANGO_DEBUG: "false"

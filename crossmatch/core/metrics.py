@@ -54,6 +54,15 @@ INGEST_LAST_SUCCESS = Gauge(
     multiprocess_mode="max",
 )
 
+#: Babamul messages handled by the Babamul consumer, by topic and ``outcome``
+#: (ingested|duplicate|below_cut|no_object|undecodable|error). ``ingested`` and
+#: ``duplicate`` match ``crossmatch_alerts_ingested_total{broker="babamul"}``.
+BABAMUL_MESSAGES = Counter(
+    "crossmatch_babamul_messages_total",
+    "Babamul messages handled, by topic and outcome.",
+    ["topic", "outcome"],
+)
+
 #: Crossmatch batches completed by the Celery worker, by ``result``
 #: (completed|failed).
 CROSSMATCH_BATCHES = Counter(

@@ -6,6 +6,7 @@ first-seen reliability + computed healpix_ipix at ingest.
 - AE3 (storage half): a payload lacking the key persists reliability=None.
 """
 
+import json
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
@@ -17,11 +18,14 @@ from brokers import ingest_alert
 from brokers.normalize import (
     antares_locus_first_detection_mjd,
     normalize_antares,
+    normalize_babamul,
     normalize_lasair,
     normalize_pittgoogle,
+    passes_reliability_cut,
 )
 from core.healpix import radec_to_ipix
-from core.models import Alert
+from core.models import Alert, AlertDelivery
+from tests.babamul_avro import fixture_record
 
 
 class _PittGoogleAlert:
@@ -334,3 +338,93 @@ def test_canonical_without_basis_stores_null():
     ingest_alert(_canonical(), "lasair")
     alert = Alert.objects.get(lsst_diaObject_diaObjectId=9_500_000_001)
     assert alert.event_time_basis is None
+
+
+# ── Babamul ──────────────────────────────────────────────────────────────────
+
+_BABAMUL_TOPIC = "babamul.lsst.ztf-match.hosted"
+_JD_MJD_OFFSET = 2400000.5
+
+
+def _close_to(actual, expected_mjd):
+    return abs((actual - _mjd(expected_mjd)).total_seconds()) < 1
+
+
+def test_babamul_maps_candidate_ids_position_and_reliability():
+    canonical = normalize_babamul(fixture_record(), _BABAMUL_TOPIC)
+    assert canonical["lsst_diaObject_diaObjectId"] == 170433143923278196
+    assert type(canonical["lsst_diaObject_diaObjectId"]) is int
+    assert canonical["lsst_diaSource_diaSourceId"] == 170433143923278197
+    assert (canonical["ra_deg"], canonical["dec_deg"]) == (210.5, -12.25)
+    assert canonical["reliability"] == 0.83
+
+
+def test_babamul_event_time_is_earliest_lsst_prior_detection():
+    # Earliest prior detection jd 2460939.6 -> MJD 60939.1. jdstarthist, the
+    # forced photometry and the ZTF survey match are all earlier and ignored.
+    canonical = normalize_babamul(fixture_record(), _BABAMUL_TOPIC)
+    assert _close_to(canonical["event_time"], 2460939.6 - _JD_MJD_OFFSET)
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.FIRST_DETECTION
+
+
+def test_babamul_without_usable_history_uses_midpoint_as_later_detection():
+    for history in (None, [], [{"jd": float("nan")}, {"jd": "x"}, "junk"], "junk"):
+        record = fixture_record()
+        record["prv_candidates"] = history
+        canonical = normalize_babamul(record, _BABAMUL_TOPIC)
+        assert _close_to(canonical["event_time"], 60940.3)
+        assert canonical["event_time_basis"] == Alert.EventTimeBasis.LATER_DETECTION
+
+
+def test_babamul_without_midpoint_or_history_uses_ingest_time():
+    record = fixture_record(midpointMjdTai=None)
+    record["prv_candidates"] = None
+    before = timezone.now()
+    canonical = normalize_babamul(record, _BABAMUL_TOPIC)
+    assert canonical["event_time"] >= before
+    assert canonical["event_time_basis"] == Alert.EventTimeBasis.INGEST_TIME
+
+
+def test_babamul_without_dia_object_or_position_is_skipped():
+    # Covers AE3: a null diaObjectId (e.g. a solar-system source) is a skip.
+    assert normalize_babamul(fixture_record(diaObjectId=None), _BABAMUL_TOPIC) is None
+    assert normalize_babamul(fixture_record(ra=None), _BABAMUL_TOPIC) is None
+    assert normalize_babamul(fixture_record(dec=float("nan")), _BABAMUL_TOPIC) is None
+    assert normalize_babamul({"candidate": "junk"}, _BABAMUL_TOPIC) is None
+
+
+def test_babamul_payload_is_json_safe_subset():
+    canonical = normalize_babamul(fixture_record(reliability=float("nan")), _BABAMUL_TOPIC)
+    payload = canonical["payload"]
+    assert set(payload) == {"objectId", "candid", "topic", "candidate"}
+    assert payload["topic"] == _BABAMUL_TOPIC
+    assert payload["candidate"]["reliability"] is None
+    json.dumps(payload, allow_nan=False)
+
+
+def test_reliability_cut():
+    # Covers AE1 (0.55 below a 0.6 threshold).
+    assert passes_reliability_cut(0.55, 0.6) is False
+    assert passes_reliability_cut(0.6, 0.6) is True
+    assert passes_reliability_cut(0.9, 0.6) is True
+    for score in (None, True, False, float("nan"), float("inf"), "0.9"):
+        assert passes_reliability_cut(score, 0.6) is False
+
+
+@pytest.mark.django_db
+def test_babamul_joins_alert_another_broker_created():
+    # Covers AE2: one Alert, a Lasair and a Babamul delivery, first-seen fields kept.
+    lasair = normalize_lasair({
+        "diaObjectId": 170433143923278196, "ra": 210.5, "decl": -12.25,
+        "firstDiaSourceMjdTai": 60930.0, "latestR": 0.7,
+    })
+    assert ingest_alert(lasair, "lasair") is True
+    babamul = normalize_babamul(fixture_record(), _BABAMUL_TOPIC)
+    assert ingest_alert(babamul, "babamul") is True
+    assert ingest_alert(babamul, "babamul") is False
+    alert = Alert.objects.get(lsst_diaObject_diaObjectId=170433143923278196)
+    assert alert.event_time == _mjd(60930.0)
+    assert alert.reliability == 0.7
+    assert set(AlertDelivery.objects.filter(alert=alert).values_list("broker", flat=True)) == {
+        "lasair", "babamul",
+    }

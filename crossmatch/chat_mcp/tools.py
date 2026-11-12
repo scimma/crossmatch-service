@@ -53,6 +53,9 @@ from api.summary import (
 )
 from chat_mcp.identifiers import Classified, classify_identifiers
 from chat_mcp.projection import (
+    join_names,
+    link_names,
+    link_note,
     project_coverage,
     project_lookup,
     project_near_position,
@@ -72,11 +75,27 @@ READ_ONLY_ANNOTATIONS = {
 }
 
 _CATALOGS = 'Gaia DR3, DES Y6 Gold, DELVE DR3 Gold and SkyMapper DR4'
-_NOT_ANSWERED = (
-    'It does not answer light curves, photometry history, classifications or '
-    'host-galaxy association; point the user to the TNS, Lasair and ANTARES '
-    'links in the answer for those.'
-)
+def _not_answered() -> str:
+    return (
+        'It does not answer light curves, photometry history, classifications or '
+        f'host-galaxy association; point the user to the {link_names()} '
+        f'links in the answer for those.{link_note()}'
+    )
+
+
+_BROKER_LABELS = {
+    'antares': 'ANTARES', 'lasair': 'Lasair', 'pittgoogle': 'Pitt-Google', 'babamul': 'Babamul',
+}
+
+
+def _broker_labels() -> str:
+    """The brokers in reporting order, e.g. 'ANTARES, Lasair, Pitt-Google'."""
+    return ', '.join(_BROKER_LABELS.get(name, name) for name in broker_names())
+
+
+def _broker_ids() -> str:
+    """The broker identifiers, e.g. 'antares, lasair or pittgoogle'."""
+    return join_names(broker_names(), 'or')
 
 #: What a tool's ``run`` returns: the projection, and counts for the log line.
 RunResult = tuple[dict[str, Any], dict[str, Any]]
@@ -148,8 +167,8 @@ def _lookup_description() -> str:
         f'{_CATALOGS} that coincide with its position (separation and key values '
         'such as magnitudes, parallax, star/galaxy class and photometric '
         'redshift), its status in this crossmatch service, the alert brokers '
-        'that delivered it, its stored TNS association, and links to its TNS, '
-        'Lasair and ANTARES pages. Identifiers are strings: TNS names such as '
+        'that delivered it, its stored TNS association, and links to its '
+        f'{link_names()} pages. Identifiers are strings: TNS names such as '
         '2026abc, AT 2026abc or SN2026abc, or diaObjectIds of up to 19 digits '
         'such as 3068394420283588661 (always send IDs as strings). Up to '
         f'{int(settings.MCP_MAX_IDENTIFIERS)} identifiers per call; at most '
@@ -157,7 +176,7 @@ def _lookup_description() -> str:
         'truncated answer says so and carries an API request for the full set. '
         'An identifier with no object here gets a reason (unknown TNS name, no '
         'Rubin object at that TNS position, not in this service, crossmatch '
-        f'pending, TNS unavailable). {_NOT_ANSWERED}'
+        f'pending, TNS unavailable). {_not_answered()}'
     )
 
 
@@ -227,14 +246,14 @@ def _near_description() -> str:
         'within a radius of a sky position, nearest first, each with the same '
         'summary as lookup_rubin_transients: coincident sources from '
         f'{_CATALOGS}, status, delivering brokers, stored TNS association, and '
-        'TNS, Lasair and ANTARES links. ra_deg and dec_deg are ICRS degrees (RA '
+        f'{link_names()} links. ra_deg and dec_deg are ICRS degrees (RA '
         '0 to 360, Dec -90 to 90). radius_arcsec defaults to '
         f'{_default_radius():g} and is at most {_max_radius():g} arcsec. At most '
         f'{int(settings.MCP_MAX_OBJECTS)} objects are summarized; a truncated '
         'answer says so and carries an API request for the full set. An empty '
         'answer means no transient alerted to this service lies there, not that '
         'Rubin saw nothing. It searches Rubin transients, not the catalogs '
-        f'themselves. {_NOT_ANSWERED}'
+        f'themselves. {_not_answered()}'
     )
 
 
@@ -309,7 +328,7 @@ def _describe_description() -> str:
     return (
         'Describe what this Rubin transient crossmatch service covers and its '
         f'current state: the catalogs and releases ({_CATALOGS}), the crossmatch '
-        'radius and rule, the alert brokers (ANTARES, Lasair, Pitt-Google) and '
+        f'radius and rule, the alert brokers ({_broker_labels()}) and '
         'their reliability cuts, TNS snapshot freshness, when the newest alert '
         'arrived, and whether the service is up. Use it to explain the '
         'service\'s scope, or why a transient is absent. Takes no arguments.'
@@ -359,8 +378,7 @@ def _summary_description() -> str:
         'Count the Rubin Observatory transients this crossmatch service received '
         'over one Rubin observing night or a span of nights: how many distinct '
         'Rubin objects (not alerts or broker deliveries), per night, per broker '
-        '(ANTARES, Lasair, Pitt-Google; give broker as antares, lasair or '
-        'pittgoogle), their catalog match outcomes, the reliability '
+        f'({_broker_labels()}; give broker as {_broker_ids()}), their catalog match outcomes, the reliability '
         'distribution, and the most reliable objects. A night is a Rubin dayObs '
         '(YYYY-MM-DD, the UTC date of a time minus 12 hours), and objects fall '
         'into nights by their observation time. For "last night" or "tonight" '
@@ -377,7 +395,7 @@ def _summary_description() -> str:
         'every object; pass their diaObjectIds as strings to '
         'lookup_rubin_transients for coincident sources. The answer names its '
         'unit, clock and window, and carries an API request that reproduces it. '
-        f'{_NOT_ANSWERED}'
+        f'{_not_answered()}'
     )
 
 

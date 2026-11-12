@@ -596,7 +596,7 @@ LASAIR_GROUP_ID = _lasair_group_id
 ######################################################################
 # Broker filter standard — see scimma_crossmatch_service_design.md §2.2
 #
-# Single rule applied across every broker (ANTARES, Lasair, Pitt-Google):
+# Single rule applied across every broker (ANTARES, Lasair, Pitt-Google, Babamul):
 # the latest diaSource for a diaObject must have reliability >= this
 # threshold. Reliability is the LSST DM real/bogus score (RBTransiNetTask,
 # DM-39378). Broker-agnostic so future broker clients added under
@@ -635,6 +635,34 @@ PITTGOOGLE_PUBLISHER_PROJECT = os.environ.get('PITTGOOGLE_PUBLISHER_PROJECT', 'p
 # GCP auth is handled by standard env vars:
 #   GOOGLE_CLOUD_PROJECT — the subscriber's GCP project (where the subscription lives)
 #   GOOGLE_APPLICATION_CREDENTIALS — path to service account JSON key file
+
+######################################################################
+# Babamul Kafka consumer
+#
+# BABAMUL_ENABLED is the one switch for Babamul on a cluster: it gates the
+# consumer's deployment and every place the service names Babamul (provenance,
+# /api/summary brokers, the web broker list, the chat connector). It reaches
+# every pod through the shared provenance env so they agree.
+BABAMUL_ENABLED = os.getenv('BABAMUL_ENABLED', 'false').lower() in ('true', '1', 'yes')
+BABAMUL_KAFKA_SERVER = os.environ.get('BABAMUL_KAFKA_SERVER', 'kaboom.caltech.edu:9093')
+BABAMUL_KAFKA_USERNAME = os.environ.get('BABAMUL_KAFKA_USERNAME', '')
+BABAMUL_KAFKA_PASSWORD = os.environ.get('BABAMUL_KAFKA_PASSWORD', '')
+# Consumer group suffix; the consumer prefixes it with '<username>-' as Babamul
+# requires. No timestamped fallback: Babamul keeps offsets per group.
+BABAMUL_GROUP_ID = os.environ.get('BABAMUL_GROUP_ID', '')
+BABAMUL_TOPICS = [
+    topic.strip()
+    for topic in os.environ.get(
+        'BABAMUL_TOPICS',
+        'babamul.lsst.no-ztf-match.hosted,'
+        'babamul.lsst.no-ztf-match.hostless,'
+        'babamul.lsst.no-ztf-match.unknown,'
+        'babamul.lsst.ztf-match.hosted,'
+        'babamul.lsst.ztf-match.hostless,'
+        'babamul.lsst.ztf-match.unknown',
+    ).split(',')
+    if topic.strip()
+]
 
 ######################################################################
 # SCiMMA Hopskotch publisher
@@ -695,6 +723,12 @@ LASAIR_OBJECT_URL_TEMPLATE = os.getenv(
 ANTARES_OBJECT_URL_TEMPLATE = os.getenv(
     'ANTARES_OBJECT_URL_TEMPLATE',
     'https://antares.noirlab.edu/loci/lookup/{diaObjectId}',
+)
+# Babamul's object page requires a (free) Babamul login and, like ANTARES, the
+# site answers 200 for any path, so this link cannot be validated by status.
+BABAMUL_OBJECT_URL_TEMPLATE = os.getenv(
+    'BABAMUL_OBJECT_URL_TEMPLATE',
+    'https://babamul.caltech.edu/objects/LSST/{diaObjectId}',
 )
 
 ######################################################################
