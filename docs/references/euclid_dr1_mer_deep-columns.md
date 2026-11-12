@@ -3,6 +3,7 @@
 - Configured URL: `s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_deep_survey`
 - Resolved catalog root: `nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_deep_survey/euclid_dr1_reformatted_catalogs_mer_catalogue_deep_survey-hats`
 - Total columns: **483**
+- Note: `point_like_flag` is 1 for point-like VIS detections and null otherwise (never 0); it is published as null when the source is not point-like.
 
 | # | Column | Arrow dtype |
 | - | ------ | ----------- |

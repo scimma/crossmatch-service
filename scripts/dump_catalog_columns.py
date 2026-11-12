@@ -56,6 +56,17 @@ CATALOGS: dict[str, str] = {
 }
 
 
+# Notes printed under a catalog's header: column semantics the schema's types
+# alone do not show.
+NOTES: dict[str, list[str]] = {
+    name: [
+        "`point_like_flag` is 1 for point-like VIS detections and null otherwise "
+        "(never 0); it is published as null when the source is not point-like.",
+    ]
+    for name in ("euclid_dr1_mer_deep", "euclid_dr1_mer_wide")
+}
+
+
 def _open_fs(url: str):
     """Return (fs, path) with anonymous credentials for public S3."""
     if url.startswith("s3://"):
@@ -106,6 +117,7 @@ def write_markdown(name: str, url: str, resolved_root: str, schema) -> Path:
         f"- Configured URL: `{url}`",
         f"- Resolved catalog root: `{resolved_root}`",
         f"- Total columns: **{len(schema)}**",
+        *(f"- Note: {note}" for note in NOTES.get(name, [])),
         "",
         "| # | Column | Arrow dtype |",
         "| - | ------ | ----------- |",
