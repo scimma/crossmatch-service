@@ -249,14 +249,21 @@ def _skymap_moc(structure, catalog_name: str) -> MOC | None:
         The coverage map at the skymap's HEALPix order, or ``None`` when the
         skymap cannot be read or has no populated pixel.
     """
-    try:
-        counts = np.asarray(read_skymap(structure, None))
-    except SoftTimeLimitExceeded:
-        raise
-    except Exception as exc:  # noqa: BLE001 -- reported as coverage unavailable
-        logger.warning('Catalog skymap unreadable', catalog=catalog_name,
-                       error=repr(exc))
-        return None
+    attempts = settings.CROSSMATCH_READ_RETRIES
+    backoff = settings.CROSSMATCH_READ_RETRY_BACKOFF_SECONDS
+    for attempt in range(1, attempts + 1):
+        try:
+            counts = np.asarray(read_skymap(structure, None))
+            break
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception as exc:  # noqa: BLE001 -- retried, then coverage unavailable
+            logger.warning('Catalog skymap unreadable', catalog=catalog_name,
+                           attempt=attempt, max_attempts=attempts,
+                           error=repr(exc))
+            if attempt == attempts:
+                return None
+            time.sleep(backoff * attempt)
     pixels = np.nonzero(counts > 0)[0]
     if not len(pixels):
         return None

@@ -533,3 +533,45 @@ def test_catalog_moc_with_an_empty_skymap_is_unavailable(monkeypatch):
 
     with pytest.raises(CatalogCoverageUnavailable, match="gaia"):
         catalog_mod.catalog_moc(GAIA)
+
+
+@override_settings(CROSSMATCH_READ_RETRIES=3, CROSSMATCH_READ_RETRY_BACKOFF_SECONDS=0)
+def test_catalog_moc_retries_a_failed_skymap_read(monkeypatch):
+    """A transient skymap read failure must not cost a batch its records."""
+    import numpy as np
+
+    fake = MagicMock()
+    fake.hc_structure.moc = None
+    monkeypatch.setattr(catalog_mod, "_get_catalog", lambda cfg: fake)
+    counts = np.zeros(12 * 4**6, dtype=np.int64)
+    counts[100] = 7
+    calls = []
+
+    def _flaky(structure, order):
+        calls.append(order)
+        if len(calls) < 3:
+            raise OSError("connection reset by peer")
+        return counts
+
+    monkeypatch.setattr(catalog_mod, "read_skymap", _flaky)
+
+    assert catalog_mod.catalog_moc(GAIA) is not None
+    assert len(calls) == 3
+
+
+@override_settings(CROSSMATCH_READ_RETRIES=2, CROSSMATCH_READ_RETRY_BACKOFF_SECONDS=0)
+def test_catalog_moc_gives_up_after_its_skymap_retries(monkeypatch):
+    fake = MagicMock()
+    fake.hc_structure.moc = None
+    monkeypatch.setattr(catalog_mod, "_get_catalog", lambda cfg: fake)
+    calls = []
+
+    def _down(structure, order):
+        calls.append(order)
+        raise OSError("connection reset by peer")
+
+    monkeypatch.setattr(catalog_mod, "read_skymap", _down)
+
+    with pytest.raises(CatalogCoverageUnavailable, match="gaia"):
+        catalog_mod.catalog_moc(GAIA)
+    assert len(calls) == 2
