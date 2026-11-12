@@ -244,15 +244,61 @@ def crossmatch_alerts(alerts_catalog, catalog_config):
     # The read (catalog open + compute) runs under _read_with_retry so a
     # transient data.lsdb.io disconnect retries instead of failing the whole
     # multi-catalog batch; deterministic errors still fail loud immediately.
+    # A 'nearest' catalog keeps the single nearest source in the radius. An
+    # 'all' catalog keeps every source in the radius up to max_matches per
+    # alert; asking LSDB for one more than the cap is what lets a hit cap be
+    # detected and logged rather than silently truncated.
+    max_matches = None
+    n_neighbors = 1
+    if catalog_config.get('match_mode', 'nearest') == 'all':
+        max_matches = catalog_config['max_matches']
+        n_neighbors = max_matches + 1
+
     def _read():
         catalog = _get_catalog(catalog_config)
         matches = alerts_catalog.crossmatch(
             catalog,
-            n_neighbors=1,
+            n_neighbors=n_neighbors,
             radius_arcsec=settings.CROSSMATCH_RADIUS_ARCSEC,
             suffixes=('_alert', '_catalog'),
             suffix_method='overlapping_columns',
         )
         return matches.compute()
 
-    return _read_with_retry(_read, catalog_config['name'])
+    result = _read_with_retry(_read, catalog_config['name'])
+    if max_matches is None:
+        return result
+    return _cap_matches_per_alert(result, max_matches, catalog_config['name'])
+
+
+def _cap_matches_per_alert(
+    result: pd.DataFrame, max_matches: int, catalog_name: str
+) -> pd.DataFrame:
+    """Keep at most ``max_matches`` nearest matches per alert.
+
+    Args:
+        result: Crossmatch rows with ``lsst_diaObject_diaObjectId`` and
+            ``_dist_arcsec`` columns.
+        max_matches: The catalog's per-alert cap.
+        catalog_name: The catalog, for the truncation log.
+
+    Returns:
+        The rows, nearest first within each alert, with any beyond the cap
+        dropped. Logs ``crossmatch_match_cap_reached`` once when any alert was
+        truncated.
+    """
+    if result.empty:
+        return result
+    alert_col = 'lsst_diaObject_diaObjectId'
+    counts = result.groupby(alert_col).size()
+    truncated = int((counts > max_matches).sum())
+    if not truncated:
+        return result
+    logger.warning(
+        'crossmatch_match_cap_reached',
+        catalog=catalog_name,
+        max_matches=max_matches,
+        alerts=truncated,
+    )
+    ordered = result.sort_values([alert_col, '_dist_arcsec'], kind='stable')
+    return ordered.groupby(alert_col, sort=False).head(max_matches)

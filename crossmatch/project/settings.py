@@ -372,6 +372,55 @@ def _validate_key_columns(catalogs):
 
 _validate_key_columns(CROSSMATCH_CATALOGS)
 
+MATCH_MODES = ('nearest', 'all')
+
+
+def _validate_match_modes(catalogs):
+    """Require a valid matching mode, and a cap for all-within-radius catalogs.
+
+    ``match_mode`` is optional and defaults to ``'nearest'`` (keep the single
+    nearest source within the radius). ``'all'`` keeps every source within
+    the radius up to ``max_matches`` per alert, which it then requires.
+
+    Args:
+        catalogs: The ``CROSSMATCH_CATALOGS`` list.
+
+    Raises:
+        ImproperlyConfigured: If ``match_mode`` is unknown, ``'all'`` lacks an
+            int ``max_matches`` of at least 2, or ``max_matches`` is set on a
+            ``'nearest'`` catalog.
+    """
+    for cat in catalogs:
+        name = cat.get('name')
+        mode = cat.get('match_mode', 'nearest')
+        if mode not in MATCH_MODES:
+            raise ImproperlyConfigured(
+                f"CROSSMATCH_CATALOGS entry {name!r}: match_mode must be one of "
+                f"{MATCH_MODES} (got {mode!r})"
+            )
+        max_matches = cat.get('max_matches')
+        if mode == 'nearest':
+            if max_matches is not None:
+                raise ImproperlyConfigured(
+                    f"CROSSMATCH_CATALOGS entry {name!r}: max_matches applies "
+                    f"only to match_mode 'all'"
+                )
+            continue
+        if (
+            isinstance(max_matches, bool)
+            or not isinstance(max_matches, int)
+            or max_matches < 2
+        ):
+            raise ImproperlyConfigured(
+                f"CROSSMATCH_CATALOGS entry {name!r}: match_mode 'all' needs an "
+                f"int max_matches of at least 2 (got {max_matches!r})"
+            )
+
+
+_validate_match_modes(CROSSMATCH_CATALOGS)
+for _cat in CROSSMATCH_CATALOGS:
+    _cat.setdefault('match_mode', 'nearest')
+
 # Batch crossmatch thresholds
 CROSSMATCH_BATCH_MAX_WAIT_SECONDS = int(
     os.getenv('CROSSMATCH_BATCH_MAX_WAIT_SECONDS', '900')

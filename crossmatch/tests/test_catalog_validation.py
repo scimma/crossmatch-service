@@ -152,3 +152,46 @@ def test_filter_column_missing_from_payload_columns_raises_at_import():
     assert "ImproperlyConfigured" in result.stderr
     assert "not_a_payload_column" in result.stderr
     assert "gaia_dr3" in result.stderr
+
+
+# --- match_mode / max_matches --------------------------------------------------
+
+from project.settings import _validate_match_modes
+
+
+def _mode_cfg(**extra):
+    return {"name": "t", **extra}
+
+
+def test_configured_catalogs_carry_a_match_mode():
+    for cat in settings.CROSSMATCH_CATALOGS:
+        assert cat["match_mode"] in ("nearest", "all"), cat["name"]
+
+
+def test_entry_without_match_mode_validates_as_nearest():
+    _validate_match_modes([_mode_cfg()])
+
+
+def test_all_mode_with_max_matches_validates():
+    _validate_match_modes([_mode_cfg(match_mode="all", max_matches=10)])
+
+
+def test_all_mode_without_max_matches_raises():
+    with pytest.raises(ImproperlyConfigured, match="'t'.*max_matches"):
+        _validate_match_modes([_mode_cfg(match_mode="all")])
+
+
+@pytest.mark.parametrize("max_matches", [True, 1, 0, "10", 2.5])
+def test_all_mode_with_invalid_max_matches_raises(max_matches):
+    with pytest.raises(ImproperlyConfigured, match="max_matches"):
+        _validate_match_modes([_mode_cfg(match_mode="all", max_matches=max_matches)])
+
+
+def test_unknown_match_mode_raises():
+    with pytest.raises(ImproperlyConfigured, match="match_mode"):
+        _validate_match_modes([_mode_cfg(match_mode="every")])
+
+
+def test_max_matches_on_a_nearest_entry_raises():
+    with pytest.raises(ImproperlyConfigured, match="max_matches"):
+        _validate_match_modes([_mode_cfg(match_mode="nearest", max_matches=5)])
