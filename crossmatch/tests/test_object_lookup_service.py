@@ -653,3 +653,23 @@ def test_other_record_read_errors_still_propagate(monkeypatch):
 
     with pytest.raises(ProgrammingError):
         get_object(dia_object_id=record.alert.lsst_diaObject_diaObjectId)
+
+
+@pytest.mark.django_db
+def test_matches_are_listed_nearest_first_across_catalogs():
+    record = ObjectCrossmatchRecordFactory()
+    alert = record.alert
+    for catalog, source, distance in [
+        ('deep', 'd1', 0.8), ('deep', 'd2', 0.2), ('wide', 'w1', 0.3), ('deep', 'd3', 0.5),
+    ]:
+        CatalogMatchFactory(
+            alert=alert, catalog_name=catalog, catalog_source_id=source,
+            match_distance_arcsec=distance,
+        )
+
+    body = get_object(dia_object_id=alert.lsst_diaObject_diaObjectId)
+
+    obj = _only_object(_only_result(body))
+    assert [(m['catalog_name'], m['catalog_source_id']) for m in obj['matches']] == [
+        ('deep', 'd2'), ('wide', 'w1'), ('deep', 'd3'), ('deep', 'd1'),
+    ]

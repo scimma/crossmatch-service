@@ -1609,7 +1609,7 @@ def _discovery_schemas() -> dict[str, Any]:
             'description': 'One catalog in service.',
             'required': [
                 'name', 'release', 'catalog_source_id', 'filterable_fields',
-                'coverage_map',
+                'coverage_map', 'match_mode', 'max_matches',
             ],
             'additionalProperties': False,
             'properties': {
@@ -1618,6 +1618,23 @@ def _discovery_schemas() -> dict[str, Any]:
                     'description': 'Catalog name as used in catalog_name.',
                 },
                 'release': {'type': 'string', 'description': 'Release in service.'},
+                'match_mode': {
+                    'type': 'string',
+                    'enum': ['nearest', 'all'],
+                    'description': (
+                        'nearest: the single nearest source within the radius '
+                        'is kept. all: every source within the radius is kept, '
+                        'up to max_matches per object.'
+                    ),
+                },
+                'max_matches': {
+                    'type': ['integer', 'null'],
+                    'x-unit': COUNT,
+                    'description': (
+                        'Most sources kept per object for an all catalog; null '
+                        'for a nearest catalog.'
+                    ),
+                },
                 'catalog_source_id': {
                     'type': 'object',
                     'description': 'What catalog_source_id means for this catalog.',
@@ -1745,8 +1762,11 @@ def _discovery_schemas() -> dict[str, Any]:
                         'nearest_source_per_catalog': {
                             'type': 'boolean',
                             'description': (
-                                'True: only the nearest source per catalog '
-                                'within the radius is kept.'
+                                'True when every catalog in service keeps '
+                                'only the nearest source within the radius. '
+                                'False when any catalog keeps every source '
+                                'within the radius; see each catalog\'s '
+                                'match_mode.'
                             ),
                         },
                         'description': {'type': 'string'},

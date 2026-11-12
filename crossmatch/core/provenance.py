@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 
 # Version of the API response contract (codes, envelope, error shape). Bumped
 # by hand when the contract changes; independent of the service version.
-CONTRACT_VERSION = '1.0.0'
+CONTRACT_VERSION = '1.1.0'
 
 # The service release that started recording per-object crossmatch provenance
 # (``ObjectCrossmatchRecord``, KTD5). Objects with no record report their

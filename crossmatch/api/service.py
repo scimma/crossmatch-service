@@ -286,6 +286,17 @@ def _load_matches(object_ids, detail, *, include_match_version=False):
             for a in TnsAssociation.objects.filter(alert_id__in=object_ids)
         }
 
+    # Nearest first across catalogs: a catalog that keeps every source within
+    # the radius can contribute several matches per object.
+    rows = sorted(
+        rows,
+        key=lambda cm: (
+            cm.alert_id,
+            cm.match_distance_arcsec,
+            cm.catalog_name,
+            cm.catalog_source_id,
+        ),
+    )
     result: dict[int, list[dict[str, Any]]] = {}
     for cm in rows:
         try:
