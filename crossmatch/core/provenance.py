@@ -100,14 +100,17 @@ def service_min_reliability() -> float | None:
     return _json_float(getattr(settings, 'MIN_DIASOURCE_RELIABILITY', None))
 
 
-def catalog_releases() -> list[dict[str, str]]:
-    """The catalogs in service with their configured release labels (KTD7).
+def catalog_releases() -> list[dict[str, Any]]:
+    """The catalogs in service with their release labels and matching mode.
 
-    Only ``name`` and ``release`` leave this function; the rest of each
-    catalog entry (HATS URL, columns) is not provenance.
+    Only ``name``, ``release``, ``match_mode`` and, for an ``'all'`` catalog,
+    ``max_matches`` leave this function; the rest of each catalog entry (HATS
+    URL, columns) is not provenance. The matching mode is recorded because it
+    changes which sources an object is matched to.
 
     Returns:
-        ``[{'name': ..., 'release': ...}, ...]`` in configured order.
+        ``[{'name': ..., 'release': ..., 'match_mode': ...}, ...]`` in
+        configured order, with ``max_matches`` added for ``'all'`` catalogs.
 
     Raises:
         ImproperlyConfigured: If an entry has no ``release`` label. Settings
@@ -120,7 +123,14 @@ def catalog_releases() -> list[dict[str, str]]:
             raise ImproperlyConfigured(
                 f"catalog {cat.get('name')!r} has no 'release' label"
             )
-        result.append({'name': str(cat['name']), 'release': release})
+        entry = {
+            'name': str(cat['name']),
+            'release': release,
+            'match_mode': cat.get('match_mode', 'nearest'),
+        }
+        if entry['match_mode'] == 'all':
+            entry['max_matches'] = cat['max_matches']
+        result.append(entry)
     return result
 
 

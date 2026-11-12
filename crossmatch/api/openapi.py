@@ -301,6 +301,24 @@ def _components(current: dict[str, Any]) -> dict[str, Any]:
                         'type': 'string',
                         'description': 'Catalog release in service.',
                     },
+                    'match_mode': {
+                        'type': 'string',
+                        'enum': ['nearest', 'all'],
+                        'description': (
+                            'nearest: the single nearest source within the '
+                            'radius. all: every source within the radius, up '
+                            'to max_matches per object. Absent on provenance '
+                            'recorded before the mode was recorded, when '
+                            'every catalog was nearest.'
+                        ),
+                    },
+                    'max_matches': {
+                        'type': 'integer',
+                        'x-unit': COUNT,
+                        'description': (
+                            'Most sources kept per object for an all catalog.'
+                        ),
+                    },
                 },
             },
             'ReliabilityCut': {

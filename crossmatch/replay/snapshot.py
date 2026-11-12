@@ -109,6 +109,8 @@ def _crossmatch_config() -> dict:
                 "ra_column": cfg["ra_column"],
                 "dec_column": cfg["dec_column"],
                 "payload_columns": list(cfg.get("payload_columns", [])),
+                "match_mode": cfg.get("match_mode", "nearest"),
+                "max_matches": cfg.get("max_matches"),
             }
             for cfg in settings.CROSSMATCH_CATALOGS
         ],

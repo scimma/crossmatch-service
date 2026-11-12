@@ -193,8 +193,8 @@ def _comparability_flags(base_ctx: dict, cand_ctx: dict) -> list:
         )
     if base_x.get("catalogs") != cand_x.get("catalogs"):
         flags.append(
-            "Catalog configuration differs (catalog list, URL, columns, or "
-            "payload columns)."
+            "Catalog configuration differs (catalog list, URL, columns, "
+            "payload columns, or matching mode)."
         )
     for key in ("tns_match_radius_arcsec", "tns_object_url_template"):
         if base_x.get(key) != cand_x.get(key):
@@ -275,9 +275,24 @@ def compare_snapshots(baseline: dict, candidate: dict) -> Comparison:
     base_fp = (base_ctx.get("tns") or {}).get("fingerprints") or {}
     cand_fp = (cand_ctx.get("tns") or {}).get("fingerprints") or {}
 
+    # A nearest catalog has one match per object, so a different source is a
+    # SOURCE_CHANGED. An all catalog can have several, so each source is its
+    # own key and a difference shows as only-in-baseline / only-in-candidate.
+    multi = {
+        cfg.get("name")
+        for ctx in (base_ctx, cand_ctx)
+        for cfg in (ctx.get("crossmatch") or {}).get("catalogs") or []
+        if cfg.get("match_mode") == "all"
+    }
+
     def _index(snapshot):
         return {
-            (m["dia_object_id"], m["catalog"]): m for m in snapshot.get("matches", [])
+            (
+                m["dia_object_id"],
+                m["catalog"],
+                m["source_id"] if m["catalog"] in multi else None,
+            ): m
+            for m in snapshot.get("matches", [])
         }
 
     base_matches = _index(baseline)
@@ -290,11 +305,15 @@ def compare_snapshots(baseline: dict, candidate: dict) -> Comparison:
             groups[key] = DifferenceGroup(kind, catalog, field_name)
         return groups[key]
 
-    keys = sorted(set(base_matches) | set(cand_matches))
+    keys = sorted(
+        set(base_matches) | set(cand_matches),
+        key=lambda k: (k[0], k[1], k[2] or ""),
+    )
     result.matches_compared = len(keys)
-    for dia_id, catalog in keys:
-        base = base_matches.get((dia_id, catalog))
-        cand = cand_matches.get((dia_id, catalog))
+    for key in keys:
+        dia_id, catalog, _ = key
+        base = base_matches.get(key)
+        cand = cand_matches.get(key)
         if cand is None:
             _group(MATCH_ONLY_IN_BASELINE, catalog, "match").add(
                 dia_id, base["source_id"], "missing"

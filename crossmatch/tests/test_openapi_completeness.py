@@ -106,6 +106,7 @@ def _emittable_codes() -> set[str]:
     codes.update(RESPONSE_MODES)
     codes.update(INPUT_KINDS)
     codes.update(str(cat['name']) for cat in settings.CROSSMATCH_CATALOGS)
+    codes.update(settings.MATCH_MODES)
     codes.update(p.bound for p in filter_parameters() if p.bound is not None)
     return codes
 
