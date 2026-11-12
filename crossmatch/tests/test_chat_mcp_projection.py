@@ -63,13 +63,16 @@ SKYMAPPER_PAYLOAD = {
     'g_psf': 17.123456954956055, 'r_psf': 16.98765373229980, 'class_star': 0.98,
     'raj2000': 150.0000123, 'dej2000': 2.0000123,
 }
+EUCLID_PAYLOAD = {'flux_vis_psf': 1.25, 'point_like_prob': 0.04, 'has_spectrum': 0}
 PAYLOADS = {
     'gaia_dr3': GAIA_PAYLOAD, 'des_y6_gold': DES_PAYLOAD,
     'delve_dr3_gold': DES_PAYLOAD, 'skymapper_dr4': SKYMAPPER_PAYLOAD,
+    'euclid_dr1_mer_deep': EUCLID_PAYLOAD, 'euclid_dr1_mer_wide': EUCLID_PAYLOAD,
 }
 SOURCE_IDS = {
     'gaia_dr3': 3_812_345_678_901_234_567, 'des_y6_gold': 1_234_567_890,
     'delve_dr3_gold': 11_234_567_890, 'skymapper_dr4': 512_345_678,
+    'euclid_dr1_mer_deep': -612_345_678_901_234, 'euclid_dr1_mer_wide': -712_345_678_901_234,
 }
 
 
@@ -321,6 +324,21 @@ def test_twelve_gaia_matches_show_the_nearest_three_and_nine_more():
     assert gaia['more'] == 9
     api_seps = sorted(m['separation_arcsec'] for m in response['results'][0]['objects'][0]['matches'])
     assert [m['separation_arcsec'] for m in gaia['nearest']] == api_seps[:3]
+
+
+@pytest.mark.django_db
+@override_settings(MCP_MATCHES_PER_CATALOG=3)
+def test_twelve_euclid_deep_matches_show_the_nearest_three_with_their_key_values():
+    crossmatched(BASE_ID + 61, catalogs=('euclid_dr1_mer_deep',), per_catalog=12)
+
+    projection, _ = lookup([str(BASE_ID + 61)])
+
+    [deep] = summaries(projection)[0]['coincident_sources']
+    assert deep['catalog'] == 'euclid_dr1_mer_deep'
+    assert (deep['count'], deep['more']) == (12, 9)
+    seps = [m['separation_arcsec'] for m in deep['nearest']]
+    assert seps == sorted(seps)
+    assert deep['nearest'][0]['values'] == EUCLID_PAYLOAD
 
 
 @pytest.mark.django_db

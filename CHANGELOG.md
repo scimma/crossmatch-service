@@ -23,6 +23,17 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
   - The consumer needs a `babamul` secret with `BABAMUL_KAFKA_USERNAME` and `BABAMUL_KAFKA_PASSWORD` and a `BABAMUL_GROUP_ID` suffix, and it exits non-zero without them.
   - Deliver `BABAMUL_ENABLED` to every workload that reports provenance, not only the consumer. Turning it on changes the reliability-cut table, so the next crossmatch batch on that cluster records a new provenance set. Objects crossmatched earlier keep the three-broker set.
   - Locally, start the consumer with `docker compose --profile babamul`.
+- Alerts are crossmatched against Euclid DR1 MER Deep and Euclid DR1 MER Wide (`euclid_dr1_mer_deep`, `euclid_dr1_mer_wide`), read anonymously from IRSA's public HATS collections on S3. Each match carries VIS and Y/J/H fluxes (uJy), point-like and spurious classification, quality flags, shape (`ellipticity`, `kron_radius`, `fwhm`, `mu_max`) and `has_spectrum`, at the measured `ra`/`dec`. Where the two overlap, around the Euclid Deep Fields, the same galaxy can be matched in both under different `object_id`s.
+- A catalog can keep every source within the crossmatch radius instead of only the nearest (`match_mode: 'all'` with a `max_matches` cap). Both Euclid catalogs do, up to 10 sources per alert, because at Euclid's depth one Rubin source can line up with several Euclid sources. Each source is its own match and its own Hopskotch message. Gaia, DES, DELVE and SkyMapper still keep only the nearest source.
+- `EUCLID_DR1_MER_DEEP_ENABLED` / `EUCLID_DR1_MER_WIDE_ENABLED` (default `true`) leave either Euclid catalog out on a cluster without a new image.
+- A catalog whose HATS build has no coverage map gets one from its skymap, so per-object footprint outcomes are recorded for it. The Euclid catalogs report footprint order 6.
+
+### Changed
+
+- API contract 1.1.0: `/api/describe` reports each catalog's `match_mode` and `max_matches`, and `crossmatch.nearest_source_per_catalog` is `true` only when every catalog keeps only the nearest source (so it is `false` with the Euclid catalogs). The nearest-source rule text in describe, the OpenAPI document and llms.txt now explains both modes.
+- Object lookups and recent crossmatches list each object's matches nearest first across catalogs, not grouped by catalog name.
+- Each catalog's provenance entry records its `match_mode` (and `max_matches`), so the first batch after deploying this release records a new provenance set. The replay tool compares an all-mode catalog source by source.
+- Deploy note: deliver `EUCLID_DR1_MER_{DEEP,WIDE}_HATS_URL` (and optionally `_RELEASE`, `_ENABLED`) to every workload that reports provenance before moving the gitops contract ref past this release.
 
 ## [0.17.0] - 2026-10-28
 

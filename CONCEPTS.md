@@ -75,12 +75,15 @@ maps its wire format onto the common Alert shape.
 ### HATS catalog
 A large astronomical source catalog stored in HATS (Hierarchical Adaptive Tiling Scheme)
 format and queried via LSDB on the Dask cluster — Gaia DR3, DES Y6 Gold, DELVE DR3 Gold,
-and SkyMapper DR4. Column naming is inconsistent across catalogs: some lowercase, some
+SkyMapper DR4, Euclid DR1 MER Deep, and Euclid DR1 MER Wide. Column naming is inconsistent across catalogs: some lowercase, some
 uppercase, and SkyMapper coordinates carry a J2000 suffix.
 
 ### Match
 A catalog source found within the crossmatch radius of an Alert, together with its
-angular separation. The Match is the unit of result the service produces. It is a
+angular separation. The Match is the unit of result the service produces. Each catalog's
+matching mode decides how many: *nearest* keeps only the nearest source in the radius,
+*all* keeps every source in the radius up to a per-catalog cap (the Euclid catalogs),
+so an Alert can have several Matches from one catalog. It is a
 coincident source at the Alert's position, not a host-galaxy association: offset hosts
 generally fall outside the radius, so the absence of a Match does not mean hostless.
 
