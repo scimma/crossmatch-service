@@ -16,13 +16,6 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ### Added
 
-- Babamul is a fourth alert broker, off by default and switched on per cluster with `BABAMUL_ENABLED`. A new consumer (`run_babamul_ingest`, workload `babamul-consumer`) reads six Babamul LSST Kafka topics: `babamul.lsst.{no-ztf-match,ztf-match}.{hosted,hostless,unknown}` (the `stellar` topics are not read). It applies the service's own reliability cut (`MIN_DIASOURCE_RELIABILITY`), as for Pitt-Google, because Babamul's topics are split by class rather than reliability. Babamul sends the triggering diaSource but no diaObject, so an object that Babamul delivers first is placed at that diaSource's position. Its time is the earliest LSST detection the alert carries.
-- With `BABAMUL_ENABLED` on, Babamul appears on the web brokers page, in `/api/summary` broker counts and the `broker` filter, in the reliability-cut provenance (as service-enforced), and in the chat connector. Chat answers link each object's Babamul page, which needs a free Babamul account. With it off, every surface reads exactly as before.
-- `crossmatch_babamul_messages_total{topic,outcome}` counts Babamul messages by outcome: `ingested`, `duplicate`, `below_cut`, `no_object`, `undecodable` or `error`.
-- Deploy note:
-  - The consumer needs a `babamul` secret with `BABAMUL_KAFKA_USERNAME` and `BABAMUL_KAFKA_PASSWORD` and a `BABAMUL_GROUP_ID` suffix, and it exits non-zero without them.
-  - Deliver `BABAMUL_ENABLED` to every workload that reports provenance, not only the consumer. Turning it on changes the reliability-cut table, so the next crossmatch batch on that cluster records a new provenance set. Objects crossmatched earlier keep the three-broker set.
-  - Locally, start the consumer with `docker compose --profile babamul`.
 - Alerts are crossmatched against Euclid DR1 MER Deep and Euclid DR1 MER Wide (`euclid_dr1_mer_deep`, `euclid_dr1_mer_wide`), read anonymously from IRSA's public HATS collections on S3. Each match carries VIS and Y/J/H fluxes (uJy), point-like and spurious classification, quality flags, shape (`ellipticity`, `kron_radius`, `fwhm`, `mu_max`) and `has_spectrum`, at the measured `ra`/`dec`. Where the two overlap, around the Euclid Deep Fields, the same galaxy can be matched in both under different `object_id`s.
 - A catalog can keep every source within the crossmatch radius instead of only the nearest (`match_mode: 'all'` with a `max_matches` cap). Both Euclid catalogs do, up to 10 sources per alert, because at Euclid's depth one Rubin source can line up with several Euclid sources. Each source is its own match and its own Hopskotch message. Gaia, DES, DELVE and SkyMapper still keep only the nearest source.
 - `EUCLID_DR1_MER_DEEP_ENABLED` / `EUCLID_DR1_MER_WIDE_ENABLED` (default `true`) leave either Euclid catalog out on a cluster without a new image.
@@ -34,6 +27,18 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 - Object lookups and recent crossmatches list each object's matches nearest first across catalogs, not grouped by catalog name.
 - Each catalog's provenance entry records its `match_mode` (and `max_matches`), so the first batch after deploying this release records a new provenance set. The replay tool compares an all-mode catalog source by source.
 - Deploy note: deliver `EUCLID_DR1_MER_{DEEP,WIDE}_HATS_URL` (and optionally `_RELEASE`, `_ENABLED`) to every workload that reports provenance before moving the gitops contract ref past this release.
+
+## [0.18.0] - 2026-11-13
+
+### Added
+
+- Babamul is a fourth alert broker, off by default and switched on per cluster with `BABAMUL_ENABLED`. A new consumer (`run_babamul_ingest`, workload `babamul-consumer`) reads six Babamul LSST Kafka topics: `babamul.lsst.{no-ztf-match,ztf-match}.{hosted,hostless,unknown}` (the `stellar` topics are not read). It applies the service's own reliability cut (`MIN_DIASOURCE_RELIABILITY`), as for Pitt-Google, because Babamul's topics are split by class rather than reliability. Babamul sends the triggering diaSource but no diaObject, so an object that Babamul delivers first is placed at that diaSource's position. Its time is the earliest LSST detection the alert carries.
+- With `BABAMUL_ENABLED` on, Babamul appears on the web brokers page, in `/api/summary` broker counts and the `broker` filter, in the reliability-cut provenance (as service-enforced), and in the chat connector. Chat answers link each object's Babamul page, which needs a free Babamul account. With it off, every surface reads exactly as before.
+- `crossmatch_babamul_messages_total{topic,outcome}` counts Babamul messages by outcome: `ingested`, `duplicate`, `below_cut`, `no_object`, `undecodable` or `error`.
+- Deploy note:
+  - The consumer needs a `babamul` secret with `BABAMUL_KAFKA_USERNAME` and `BABAMUL_KAFKA_PASSWORD` and a `BABAMUL_GROUP_ID` suffix, and it exits non-zero without them.
+  - Deliver `BABAMUL_ENABLED` to every workload that reports provenance, not only the consumer. Turning it on changes the reliability-cut table, so the next crossmatch batch on that cluster records a new provenance set. Objects crossmatched earlier keep the three-broker set.
+  - Locally, start the consumer with `docker compose --profile babamul`.
 
 ## [0.17.0] - 2026-10-28
 
@@ -297,7 +302,8 @@ Initial release of the crossmatch service.
 - Postgres init race condition on startup.
 - diaSourceId reliability filtering.
 
-[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/scimma/crossmatch-service/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/scimma/crossmatch-service/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/scimma/crossmatch-service/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/scimma/crossmatch-service/compare/v0.16.0...v0.16.1
