@@ -14,6 +14,8 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-13
+
 ### Added
 
 - Babamul is a fourth alert broker, off by default and switched on per cluster with `BABAMUL_ENABLED`. A new consumer (`run_babamul_ingest`, workload `babamul-consumer`) reads six Babamul LSST Kafka topics: `babamul.lsst.{no-ztf-match,ztf-match}.{hosted,hostless,unknown}` (the `stellar` topics are not read). It applies the service's own reliability cut (`MIN_DIASOURCE_RELIABILITY`), as for Pitt-Google, because Babamul's topics are split by class rather than reliability. Babamul sends the triggering diaSource but no diaObject, so an object that Babamul delivers first is placed at that diaSource's position. Its time is the earliest LSST detection the alert carries.
@@ -286,7 +288,8 @@ Initial release of the crossmatch service.
 - Postgres init race condition on startup.
 - diaSourceId reliability filtering.
 
-[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/scimma/crossmatch-service/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/scimma/crossmatch-service/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/scimma/crossmatch-service/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/scimma/crossmatch-service/compare/v0.16.0...v0.16.1
