@@ -14,6 +14,10 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+### Changed
+
+- Upgrade LSDB from 0.11.0 to 0.11.2, which moves hats to 0.11.2 and nested-pandas to 0.7.3; pyarrow moves transitively from 24.0.0 to 26.0.1 because nested-pandas 0.7.3 requires `pyarrow>=26`. numpy, pandas and dask are unchanged. The crossmatch code path is unchanged. The app and the Dask cluster must run the same image; validate with the replay before promoting to PROD (see `docs/runbooks/crossmatch-replay.md`).
+
 ## [0.19.0] - 2026-11-13
 
 ### Added

@@ -104,6 +104,10 @@ lsdb 0.11.0 requires hats 0.11 and nested-pandas 0.7, and both require `pandas>=
 
 The regenerated lock header changed from `pip-compile --output-file=...` to `pip-compile --no-index --output-file=...`. The regeneration ran under pip-tools 7.6.1, and the previous lock dated from pip-tools 7.6.0; nothing else about the compile changed. Regenerated with the CI install line, the lock recompiled byte-for-byte, and `lock-drift` passed on the PR.
 
+### LSDB 0.11.0 → 0.11.2 upgrade (branch `chore/lsdb-0-11-2-upgrade`, 2026-11-13)
+
+lsdb 0.11.2 requires hats 0.11.2 and nested-pandas 0.7.3, and nested-pandas 0.7.3 requires `pyarrow>=26`, while the lock held pyarrow 24.0.0 as a transitive pin. A plain recompile (no `--upgrade`) discarded the conflicting locked pyarrow and resolved it to 26.0.1 without any `--upgrade-package`. The lock diff was exactly four packages: hats, lsdb, nested-pandas and pyarrow. pyarrow is not in the version-skew guard, so app/cluster alignment rests on the shared image tag, and the replay is the check on published values.
+
 ## Related
 
 - `docs/brainstorms/2026-05-12-upgrade-lsdb-to-0-9-0-requirements.md` — requirements doc that drove the upgrade; states the fail-fast check's lsdb gap and the smoke run's load-bearing role explicitly.
