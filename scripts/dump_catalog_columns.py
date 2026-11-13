@@ -43,7 +43,7 @@ CATALOGS: dict[str, str] = {
         "DELVE_HATS_URL", "https://data.lsdb.io/hats/delve/delve_dr3_gold"
     ),
     "skymapper_dr4": os.environ.get(
-        "SKYMAPPER_HATS_URL", "https://data.lsdb.io/hats/skymapper_dr4/catalog"
+        "SKYMAPPER_HATS_URL", "https://data.lsdb.io/hats/skymapper_dr4"
     ),
     "euclid_dr1_mer_deep": os.environ.get(
         "EUCLID_DR1_MER_DEEP_HATS_URL",
