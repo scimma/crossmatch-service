@@ -202,7 +202,7 @@ gunicorn==23.0.0
     # via -r requirements.base.txt
 h11==0.16.0
     # via httpcore
-hats==0.11.0
+hats==0.11.2
     # via
     #   -r requirements.base.txt
     #   lsdb
@@ -250,7 +250,7 @@ locket==1.0.0
     # via
     #   distributed
     #   partd
-lsdb==0.11.0
+lsdb==0.11.2
     # via -r requirements.base.txt
 lz4==4.4.5
     # via dask
@@ -267,7 +267,7 @@ multidict==6.7.1
     #   yarl
 narwhals==2.21.2
     # via bokeh
-nested-pandas==0.7.2
+nested-pandas==0.7.3
     # via
     #   -r requirements.base.txt
     #   hats
@@ -363,7 +363,7 @@ psycopg==3.3.4
     # via -r requirements.base.txt
 psycopg-binary==3.3.4
     # via psycopg
-pyarrow==24.0.0
+pyarrow==26.0.1
     # via
     #   dask
     #   db-dtypes

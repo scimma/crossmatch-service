@@ -4,8 +4,9 @@ name: Lock drift check
 #
 # requirements.lock is the single source of truth for the image build
 # (docker/Dockerfile installs from it) and pins the full transitive tree —
-# notably hats==0.10.4, which lsdb 0.10.4 requires (hats>=0.10.4,<0.11) but
-# whose loose upstream constraint would otherwise let pip pull a different patch.
+# notably hats, which lsdb requires only within a range (for example
+# hats>=0.11.2,<0.12), so its loose upstream constraint would otherwise let
+# pip pull a different patch.
 #
 # pip-compile (without --upgrade) honors the versions already pinned in the
 # committed lock, so a recompile only changes the file when someone edited
