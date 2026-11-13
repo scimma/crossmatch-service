@@ -74,7 +74,49 @@ READ_ONLY_ANNOTATIONS = {
     'openWorldHint': False,
 }
 
-_CATALOGS = 'Gaia DR3, DES Y6 Gold, DELVE DR3 Gold and SkyMapper DR4'
+
+def catalog_names_text() -> str:
+    """The release labels of the catalogs in service, as one phrase.
+
+    Read from settings at call time, so a catalog a cluster switches off is
+    not named. Names the catalogs that keep every source within the radius
+    (match_mode 'all') as able to list several sources per object, and, when
+    both Euclid catalogs are in service, that a galaxy can appear in both.
+
+    Returns:
+        For example ``'Gaia DR3, DES Y6 Gold and SkyMapper DR4'``.
+    """
+    releases = [str(c['release']) for c in settings.CROSSMATCH_CATALOGS]
+    text = join_names(releases) if releases else ''
+    multi = [
+        str(c['release'])
+        for c in settings.CROSSMATCH_CATALOGS
+        if c.get('match_mode', 'nearest') == 'all'
+    ]
+    notes = []
+    if multi:
+        notes.append(
+            f'{join_names(multi)} can list several coincident sources per '
+            'object, nearest first'
+        )
+    names = {str(c['name']) for c in settings.CROSSMATCH_CATALOGS}
+    if {'euclid_dr1_mer_deep', 'euclid_dr1_mer_wide'} <= names:
+        notes.append(
+            'the same galaxy can appear in both Euclid catalogs under '
+            'different object_ids'
+        )
+    if notes:
+        text += f" ({'; '.join(notes)})"
+    return text
+
+
+def _catalog_ids() -> str:
+    """``'<release> is <name>, ...'`` for the catalogs in service."""
+    return ', '.join(
+        f"{c['release']} is {c['name']}" for c in settings.CROSSMATCH_CATALOGS
+    )
+
+
 def _not_answered() -> str:
     return (
         'It does not answer light curves, photometry history, classifications or '
@@ -164,7 +206,7 @@ def _lookup_description() -> str:
     return (
         'Tell the user about specific Rubin Observatory transients, by TNS name or '
         'Rubin diaObjectId. For each one, reports the catalog sources from '
-        f'{_CATALOGS} that coincide with its position (separation and key values '
+        f'{catalog_names_text()} that coincide with its position (separation and key values '
         'such as magnitudes, parallax, star/galaxy class and photometric '
         'redshift), its status in this crossmatch service, the alert brokers '
         'that delivered it, its stored TNS association, and links to its '
@@ -245,7 +287,7 @@ def _near_description() -> str:
         'Find the Rubin Observatory transients this crossmatch service has seen '
         'within a radius of a sky position, nearest first, each with the same '
         'summary as lookup_rubin_transients: coincident sources from '
-        f'{_CATALOGS}, status, delivering brokers, stored TNS association, and '
+        f'{catalog_names_text()}, status, delivering brokers, stored TNS association, and '
         f'{link_names()} links. ra_deg and dec_deg are ICRS degrees (RA '
         '0 to 360, Dec -90 to 90). radius_arcsec defaults to '
         f'{_default_radius():g} and is at most {_max_radius():g} arcsec. At most '
@@ -327,7 +369,7 @@ def _run_near(guard: RequestGuard, parsed: tuple[float, float, float]) -> RunRes
 def _describe_description() -> str:
     return (
         'Describe what this Rubin transient crossmatch service covers and its '
-        f'current state: the catalogs and releases ({_CATALOGS}), the crossmatch '
+        f'current state: the catalogs and releases ({catalog_names_text()}), the crossmatch '
         f'radius and rule, the alert brokers ({_broker_labels()}) and '
         'their reliability cuts, TNS snapshot freshness, when the newest alert '
         'arrived, and whether the service is up. Use it to explain the '
@@ -386,9 +428,8 @@ def _summary_description() -> str:
         'for longer periods such as "last month", split them into spans of '
         f'at most {max_nights} nights and add the results. Never convert nights to the '
         "user's local time zone; Rubin observes from Chile and nights are named "
-        f'in UTC. At most {max_nights} nights per call. Catalog names: Gaia DR3 '
-        'is gaia_dr3, DES is des_y6_gold, DELVE is delve_dr3_gold, SkyMapper is '
-        'skymapper_dr4; catalog_match=without reports each no-match reason '
+        f'in UTC. At most {max_nights} nights per call. Catalog names: '
+        f'{_catalog_ids()}; catalog_match=without reports each no-match reason '
         'separately, and those buckets must not be summed into one total. Only '
         f'the top_n (default {int(settings.SUMMARY_DEFAULT_TOP_N)}, at most '
         f'{int(settings.MCP_MAX_OBJECTS)}) most reliable objects are listed, not '

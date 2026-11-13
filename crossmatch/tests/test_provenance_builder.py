@@ -91,9 +91,28 @@ def test_catalog_releases_follow_configured_catalogs():
         {'name': 'gaia_dr3', 'release': 'Gaia DR3', 'hats_url': 's3://secret-bucket'}
     ]
 )
-def test_catalog_entries_expose_only_name_and_release():
+def test_catalog_entries_expose_only_name_release_and_match_mode():
     """Only the allowlisted fields leave the builder (never the HATS URL)."""
-    assert provenance.catalog_releases() == [{'name': 'gaia_dr3', 'release': 'Gaia DR3'}]
+    assert provenance.catalog_releases() == [
+        {'name': 'gaia_dr3', 'release': 'Gaia DR3', 'match_mode': 'nearest'}
+    ]
+
+
+@override_settings(
+    CROSSMATCH_CATALOGS=[
+        {
+            'name': 'deep',
+            'release': 'Deep DR1',
+            'match_mode': 'all',
+            'max_matches': 10,
+            'hats_url': 's3://x',
+        }
+    ]
+)
+def test_all_mode_catalog_entry_records_its_cap():
+    assert provenance.catalog_releases() == [
+        {'name': 'deep', 'release': 'Deep DR1', 'match_mode': 'all', 'max_matches': 10}
+    ]
 
 
 @override_settings(CROSSMATCH_CATALOGS=[{'name': 'gaia_dr3'}])
@@ -332,3 +351,15 @@ def test_invalid_declared_cut_raises_at_import(env):
     result = _import_settings(**{**{k: '' for k in UNDECLARED}, **env})
     assert result.returncode != 0
     assert 'ImproperlyConfigured' in result.stderr
+
+
+def test_switching_a_catalog_to_all_mode_changes_the_provenance_content_hash():
+    from tasks.crossmatch import _provenance_content
+
+    nearest = [{'name': 'deep', 'release': 'Deep DR1'}]
+    every = [{**nearest[0], 'match_mode': 'all', 'max_matches': 10}]
+    with override_settings(CROSSMATCH_CATALOGS=nearest):
+        _, nearest_hash = _provenance_content()
+    with override_settings(CROSSMATCH_CATALOGS=every):
+        _, all_hash = _provenance_content()
+    assert all_hash != nearest_hash

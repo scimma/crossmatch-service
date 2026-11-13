@@ -202,6 +202,20 @@ vars:
   - name: SKYMAPPER_HATS_URL
     source: plain
     components: [celery-worker, celery-beat, flower]
+  - name: EUCLID_DR1_MER_DEEP_HATS_URL
+    source: plain
+    components: [celery-worker, celery-beat, flower]
+  - name: EUCLID_DR1_MER_WIDE_HATS_URL
+    source: plain
+    components: [celery-worker, celery-beat, flower]
+  - name: EUCLID_DR1_MER_DEEP_ENABLED
+    source: plain
+    components: [celery-worker, celery-beat, flower]
+    optional: true            # settings default the Euclid catalogs to on
+  - name: EUCLID_DR1_MER_WIDE_ENABLED
+    source: plain
+    components: [celery-worker, celery-beat, flower]
+    optional: true            # settings default the Euclid catalogs to on
   - name: CROSSMATCH_RADIUS_ARCSEC
     source: plain
     components: [celery-worker, celery-beat, flower]

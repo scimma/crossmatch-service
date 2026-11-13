@@ -3,8 +3,11 @@
 import time
 
 import lsdb
+import numpy as np
 import pandas as pd
 from celery.exceptions import SoftTimeLimitExceeded
+from hats.io.skymap import read_skymap
+from mocpy import MOC
 from django.conf import settings
 from core.log import get_logger
 
@@ -111,6 +114,11 @@ def _read_with_retry(read_fn, catalog_name: str):
 # Module-level cache: {catalog_name: lsdb_catalog}
 _catalog_cache = {}
 
+# Coverage maps built from a catalog's skymap: {catalog_name: (hc_structure,
+# moc)}. Tied to the cached catalog's structure, so it is read once per opened
+# catalog rather than once per batch.
+_skymap_moc_cache = {}
+
 # Alert-catalog column names. A requested catalog column matching one of these
 # would be renamed with a `_catalog` suffix by the crossmatch
 # (suffix_method='overlapping_columns'), which would break payload key mapping
@@ -197,8 +205,10 @@ def catalog_moc(catalog_config):
     """Return the HATS coverage map (a ``mocpy.MOC``) of a configured catalog.
 
     Reads ``hc_structure.moc`` from the process-cached LSDB catalog, so after the
-    catalog's first read this costs no I/O. Runs in the Celery process, not on
-    the Dask cluster.
+    catalog's first read this costs no I/O. A catalog built without a coverage
+    map (IRSA's Euclid HATS builds) falls back to the populated pixels of its
+    HATS skymap, at the skymap's order, built once per process. Runs in the Celery process, not on the
+    Dask cluster.
 
     Args:
         catalog_config: The catalog's ``CROSSMATCH_CATALOGS`` entry.
@@ -207,15 +217,63 @@ def catalog_moc(catalog_config):
         The catalog's coverage map.
 
     Raises:
-        CatalogCoverageUnavailable: If the catalog has no coverage map.
+        CatalogCoverageUnavailable: If the catalog has neither a coverage map
+            nor a readable, non-empty skymap.
     """
-    moc = _get_catalog(catalog_config).hc_structure.moc
+    name = catalog_config['name']
+    structure = _get_catalog(catalog_config).hc_structure
+    moc = structure.moc
+    if moc is None:
+        cached_structure, moc = _skymap_moc_cache.get(name, (None, None))
+        if cached_structure is not structure:
+            moc = _skymap_moc(structure, name)
+            if moc is not None:
+                _skymap_moc_cache[name] = (structure, moc)
     if moc is None:
         raise CatalogCoverageUnavailable(
-            f"{catalog_config['name']}: HATS catalog has no coverage map (moc); "
-            f"per-object footprint outcomes cannot be recorded for it"
+            f"{catalog_config['name']}: HATS catalog has no coverage map (moc) "
+            f"and no usable skymap; per-object footprint outcomes cannot be "
+            f"recorded for it"
         )
     return moc
+
+
+def _skymap_moc(structure, catalog_name: str) -> MOC | None:
+    """Build a coverage map from the populated pixels of a HATS skymap.
+
+    Args:
+        structure: The catalog's ``hc_structure``.
+        catalog_name: The catalog, for the log.
+
+    Returns:
+        The coverage map at the skymap's HEALPix order, or ``None`` when the
+        skymap cannot be read or has no populated pixel.
+    """
+    attempts = settings.CROSSMATCH_READ_RETRIES
+    backoff = settings.CROSSMATCH_READ_RETRY_BACKOFF_SECONDS
+    for attempt in range(1, attempts + 1):
+        try:
+            counts = np.asarray(read_skymap(structure, None))
+            break
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception as exc:  # noqa: BLE001 -- retried, then coverage unavailable
+            logger.warning('Catalog skymap unreadable', catalog=catalog_name,
+                           attempt=attempt, max_attempts=attempts,
+                           error=repr(exc))
+            if attempt == attempts:
+                return None
+            time.sleep(backoff * attempt)
+    pixels = np.nonzero(counts > 0)[0]
+    if not len(pixels):
+        return None
+    order = int(round(np.log(len(counts) / 12) / np.log(4)))
+    logger.info('Catalog coverage map built from its skymap',
+                catalog=catalog_name, order=order, pixels=len(pixels))
+    return MOC.from_healpix_cells(
+        pixels.astype(np.uint64), np.full(len(pixels), order, dtype=np.uint8),
+        max_depth=order,
+    )
 
 
 def crossmatch_alerts(alerts_catalog, catalog_config):
@@ -244,15 +302,61 @@ def crossmatch_alerts(alerts_catalog, catalog_config):
     # The read (catalog open + compute) runs under _read_with_retry so a
     # transient data.lsdb.io disconnect retries instead of failing the whole
     # multi-catalog batch; deterministic errors still fail loud immediately.
+    # A 'nearest' catalog keeps the single nearest source in the radius. An
+    # 'all' catalog keeps every source in the radius up to max_matches per
+    # alert; asking LSDB for one more than the cap is what lets a hit cap be
+    # detected and logged rather than silently truncated.
+    max_matches = None
+    n_neighbors = 1
+    if catalog_config.get('match_mode', 'nearest') == 'all':
+        max_matches = catalog_config['max_matches']
+        n_neighbors = max_matches + 1
+
     def _read():
         catalog = _get_catalog(catalog_config)
         matches = alerts_catalog.crossmatch(
             catalog,
-            n_neighbors=1,
+            n_neighbors=n_neighbors,
             radius_arcsec=settings.CROSSMATCH_RADIUS_ARCSEC,
             suffixes=('_alert', '_catalog'),
             suffix_method='overlapping_columns',
         )
         return matches.compute()
 
-    return _read_with_retry(_read, catalog_config['name'])
+    result = _read_with_retry(_read, catalog_config['name'])
+    if max_matches is None:
+        return result
+    return _cap_matches_per_alert(result, max_matches, catalog_config['name'])
+
+
+def _cap_matches_per_alert(
+    result: pd.DataFrame, max_matches: int, catalog_name: str
+) -> pd.DataFrame:
+    """Keep at most ``max_matches`` nearest matches per alert.
+
+    Args:
+        result: Crossmatch rows with ``lsst_diaObject_diaObjectId`` and
+            ``_dist_arcsec`` columns.
+        max_matches: The catalog's per-alert cap.
+        catalog_name: The catalog, for the truncation log.
+
+    Returns:
+        The rows, nearest first within each alert, with any beyond the cap
+        dropped. Logs ``crossmatch_match_cap_reached`` once when any alert was
+        truncated.
+    """
+    if result.empty:
+        return result
+    alert_col = 'lsst_diaObject_diaObjectId'
+    counts = result.groupby(alert_col).size()
+    truncated = int((counts > max_matches).sum())
+    if not truncated:
+        return result
+    logger.warning(
+        'crossmatch_match_cap_reached',
+        catalog=catalog_name,
+        max_matches=max_matches,
+        alerts=truncated,
+    )
+    ordered = result.sort_values([alert_col, '_dist_arcsec'], kind='stable')
+    return ordered.groupby(alert_col, sort=False).head(max_matches)

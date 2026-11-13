@@ -379,3 +379,35 @@ def test_tns_enrichment_loop_under_pandas3_frame():
     assert far_block["tns"] is None
     assert far_block["tns_checked"] is True
     assert TnsAssociation.objects.count() == 0
+
+
+MULTI_AND_NEAREST = [
+    {**_BASE, "name": "multi", "match_mode": "all", "max_matches": 10},
+    {**_BASE, "name": "near", "hats_url": "y"},
+]
+
+
+@pytest.mark.django_db
+@override_settings(CROSSMATCH_CATALOGS=MULTI_AND_NEAREST)
+def test_several_sources_from_one_catalog_each_become_a_match_and_a_message(
+    monkeypatch,
+):
+    alert = AlertFactory(status=Alert.Status.QUEUED)
+
+    def _xmatch(alerts_catalog, cfg):
+        if cfg["name"] == "multi":
+            return pd.concat(
+                [_match_row(alert, source_id=f"m{i}") for i in range(3)],
+                ignore_index=True,
+            )
+        return _match_row(alert, source_id="n0")
+
+    monkeypatch.setattr(crossmatch_mod, "crossmatch_alerts", _xmatch)
+
+    crossmatch_batch([str(alert.uuid)])
+
+    stored = sorted(
+        CatalogMatch.objects.values_list("catalog_name", "catalog_source_id")
+    )
+    assert stored == [("multi", "m0"), ("multi", "m1"), ("multi", "m2"), ("near", "n0")]
+    assert Notification.objects.filter(alert=alert).count() == 4

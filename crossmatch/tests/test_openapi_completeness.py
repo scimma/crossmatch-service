@@ -106,6 +106,7 @@ def _emittable_codes() -> set[str]:
     codes.update(RESPONSE_MODES)
     codes.update(INPUT_KINDS)
     codes.update(str(cat['name']) for cat in settings.CROSSMATCH_CATALOGS)
+    codes.update(settings.MATCH_MODES)
     codes.update(p.bound for p in filter_parameters() if p.bound is not None)
     return codes
 
@@ -264,7 +265,7 @@ def test_catalog_source_id_meaning_follows_the_live_catalog_list(client):
 def test_match_schemas_state_the_nearest_source_rule(client, schema):
     text = _document(client)['components']['schemas'][schema]['description']
     assert 'nearest' in text
-    assert 'at most one coincident source per catalog' in text
+    assert 'every catalog source within the crossmatch radius' in text
 
 
 def test_positions_state_frames_and_epochs(client):

@@ -45,6 +45,25 @@ CATALOGS: dict[str, str] = {
     "skymapper_dr4": os.environ.get(
         "SKYMAPPER_HATS_URL", "https://data.lsdb.io/hats/skymapper_dr4/catalog"
     ),
+    "euclid_dr1_mer_deep": os.environ.get(
+        "EUCLID_DR1_MER_DEEP_HATS_URL",
+        "s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_deep_survey",
+    ),
+    "euclid_dr1_mer_wide": os.environ.get(
+        "EUCLID_DR1_MER_WIDE_HATS_URL",
+        "s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_wide_survey",
+    ),
+}
+
+
+# Notes printed under a catalog's header: column semantics the schema's types
+# alone do not show.
+NOTES: dict[str, list[str]] = {
+    name: [
+        "`point_like_flag` is 1 for point-like VIS detections and null otherwise "
+        "(never 0); it is published as null when the source is not point-like.",
+    ]
+    for name in ("euclid_dr1_mer_deep", "euclid_dr1_mer_wide")
 }
 
 
@@ -65,7 +84,9 @@ def resolve_catalog_root(fs, path: str) -> str:
     default = None
     for line in text.splitlines():
         line = line.strip()
-        if line.startswith("default_catalog="):
+        # HATS collections name their primary table hats_primary_table_url;
+        # older builds used default_catalog.
+        if line.startswith(("default_catalog=", "hats_primary_table_url=")):
             default = line.split("=", 1)[1].strip()
             break
     if default is not None:
@@ -96,6 +117,7 @@ def write_markdown(name: str, url: str, resolved_root: str, schema) -> Path:
         f"- Configured URL: `{url}`",
         f"- Resolved catalog root: `{resolved_root}`",
         f"- Total columns: **{len(schema)}**",
+        *(f"- Note: {note}" for note in NOTES.get(name, [])),
         "",
         "| # | Column | Arrow dtype |",
         "| - | ------ | ----------- |",

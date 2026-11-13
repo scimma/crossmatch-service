@@ -104,16 +104,31 @@ _SOURCE_ID_MEANINGS = {
         'The SkyMapper DR4 object_id: the unique identifier of the object in '
         'the SkyMapper DR4 master table, served as a decimal string.'
     ),
+    'euclid_dr1_mer_deep': (
+        'The Euclid MER object_id: the unique identifier of the source in the '
+        'Euclid DR1 MER Deep survey catalogue, served as a decimal string. The '
+        'same galaxy can also appear in euclid_dr1_mer_wide under a different '
+        'object_id.'
+    ),
+    'euclid_dr1_mer_wide': (
+        'The Euclid MER object_id: the unique identifier of the source in the '
+        'Euclid DR1 MER Wide survey catalogue, served as a decimal string. The '
+        'same galaxy can also appear in euclid_dr1_mer_deep under a different '
+        'object_id.'
+    ),
 }
 
-#: The crossmatch keeps one source per catalog (``n_neighbors=1`` in
-#: ``matching/catalog.py``). Shared by describe, the OpenAPI document, and the
+#: Which catalog sources the crossmatch keeps, by each catalog's match_mode
+#: (``matching/catalog.py``). Shared by describe, the OpenAPI document, and the
 #: agent-facing docs (``api/docs.py``).
 NEAREST_SOURCE_RULE = (
-    'For each object and each catalog, the crossmatch keeps only the nearest '
-    'catalog source within the crossmatch radius, so an object has at most one '
-    'coincident source per catalog; other sources inside the radius are not '
-    'reported. A coincident source is not a host association.'
+    'For each object, a catalog whose match_mode is nearest keeps only the '
+    'nearest catalog source within the crossmatch radius; other sources '
+    'inside the radius are not reported. A catalog whose match_mode is all '
+    'keeps every catalog source within the crossmatch radius, up to its '
+    'max_matches per object, so an object can have several coincident '
+    'sources from it. Matches are listed nearest first. A coincident source '
+    'is not a host association.'
 )
 
 #: R9: what "not in this service" does not mean. Reliability filtering happens
@@ -284,6 +299,8 @@ def _catalogs() -> list[dict[str, Any]]:
             },
             'filterable_fields': fields_by_catalog.get(name, []),
             'coverage_map': _coverage_map(cat.get('footprint_moc_order')),
+            'match_mode': cat.get('match_mode', 'nearest'),
+            'max_matches': cat.get('max_matches'),
         })
     return result
 
@@ -403,7 +420,10 @@ def describe_service() -> dict[str, Any]:
         'catalogs': _catalogs(),
         'crossmatch': {
             'radius_arcsec': provenance.crossmatch_radius_arcsec(),
-            'nearest_source_per_catalog': True,
+            'nearest_source_per_catalog': all(
+                cat.get('match_mode', 'nearest') == 'nearest'
+                for cat in settings.CROSSMATCH_CATALOGS
+            ),
             'description': NEAREST_SOURCE_RULE,
         },
         'tns': {

@@ -322,6 +322,12 @@ def _load_ae7_fixture() -> dict:
     return json.loads(AE7_FIXTURE.read_text())
 
 
+def _match_order(match: dict) -> tuple:
+    """A stable order for one object's match entries, independent of listing."""
+    return (str(match.get('catalog_name', match.get('catalog'))),
+            str(match.get('catalog_source_id')))
+
+
 def _assert_keeps(old, new, path='$', added=None):
     """Assert ``new`` keeps every key of ``old`` with the same type and value.
 
@@ -342,6 +348,8 @@ def _assert_keeps(old, new, path='$', added=None):
             added.update(f'{path}.{key}' for key in new if key not in old)
     elif isinstance(old, list):
         assert isinstance(new, list) and len(new) == len(old), path
+        if path.endswith('.matches'):
+            old, new = (sorted(lst, key=_match_order) for lst in (old, new))
         for i, (o, n) in enumerate(zip(old, new)):
             _assert_keeps(o, n, f'{path}[{i}]', added)
     else:

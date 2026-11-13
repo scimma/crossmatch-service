@@ -1,6 +1,6 @@
 # LSST Alert Matching Service Architecture (ANTARES + Lasair + Pitt-Google + Babamul brokers × HATS catalogs)
 
-This document defines a Python-based service architecture that receives Rubin/LSST alerts from the **ANTARES**, **Lasair**, **Pitt-Google**, and **Babamul** brokers, matches them against multiple HATS catalogs using **LSDB** (Gaia DR3, DES Y6 Gold, DELVE DR3 Gold, and SkyMapper DR4 today — see §7.3 for the authoritative roster and asymmetry callout), and records results for eventual **feedback to LSST** (return mechanism TBD).
+This document defines a Python-based service architecture that receives Rubin/LSST alerts from the **ANTARES**, **Lasair**, **Pitt-Google**, and **Babamul** brokers, matches them against multiple HATS catalogs using **LSDB** (Gaia DR3, DES Y6 Gold, DELVE DR3 Gold, SkyMapper DR4, Euclid DR1 MER Deep, and Euclid DR1 MER Wide today — see §7.3 for the authoritative roster and asymmetry callout), and records results for eventual **feedback to LSST** (return mechanism TBD).
 
 It is an iteration of the original design, updated to:
 - Use **Celery** for work orchestration
@@ -127,7 +127,7 @@ Three independent ingest services consume from separate broker streams and write
 - Use LSDB to match alerts against all configured HATS catalogs via `lsdb.from_dataframe()` + `catalog.crossmatch()`. See §7.3 for the authoritative per-catalog roster.
 - LSDB operates on HATS-formatted (HEALPix-partitioned Parquet) catalogs and uses **Dask** under the hood for parallel, distributed computation. When `DASK_SCHEDULER_ADDRESS` is set, each worker connects to a remote Dask scheduler at startup via `dask.distributed.Client`, offloading computation to dedicated Dask workers. When unset, Dask runs locally within the Celery worker process using the default synchronous scheduler.
 - Catalogs are defined in a configurable registry (`CROSSMATCH_CATALOGS` in Django settings). Each entry specifies the catalog name, HATS URL, source ID column, RA/Dec column names, and `payload_columns` declaring the upstream-native columns to fetch and publish for that catalog (per-catalog config detail in §7.3).
-- Catalog HATS URLs come from per-catalog env vars (e.g., `GAIA_HATS_URL`, `DES_HATS_URL`, `DELVE_HATS_URL`, `SKYMAPPER_HATS_URL`); the Gaia DR3 default points at the public S3 bucket `s3://stpubdata/hats/gaia/dr3/` (no credentials required); the other defaults point at `https://data.lsdb.io/hats/...` mirrors. Authoritative per-catalog details live in §7.3.
+- Catalog HATS URLs come from per-catalog env vars (e.g., `GAIA_HATS_URL`, `DES_HATS_URL`, `DELVE_HATS_URL`, `SKYMAPPER_HATS_URL`, `EUCLID_DR1_MER_DEEP_HATS_URL`, `EUCLID_DR1_MER_WIDE_HATS_URL`); the Gaia DR3 default points at the public S3 bucket `s3://stpubdata/hats/gaia/dr3/` (no credentials required); the other defaults point at `https://data.lsdb.io/hats/...` mirrors. Authoritative per-catalog details live in §7.3.
 - Each catalog object is cached in a module-level dict (`_catalog_cache`) keyed by catalog name within each worker process (metadata only; lightweight).
 - Alert batches (up to 100k) are converted to an LSDB catalog via `from_dataframe()` with adaptive HEALPix partitioning, then crossmatched sequentially against each configured catalog. LSDB loads only the HATS partitions that overlap the alert positions.
 - Per-catalog error isolation: if crossmatching fails for one catalog, the remaining catalogs are still processed.
@@ -879,7 +879,7 @@ Alerts are processed in batches (up to 100k per batch). The crossmatch workflow 
 2. **Convert to LSDB catalog** via `lsdb.from_dataframe(df, ra_column=’ra_deg’, dec_column=’dec_deg’)`. This assigns adaptive HEALPix partitioning (orders 0-7) based on the alert sky positions. The LSDB alerts catalog is built once and reused for all reference catalogs.
 3. **Loop through configured catalogs** (`settings.CROSSMATCH_CATALOGS`). For each catalog:
    - Load/cache the HATS catalog via `lsdb.open_catalog()` with catalog-specific columns (source ID, RA, Dec).
-   - Crossmatch via `alerts_catalog.crossmatch(catalog, n_neighbors=1, radius_arcsec=CROSSMATCH_RADIUS_ARCSEC, suffixes=(‘_alert’, ‘_catalog’), suffix_method=’overlapping_columns’)`. LSDB only loads HATS partitions overlapping the alert positions.
+   - Crossmatch via `alerts_catalog.crossmatch(catalog, n_neighbors=<1, or max_matches + 1 for a match_mode 'all' catalog>, radius_arcsec=CROSSMATCH_RADIUS_ARCSEC, suffixes=(‘_alert’, ‘_catalog’), suffix_method=’overlapping_columns’)`. LSDB only loads HATS partitions overlapping the alert positions.
    - Compute results via `matches.compute()`, returning a pandas DataFrame with a `_dist_arcsec` column.
    - Write `CatalogMatch` and `Notification` rows for each match.
    - Per-catalog error isolation: if one catalog fails, remaining catalogs are still processed.
@@ -973,13 +973,17 @@ Current margin cache status (as of 2026-03-23):
 | DES Y6 Gold | Yes |
 | DELVE DR3 Gold | No |
 | SkyMapper DR4 | No |
+| Euclid DR1 MER Deep | Yes (10 arcsec) |
+| Euclid DR1 MER Wide | Yes (10 arcsec) |
 
 At a 1 arcsec crossmatch radius, the practical impact of missing margin caches is small — the fraction of sky area within 1 arcsec of a HEALPix tile boundary is tiny. The vast majority of matches are unaffected. This limitation is accepted for now. If the upstream HATS data providers add margin caches in the future, `open_catalog()` will pick them up automatically with no code changes needed.
 
-### 7.2 Match policy (initial)
-- Store the best match (nearest neighbor) within a configurable radius.
-- Config: `CROSSMATCH_RADIUS_ARCSEC` (default 1.0 arcsec; configurable via env var).
-- `n_neighbors=1` (hardcoded; add configurable setting only when a science use case emerges).
+### 7.2 Match policy
+- Config: `CROSSMATCH_RADIUS_ARCSEC` (default 1.0 arcsec; configurable via env var), shared by every catalog.
+- Each catalog's `match_mode` decides which sources within the radius are kept:
+  - `nearest` (the default): the single nearest source. Gaia, DES, DELVE and SkyMapper use it.
+  - `all`: every source within the radius, up to the catalog's `max_matches` per alert, nearest first. The Euclid catalogs use it (`max_matches` 10), because at Euclid's depth one Rubin source can line up with several Euclid sources. The crossmatch asks LSDB for `max_matches + 1` neighbors so a hit cap is logged (`crossmatch_match_cap_reached`).
+- Each kept source is its own `CatalogMatch` row and its own published message. The mode is recorded in each catalog's provenance entry and reported by `/api/describe`.
 - Tie-breaking: smallest separation (handled by LSDB's KDTreeCrossmatch).
 
 ### 7.3 Catalog Registry and Expansion
@@ -990,6 +994,7 @@ The system uses a configurable catalog registry (`CROSSMATCH_CATALOGS` in Django
 - **DES Y6 Gold** — accessed from `https://data.lsdb.io/hats/des/des_y6_gold` (source ID: `COADD_OBJECT_ID`, RA/Dec columns: `RA`/`DEC`)
 - **DELVE DR3 Gold** — accessed from `https://data.lsdb.io/hats/delve/delve_dr3_gold` (source ID: `COADD_OBJECT_ID`, RA/Dec columns: `RA`/`DEC`)
 - **SkyMapper DR4** — accessed from `https://data.lsdb.io/hats/skymapper_dr4/catalog` (source ID: `object_id`, RA/Dec columns: `raj2000`/`dej2000`)
+- **Euclid DR1 MER Deep** and **Euclid DR1 MER Wide** — IRSA's HATS collections `s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_deep_survey` and `.../mer_catalogue_wide_survey`, read anonymously (source ID: `object_id`, RA/Dec columns: `ra`/`dec`; `match_mode` `all`). Each can be left out on a cluster with `EUCLID_DR1_MER_DEEP_ENABLED` / `EUCLID_DR1_MER_WIDE_ENABLED=false`. They overlap around the Euclid Deep Fields, where the same galaxy can appear in both under different `object_id`s; both matches are published. LSDB matches on their partitioning columns `ra_from_object_id`/`dec_from_object_id`, which agree with the measured `ra`/`dec` to well under a milliarcsecond. Their HATS builds have no coverage map, so the footprint test uses one built from each catalog's order-6 skymap. Cite and acknowledge per the Euclid and IRSA guidelines.
 
 Each catalog entry specifies: `name`, `hats_url`, `source_id_column`, `ra_column`, `dec_column`, and `payload_columns`. The `payload_columns` list declares the upstream-native column names to fetch from the HATS catalog and publish (lowercased) in each match's `catalog_payload` — it is the single source of truth for what publishes for that catalog. See [`docs/solutions/conventions/catalog-specific-payload-columns.md`](docs/solutions/conventions/catalog-specific-payload-columns.md) for the full convention.
 
@@ -998,7 +1003,8 @@ Each catalog entry specifies: `name`, `hats_url`, `source_id_column`, `ra_column
 - **Case conventions:** Gaia DR3 and SkyMapper DR4 use lowercase column names upstream; DES Y6 Gold and DELVE DR3 Gold use UPPERCASE. SkyMapper additionally carries the J2000 suffix on its coordinates (`raj2000`/`dej2000`). The case rule is preserved end-to-end: `payload_columns` is declared in upstream-native case, and lowercasing happens only at publish time (so `WAVG_MAG_PSF_G` becomes `wavg_mag_psf_g`, but `raj2000` is preserved).
 - **Footprints:** Each catalog covers a different sky region. When a batch's alert positions miss a catalog's footprint, LSDB raises `RuntimeError("Catalogs do not overlap")` and the task loop logs it and continues — no-overlap is a normal outcome (e.g., DES Y6 Gold yields no matches for alerts outside its southern footprint).
 - **Available columns:** Gaia DR3 carries astrometric columns (parallax, proper motion) that DES/DELVE/SkyMapper lack; DES and DELVE carry shape (`BDF_*`) and photo-z (`DNF_*`) columns Gaia/SkyMapper lack; DELVE drops DES's `Y` band (4 bands instead of 5); SkyMapper DR4 exposes only PSF photometry across `u v g r i z`, no shape or photo-z. Per-catalog `payload_columns` reflects these differences directly — see `docs/references/<catalog>-columns.md` for authoritative per-catalog column lists.
-- **Margin caches:** Gaia DR3 and DES Y6 Gold ship margin caches; DELVE DR3 Gold and SkyMapper DR4 do not (see §7.1 *Margin Caches and Edge Effects* for the table and impact).
+- **Matching mode:** the Euclid catalogs keep every source within the radius (up to 10 per alert); the others keep only the nearest (see §7.2).
+- **Margin caches:** Gaia DR3, DES Y6 Gold and both Euclid catalogs ship margin caches; DELVE DR3 Gold and SkyMapper DR4 do not (see §7.1 *Margin Caches and Edge Effects* for the table and impact).
 
 For depth on the value-coercion at the publish boundary (numpy/pandas → JSON-native, missing-value handling), see [`docs/solutions/design-patterns/coerce-numpy-pandas-scalars-to-json.md`](docs/solutions/design-patterns/coerce-numpy-pandas-scalars-to-json.md).
 
@@ -1238,6 +1244,9 @@ Environment variables:
 - `DES_HATS_URL=https://data.lsdb.io/hats/des/des_y6_gold`
 - `DELVE_HATS_URL=https://data.lsdb.io/hats/delve/delve_dr3_gold`
 - `SKYMAPPER_HATS_URL=https://data.lsdb.io/hats/skymapper_dr4/catalog`
+- `EUCLID_DR1_MER_DEEP_HATS_URL=s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_deep_survey`
+- `EUCLID_DR1_MER_WIDE_HATS_URL=s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_wide_survey`
+- `EUCLID_DR1_MER_DEEP_ENABLED=true`, `EUCLID_DR1_MER_WIDE_ENABLED=true`
 - `CROSSMATCH_RADIUS_ARCSEC=1.0`
 
 **Dask cluster** (see §7.4)

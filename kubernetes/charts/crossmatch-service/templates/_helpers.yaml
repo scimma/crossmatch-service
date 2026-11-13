@@ -176,6 +176,14 @@
   value: {{ .Values.crossmatch.delve_hats_url | quote }}
 - name: SKYMAPPER_HATS_URL
   value: {{ .Values.crossmatch.skymapper_hats_url | quote }}
+- name: EUCLID_DR1_MER_DEEP_HATS_URL
+  value: {{ .Values.crossmatch.euclid_dr1_mer_deep_hats_url | quote }}
+- name: EUCLID_DR1_MER_WIDE_HATS_URL
+  value: {{ .Values.crossmatch.euclid_dr1_mer_wide_hats_url | quote }}
+- name: EUCLID_DR1_MER_DEEP_ENABLED
+  value: {{ .Values.crossmatch.euclid_dr1_mer_deep_enabled | quote }}
+- name: EUCLID_DR1_MER_WIDE_ENABLED
+  value: {{ .Values.crossmatch.euclid_dr1_mer_wide_enabled | quote }}
 - name: CROSSMATCH_RADIUS_ARCSEC
   value: {{ .Values.crossmatch.radius_arcsec | quote }}
 - name: CROSSMATCH_BATCH_MAX_WAIT_SECONDS

@@ -31,7 +31,10 @@ FIRST = Alert.EventTimeBasis.FIRST_DETECTION
 # The clock: 15:00Z on 2026-11-10, so the latest begun night is 2026-11-09.
 NOW = datetime(2026, 11, 10, 15, 0, tzinfo=UTC)
 NIGHT = date(2026, 11, 9)
-CATALOGS = ['gaia_dr3', 'des_y6_gold', 'delve_dr3_gold', 'skymapper_dr4']
+CATALOGS = [
+    'gaia_dr3', 'des_y6_gold', 'delve_dr3_gold', 'skymapper_dr4',
+    'euclid_dr1_mer_deep', 'euclid_dr1_mer_wide',
+]
 BUCKETS = [
     'coincident_sources',
     'searched_no_match',

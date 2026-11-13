@@ -263,3 +263,39 @@ def test_compare_command_writes_report(tmp_path):
     report = out.read_text()
     assert "catalog_payload.mag" in report
     assert "Comparability" in report
+
+
+def _all_mode(snapshot, catalog="cat_a"):
+    for cfg in snapshot["run_context"]["crossmatch"]["catalogs"]:
+        if cfg["name"] == catalog:
+            cfg["match_mode"] = "all"
+            cfg["max_matches"] = 10
+    return snapshot
+
+
+def test_all_mode_catalog_compares_every_source_of_an_object():
+    base = _all_mode(_snapshot([_match(1, source_id="a"), _match(1, source_id="b")]))
+    cand = _all_mode(_snapshot([_match(1, source_id="a")]))
+
+    result = compare_snapshots(base, cand)
+
+    assert result.matches_compared == 2
+    [group] = result.groups
+    assert group.kind == MATCH_ONLY_IN_BASELINE
+    assert group.count == 1
+
+
+def test_nearest_catalog_source_swap_still_reports_source_changed():
+    result = compare_snapshots(
+        _snapshot([_match(1)]), _snapshot([_match(1, source_id="src-2")])
+    )
+    assert [g.kind for g in result.groups] == [SOURCE_CHANGED]
+    assert result.matches_compared == 1
+
+
+def test_match_mode_difference_breaks_comparability():
+    base = _snapshot([_match(1)])
+    cand = _all_mode(copy.deepcopy(base))
+
+    flags = compare_snapshots(base, cand).flags
+    assert any("Catalog configuration differs" in flag for flag in flags)

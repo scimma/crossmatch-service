@@ -30,7 +30,7 @@ from api.views import _json_body
 from chat_mcp import limits, protocol
 from chat_mcp.projection import link_names, link_note, to_text
 from chat_mcp.protocol import RpcError
-from chat_mcp.tools import TOOLS, ToolArgumentError
+from chat_mcp.tools import TOOLS, ToolArgumentError, catalog_names_text
 from core import provenance
 from core.log import get_logger
 
@@ -44,8 +44,8 @@ def instructions() -> str:
     """The server instructions sent at ``initialize``."""
     return (
         'Answers questions about Rubin Observatory transients from the SCiMMA '
-        'crossmatch service: which Gaia DR3, DES Y6 Gold, DELVE DR3 Gold and '
-        'SkyMapper DR4 sources coincide with a transient, looked up by TNS name or '
+        f'crossmatch service: which {catalog_names_text()} sources coincide '
+        'with a transient, looked up by TNS name or '
         'diaObjectId (lookup_rubin_transients) or by sky position '
         '(search_rubin_transients_near_position). Use describe_crossmatch_service '
         'to explain coverage or why an object is absent. For how many objects '

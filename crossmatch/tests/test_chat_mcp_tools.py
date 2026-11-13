@@ -340,7 +340,8 @@ def test_summary_schema_enums_and_maximums_come_from_settings(client):
     assert schema['top_n']['maximum'] == 7
     assert schema['last_nights']['maximum'] == 12
     description = tools[SUMMARY_TOOL]['description']
-    for phrase in ('last_nights=7', 'gaia_dr3', 'skymapper_dr4',
+    for phrase in ('last_nights=7', 'gaia_dr3', 'skymapper_dr4', 'euclid_dr1_mer_deep',
+                   'euclid_dr1_mer_wide',
                    'Pitt-Google', 'lookup_rubin_transients', 'time zone'):
         assert phrase in description
 
@@ -458,3 +459,52 @@ def test_summary_call_logs_the_tool_counts_and_outcome(client, frozen_now):
     assert ok_line['truncated'] is False
     assert invalid_line['tool'] == SUMMARY_TOOL
     assert invalid_line['outcome'] == 'invalid_arguments'
+
+
+
+def test_instructions_and_lookup_tool_name_the_euclid_catalogs_and_duplicates():
+    from chat_mcp.tools import _lookup_description
+    from chat_mcp.views import instructions
+
+    for text in (instructions(), _lookup_description()):
+        assert 'Euclid DR1 MER Deep' in text
+        assert 'Euclid DR1 MER Wide' in text
+        assert 'both Euclid' in text
+
+
+@override_settings(CROSSMATCH_CATALOGS=[{
+    'name': 'gaia_dr3', 'release': 'Gaia DR3', 'match_mode': 'nearest',
+}])
+def test_catalog_text_follows_the_configured_catalogs():
+    from chat_mcp.tools import _lookup_description
+    from chat_mcp.views import instructions
+
+    for text in (instructions(), _lookup_description()):
+        assert 'Gaia DR3' in text
+        assert 'SkyMapper' not in text
+        assert 'Euclid' not in text
+
+
+_EUCLID_TEXT_BASE = {'match_mode': 'all', 'max_matches': 10}
+
+
+@override_settings(CROSSMATCH_CATALOGS=[
+    {'name': 'gaia_dr3', 'release': 'Gaia DR3', 'match_mode': 'nearest'},
+    {'name': 'euclid_dr1_mer_deep', 'release': 'Euclid DR1 MER Deep', **_EUCLID_TEXT_BASE},
+])
+def test_one_euclid_catalog_still_gets_the_several_sources_note():
+    from chat_mcp.tools import catalog_names_text
+
+    text = catalog_names_text()
+    assert 'Euclid DR1 MER Deep can list several coincident sources' in text
+    assert 'both Euclid' not in text
+
+
+@override_settings(CROSSMATCH_CATALOGS=[
+    {'name': 'gaia_dr3', 'release': 'Gaia DR3', 'match_mode': 'nearest'},
+    {'name': 'deep_cat', 'release': 'Deep Cat R1', **_EUCLID_TEXT_BASE},
+])
+def test_any_all_mode_catalog_gets_the_several_sources_note():
+    from chat_mcp.tools import catalog_names_text
+
+    assert 'Deep Cat R1 can list several coincident sources' in catalog_names_text()

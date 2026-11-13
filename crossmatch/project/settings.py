@@ -27,6 +27,15 @@ GAIA_HATS_URL = os.getenv('GAIA_HATS_URL', 's3://stpubdata/gaia/gaia_dr3/public/
 DES_HATS_URL = os.getenv('DES_HATS_URL', 's3://stpubdata/mast/public/des/hats/des_y6_gold')
 DELVE_HATS_URL = os.getenv('DELVE_HATS_URL', 's3://stpubdata/mast/public/delve/hats/delve_dr3_gold')
 SKYMAPPER_HATS_URL = os.getenv('SKYMAPPER_HATS_URL', 'https://data.lsdb.io/hats/skymapper_dr4/catalog')
+# Euclid DR1 MER object catalogues, HATS collections published by IRSA.
+EUCLID_DR1_MER_DEEP_HATS_URL = os.getenv(
+    'EUCLID_DR1_MER_DEEP_HATS_URL',
+    's3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_deep_survey',
+)
+EUCLID_DR1_MER_WIDE_HATS_URL = os.getenv(
+    'EUCLID_DR1_MER_WIDE_HATS_URL',
+    's3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_wide_survey',
+)
 # Catalog release labels reported as provenance (KTD7). Configured labels, not
 # read from the HATS build, so the web tier and API never open LSDB to report
 # them. Change a label together with its HATS URL when a new release is served.
@@ -34,6 +43,37 @@ GAIA_RELEASE = os.getenv('GAIA_RELEASE', 'Gaia DR3')
 DES_RELEASE = os.getenv('DES_RELEASE', 'DES Y6 Gold')
 DELVE_RELEASE = os.getenv('DELVE_RELEASE', 'DELVE DR3 Gold')
 SKYMAPPER_RELEASE = os.getenv('SKYMAPPER_RELEASE', 'SkyMapper DR4')
+EUCLID_DR1_MER_DEEP_RELEASE = os.getenv('EUCLID_DR1_MER_DEEP_RELEASE', 'Euclid DR1 MER Deep')
+EUCLID_DR1_MER_WIDE_RELEASE = os.getenv('EUCLID_DR1_MER_WIDE_RELEASE', 'Euclid DR1 MER Wide')
+
+
+def _env_enabled(name):
+    """Read an on/off switch that defaults to on.
+
+    Args:
+        name: The environment variable.
+
+    Returns:
+        ``True`` when unset or set to true/1/yes, ``False`` for false/0/no
+        (case-insensitive).
+
+    Raises:
+        ImproperlyConfigured: For any other value.
+    """
+    raw = os.getenv(name, 'true').strip().lower()
+    if raw in ('true', '1', 'yes'):
+        return True
+    if raw in ('false', '0', 'no'):
+        return False
+    raise ImproperlyConfigured(f'{name} must be true or false (got {raw!r})')
+
+
+# Per-catalog switches for the Euclid catalogs, so a cluster can drop one
+# (for example Wide, whose large partitions dominate read time) without a new
+# image. A disabled catalog is left out of CROSSMATCH_CATALOGS entirely, so
+# matching, provenance, /api/describe, chat and the web page all omit it.
+EUCLID_DR1_MER_DEEP_ENABLED = _env_enabled('EUCLID_DR1_MER_DEEP_ENABLED')
+EUCLID_DR1_MER_WIDE_ENABLED = _env_enabled('EUCLID_DR1_MER_WIDE_ENABLED')
 
 
 def _env_moc_order(name, default):
@@ -75,6 +115,12 @@ GAIA_FOOTPRINT_MOC_ORDER = _env_moc_order('GAIA_FOOTPRINT_MOC_ORDER', 8)
 DES_FOOTPRINT_MOC_ORDER = _env_moc_order('DES_FOOTPRINT_MOC_ORDER', 6)
 DELVE_FOOTPRINT_MOC_ORDER = _env_moc_order('DELVE_FOOTPRINT_MOC_ORDER', 10)
 SKYMAPPER_FOOTPRINT_MOC_ORDER = _env_moc_order('SKYMAPPER_FOOTPRINT_MOC_ORDER', 8)
+EUCLID_DR1_MER_DEEP_FOOTPRINT_MOC_ORDER = _env_moc_order(
+    'EUCLID_DR1_MER_DEEP_FOOTPRINT_MOC_ORDER', 6
+)
+EUCLID_DR1_MER_WIDE_FOOTPRINT_MOC_ORDER = _env_moc_order(
+    'EUCLID_DR1_MER_WIDE_FOOTPRINT_MOC_ORDER', 6
+)
 CROSSMATCH_RADIUS_ARCSEC = float(os.getenv('CROSSMATCH_RADIUS_ARCSEC', '1.0'))
 
 CROSSMATCH_CATALOGS = [
@@ -239,6 +285,73 @@ CROSSMATCH_CATALOGS = [
     },
 ]
 
+# Euclid DR1 MER: one Rubin source can line up with several Euclid sources at
+# Euclid's depth, so both catalogs keep every source within the radius (up to
+# max_matches per object) rather than only the nearest. Deep and Wide overlap
+# around the Euclid Deep Fields, where the same galaxy can appear in both under
+# different object_ids; both matches are published.
+#
+# The HATS partitioning columns (ra_from_object_id / dec_from_object_id), which
+# LSDB matches on, agree with the measured ra/dec to well under a milliarcsecond,
+# so matching on them is matching on the measured position; ra/dec are what is
+# stored and published.
+_EUCLID_MER_PAYLOAD_COLUMNS = [
+    # location (measured source barycenter)
+    'ra', 'dec',
+    # brightness (uJy): VIS PSF fit, Y/J/H template fit
+    'flux_vis_psf', 'fluxerr_vis_psf',
+    'flux_y_templfit', 'fluxerr_y_templfit',
+    'flux_j_templfit', 'fluxerr_j_templfit',
+    'flux_h_templfit', 'fluxerr_h_templfit',
+    # classification; point_like_flag is 1 for point-like VIS detections and
+    # null otherwise (it is never 0)
+    'point_like_prob', 'point_like_flag', 'spurious_prob', 'spurious_flag',
+    # quality
+    'det_quality_flag',
+    # shape: ellipticity, kron_radius (pixels), fwhm (arcsec), mu_max (mag/arcsec2)
+    'ellipticity', 'kron_radius', 'fwhm', 'mu_max',
+    # spectroscopy: 1 when Euclid has a combined 1-D spectrum
+    'has_spectrum',
+]
+_EUCLID_CREDIT = {
+    'text': (
+        'Euclid DR1 MER catalogue (ESA, Euclid Consortium), HATS copy published '
+        'by the NASA/IPAC Infrared Science Archive (IRSA). Cite and acknowledge '
+        'per the Euclid and IRSA guidelines.'
+    ),
+    'url': 'https://www.cosmos.esa.int/web/euclid/euclid-doi-overview-page',
+}
+for _enabled, _name, _url, _release, _order in (
+    (
+        EUCLID_DR1_MER_DEEP_ENABLED, 'euclid_dr1_mer_deep',
+        EUCLID_DR1_MER_DEEP_HATS_URL, EUCLID_DR1_MER_DEEP_RELEASE,
+        EUCLID_DR1_MER_DEEP_FOOTPRINT_MOC_ORDER,
+    ),
+    (
+        EUCLID_DR1_MER_WIDE_ENABLED, 'euclid_dr1_mer_wide',
+        EUCLID_DR1_MER_WIDE_HATS_URL, EUCLID_DR1_MER_WIDE_RELEASE,
+        EUCLID_DR1_MER_WIDE_FOOTPRINT_MOC_ORDER,
+    ),
+):
+    if not _enabled:
+        continue
+    CROSSMATCH_CATALOGS.append({
+        'name': _name,
+        'hats_url': _url,
+        'release': _release,
+        'footprint_moc_order': _order,
+        'source_id_column': 'object_id',
+        'ra_column': 'ra',
+        'dec_column': 'dec',
+        'match_mode': 'all',
+        'max_matches': 10,
+        'payload_columns': list(_EUCLID_MER_PAYLOAD_COLUMNS),
+        # Key values for the chat connector (see gaia_dr3).
+        'key_columns': ['flux_vis_psf', 'point_like_prob', 'has_spectrum'],
+        'filter_columns': {},
+        'credit': dict(_EUCLID_CREDIT),
+    })
+
 
 def _validate_catalog_releases(catalogs):
     """Require a non-empty ``release`` label on every catalog entry (KTD7).
@@ -371,6 +484,55 @@ def _validate_key_columns(catalogs):
 
 
 _validate_key_columns(CROSSMATCH_CATALOGS)
+
+MATCH_MODES = ('nearest', 'all')
+
+
+def _validate_match_modes(catalogs):
+    """Require a valid matching mode, and a cap for all-within-radius catalogs.
+
+    ``match_mode`` is optional and defaults to ``'nearest'`` (keep the single
+    nearest source within the radius). ``'all'`` keeps every source within
+    the radius up to ``max_matches`` per alert, which it then requires.
+
+    Args:
+        catalogs: The ``CROSSMATCH_CATALOGS`` list.
+
+    Raises:
+        ImproperlyConfigured: If ``match_mode`` is unknown, ``'all'`` lacks an
+            int ``max_matches`` of at least 2, or ``max_matches`` is set on a
+            ``'nearest'`` catalog.
+    """
+    for cat in catalogs:
+        name = cat.get('name')
+        mode = cat.get('match_mode', 'nearest')
+        if mode not in MATCH_MODES:
+            raise ImproperlyConfigured(
+                f"CROSSMATCH_CATALOGS entry {name!r}: match_mode must be one of "
+                f"{MATCH_MODES} (got {mode!r})"
+            )
+        max_matches = cat.get('max_matches')
+        if mode == 'nearest':
+            if max_matches is not None:
+                raise ImproperlyConfigured(
+                    f"CROSSMATCH_CATALOGS entry {name!r}: max_matches applies "
+                    f"only to match_mode 'all'"
+                )
+            continue
+        if (
+            isinstance(max_matches, bool)
+            or not isinstance(max_matches, int)
+            or max_matches < 2
+        ):
+            raise ImproperlyConfigured(
+                f"CROSSMATCH_CATALOGS entry {name!r}: match_mode 'all' needs an "
+                f"int max_matches of at least 2 (got {max_matches!r})"
+            )
+
+
+_validate_match_modes(CROSSMATCH_CATALOGS)
+for _cat in CROSSMATCH_CATALOGS:
+    _cat.setdefault('match_mode', 'nearest')
 
 # Batch crossmatch thresholds
 CROSSMATCH_BATCH_MAX_WAIT_SECONDS = int(

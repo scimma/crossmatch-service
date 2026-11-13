@@ -35,6 +35,8 @@ DEFAULT_ORDERS = {
     'des_y6_gold': 6,
     'delve_dr3_gold': 10,
     'skymapper_dr4': 8,
+    'euclid_dr1_mer_deep': 6,
+    'euclid_dr1_mer_wide': 6,
 }
 
 
@@ -139,7 +141,9 @@ def test_limits_and_radii_follow_live_settings(client, openapi_validate):
         'max_summary_nights': 9,
     }
     assert body['crossmatch']['radius_arcsec'] == 1.5
-    assert body['crossmatch']['nearest_source_per_catalog'] is True
+    assert body['crossmatch']['nearest_source_per_catalog'] is (
+        all(c['match_mode'] == 'nearest' for c in settings.CROSSMATCH_CATALOGS)
+    )
     assert 'nearest' in body['crossmatch']['description']
     assert body['tns'] == {'default_radius_arcsec': 3.0, 'max_radius_arcsec': 12.5}
     assert body['provenance']['crossmatch_radius_arcsec'] == 1.5
@@ -183,6 +187,8 @@ def test_catalog_added_by_override_is_described(client, openapi_validate):
     assert entry['catalog_source_id']['column'] == 'objid'
     assert 'objid' in entry['catalog_source_id']['description']
     assert entry['coverage_map']['footprint_moc_order'] is None
+    assert entry['match_mode'] == 'nearest'
+    assert entry['max_matches'] is None
     assert entry['coverage_map']['resolution_arcmin'] is None
     assert entry['filterable_fields'][0]['unit'] == 'mag'
 
@@ -269,9 +275,12 @@ def _import_settings(**env):
 
 
 def test_footprint_order_is_env_overridable():
-    result = _import_settings(DES_FOOTPRINT_MOC_ORDER='7', SKYMAPPER_FOOTPRINT_MOC_ORDER='')
+    result = _import_settings(
+        DES_FOOTPRINT_MOC_ORDER='7', SKYMAPPER_FOOTPRINT_MOC_ORDER='',
+        EUCLID_DR1_MER_WIDE_FOOTPRINT_MOC_ORDER='9',
+    )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == '[8, 7, 10, null]'
+    assert result.stdout.strip() == '[8, 7, 10, null, 6, 9]'
 
 
 @pytest.mark.parametrize('raw', ['30', '-1', 'eight'])
@@ -280,3 +289,36 @@ def test_invalid_footprint_order_raises_at_import(raw):
     assert result.returncode != 0
     assert 'ImproperlyConfigured' in result.stderr
     assert 'GAIA_FOOTPRINT_MOC_ORDER' in result.stderr or 'gaia_dr3' in result.stderr
+
+
+def test_all_mode_catalog_is_described_with_its_cap(client, openapi_validate):
+    base = {
+        'hats_url': 's3://nowhere',
+        'source_id_column': 'objid',
+        'ra_column': 'ra',
+        'dec_column': 'dec',
+        'payload_columns': ['ra', 'dec'],
+    }
+    catalogs = [
+        {**base, 'name': 'near', 'release': 'Near R1'},
+        {**base, 'name': 'deep', 'release': 'Deep R1', 'match_mode': 'all',
+         'max_matches': 10},
+    ]
+    with override_settings(CROSSMATCH_CATALOGS=catalogs):
+        body = client.get(DESCRIBE).json()
+        openapi_validate('describe_service', 200, body)
+
+    modes = {c['name']: (c['match_mode'], c['max_matches']) for c in body['catalogs']}
+    assert modes == {'near': ('nearest', None), 'deep': ('all', 10)}
+    assert body['crossmatch']['nearest_source_per_catalog'] is False
+
+
+def test_only_nearest_catalogs_report_nearest_source_per_catalog(client):
+    nearest = [{
+        'name': 'near', 'release': 'Near R1', 'hats_url': 's3://nowhere',
+        'source_id_column': 'objid', 'ra_column': 'ra', 'dec_column': 'dec',
+        'payload_columns': ['ra', 'dec'],
+    }]
+    with override_settings(CROSSMATCH_CATALOGS=nearest):
+        body = client.get(DESCRIBE).json()
+    assert body['crossmatch']['nearest_source_per_catalog'] is True
