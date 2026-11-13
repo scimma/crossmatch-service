@@ -14,6 +14,8 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-13
+
 ### Added
 
 - Alerts are crossmatched against Euclid DR1 MER Deep and Euclid DR1 MER Wide (`euclid_dr1_mer_deep`, `euclid_dr1_mer_wide`), read anonymously from IRSA's public HATS collections on S3. Each match carries VIS and Y/J/H fluxes (uJy), point-like and spurious classification, quality flags, shape (`ellipticity`, `kron_radius`, `fwhm`, `mu_max`) and `has_spectrum`, at the measured `ra`/`dec`. Where the two overlap, around the Euclid Deep Fields, the same galaxy can be matched in both under different `object_id`s.
@@ -302,7 +304,8 @@ Initial release of the crossmatch service.
 - Postgres init race condition on startup.
 - diaSourceId reliability filtering.
 
-[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/scimma/crossmatch-service/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/scimma/crossmatch-service/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/scimma/crossmatch-service/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/scimma/crossmatch-service/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/scimma/crossmatch-service/compare/v0.16.1...v0.16.2
