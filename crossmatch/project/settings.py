@@ -26,7 +26,7 @@ DASK_VERSION_CHECK_TIMEOUT_SECONDS = int(os.getenv('DASK_VERSION_CHECK_TIMEOUT_S
 GAIA_HATS_URL = os.getenv('GAIA_HATS_URL', 's3://stpubdata/gaia/gaia_dr3/public/hats')
 DES_HATS_URL = os.getenv('DES_HATS_URL', 's3://stpubdata/mast/public/des/hats/des_y6_gold')
 DELVE_HATS_URL = os.getenv('DELVE_HATS_URL', 's3://stpubdata/mast/public/delve/hats/delve_dr3_gold')
-SKYMAPPER_HATS_URL = os.getenv('SKYMAPPER_HATS_URL', 'https://data.lsdb.io/hats/skymapper_dr4/catalog')
+SKYMAPPER_HATS_URL = os.getenv('SKYMAPPER_HATS_URL', 'https://data.lsdb.io/hats/skymapper_dr4')
 # Euclid DR1 MER object catalogues, HATS collections published by IRSA.
 EUCLID_DR1_MER_DEEP_HATS_URL = os.getenv(
     'EUCLID_DR1_MER_DEEP_HATS_URL',

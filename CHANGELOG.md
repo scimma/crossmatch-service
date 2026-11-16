@@ -14,6 +14,10 @@ and this project (mostly) adheres to [Semantic Versioning](https://semver.org/sp
 
 ## [Unreleased]
 
+### Fixed
+
+- SkyMapper DR4 is read from `https://data.lsdb.io/hats/skymapper_dr4` by default. On 2026-10-27 data.lsdb.io rebuilt SkyMapper DR4 as a HATS collection, and the old `.../skymapper_dr4/catalog` URL now returns 404, so every crossmatch batch since then skipped SkyMapper as a transient read failure. SkyMapper matches from the collection are identical to those published before (same `object_id`, payload values and separation), and the release label stays `SkyMapper DR4`. The collection loads a 5 arcsec margin, which the old catalog URL did not, so an alert near a partition edge can now get a SkyMapper match it would previously have missed. A local `docker/.env` that sets `SKYMAPPER_HATS_URL` to the old URL needs updating; DEV and PROD take the URL from gitops.
+
 ## [0.19.0] - 2026-11-13
 
 ### Added

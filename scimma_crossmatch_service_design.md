@@ -993,7 +993,7 @@ The system uses a configurable catalog registry (`CROSSMATCH_CATALOGS` in Django
 - **Gaia DR3** — accessed from `s3://stpubdata/gaia/gaia_dr3/public/hats` (source ID: `source_id`, RA/Dec columns: `ra`/`dec`)
 - **DES Y6 Gold** — accessed from `https://data.lsdb.io/hats/des/des_y6_gold` (source ID: `COADD_OBJECT_ID`, RA/Dec columns: `RA`/`DEC`)
 - **DELVE DR3 Gold** — accessed from `https://data.lsdb.io/hats/delve/delve_dr3_gold` (source ID: `COADD_OBJECT_ID`, RA/Dec columns: `RA`/`DEC`)
-- **SkyMapper DR4** — accessed from `https://data.lsdb.io/hats/skymapper_dr4/catalog` (source ID: `object_id`, RA/Dec columns: `raj2000`/`dej2000`)
+- **SkyMapper DR4** — accessed from `https://data.lsdb.io/hats/skymapper_dr4` (source ID: `object_id`, RA/Dec columns: `raj2000`/`dej2000`)
 - **Euclid DR1 MER Deep** and **Euclid DR1 MER Wide** — IRSA's HATS collections `s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_deep_survey` and `.../mer_catalogue_wide_survey`, read anonymously (source ID: `object_id`, RA/Dec columns: `ra`/`dec`; `match_mode` `all`). Each can be left out on a cluster with `EUCLID_DR1_MER_DEEP_ENABLED` / `EUCLID_DR1_MER_WIDE_ENABLED=false`. They overlap around the Euclid Deep Fields, where the same galaxy can appear in both under different `object_id`s; both matches are published. LSDB matches on their partitioning columns `ra_from_object_id`/`dec_from_object_id`, which agree with the measured `ra`/`dec` to well under a milliarcsecond. Their HATS builds have no coverage map, so the footprint test uses one built from each catalog's order-6 skymap. Cite and acknowledge per the Euclid and IRSA guidelines.
 
 Each catalog entry specifies: `name`, `hats_url`, `source_id_column`, `ra_column`, `dec_column`, and `payload_columns`. The `payload_columns` list declares the upstream-native column names to fetch from the HATS catalog and publish (lowercased) in each match's `catalog_payload` — it is the single source of truth for what publishes for that catalog. See [`docs/solutions/conventions/catalog-specific-payload-columns.md`](docs/solutions/conventions/catalog-specific-payload-columns.md) for the full convention.
@@ -1243,7 +1243,7 @@ Environment variables:
 - `GAIA_HATS_URL=s3://stpubdata/gaia/gaia_dr3/public/hats`
 - `DES_HATS_URL=https://data.lsdb.io/hats/des/des_y6_gold`
 - `DELVE_HATS_URL=https://data.lsdb.io/hats/delve/delve_dr3_gold`
-- `SKYMAPPER_HATS_URL=https://data.lsdb.io/hats/skymapper_dr4/catalog`
+- `SKYMAPPER_HATS_URL=https://data.lsdb.io/hats/skymapper_dr4`
 - `EUCLID_DR1_MER_DEEP_HATS_URL=s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_deep_survey`
 - `EUCLID_DR1_MER_WIDE_HATS_URL=s3://nasa-irsa-euclid-dr1/contributed/dr1/hats/reformatted_catalogs/mer_catalogue_wide_survey`
 - `EUCLID_DR1_MER_DEEP_ENABLED=true`, `EUCLID_DR1_MER_WIDE_ENABLED=true`
