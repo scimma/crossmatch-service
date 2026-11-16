@@ -51,6 +51,54 @@ def test_valid_columns_returns_catalog(monkeypatch):
     assert _get_catalog(_cfg(["mag"])) is cat
 
 
+def test_skip_point_map_opens_without_reading_the_point_map(monkeypatch):
+    """A skip_point_map catalog is read with read_moc=False, for both the schema
+    check and the real open, and never through lsdb.open_catalog."""
+    hc_reads = []
+    opened = []
+    cat = MagicMock()
+    cat.columns = ["source_id", "ra", "dec", "mag"]
+
+    def fake_read_hats(url, **kwargs):
+        hc_reads.append((url, kwargs))
+        return f"hc:{url}"
+
+    def fake_read_dataset(hc_catalog, *, columns):
+        opened.append((hc_catalog, columns))
+        return cat
+
+    def no_open_catalog(*a, **k):
+        raise AssertionError("lsdb.open_catalog would read point_map.fits")
+
+    monkeypatch.setattr(catalog_mod.hats, "read_hats", fake_read_hats)
+    monkeypatch.setattr(catalog_mod, "_read_dataset", fake_read_dataset)
+    monkeypatch.setattr(catalog_mod.lsdb, "open_catalog", no_open_catalog)
+
+    assert _get_catalog({**_cfg(["mag"]), "skip_point_map": True}) is cat
+    assert hc_reads == [("x", {"read_moc": False})] * 2
+    assert opened == [("hc:x", "all"), ("hc:x", ["source_id", "ra", "dec", "mag"])]
+
+
+def test_lsdb_still_offers_the_dataset_reader_skip_point_map_relies_on():
+    """_open_catalog calls lsdb's private _read_dataset; fail on an lsdb upgrade
+    that renames it or drops its columns keyword, not at the first batch."""
+    import inspect
+
+    from lsdb.loaders.hats import read_hats
+
+    params = inspect.signature(read_hats._read_dataset).parameters
+    assert "columns" in params
+    assert params["columns"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_skymapper_skips_its_point_map_and_declares_the_skymap_order():
+    """SkyMapper's coverage comes from its order-6 skymap, so the declared
+    footprint order must not claim finer resolution than that."""
+    sm = next(c for c in settings.CROSSMATCH_CATALOGS if c["name"] == "skymapper_dr4")
+    assert sm["skip_point_map"] is True
+    assert sm["footprint_moc_order"] == 6
+
+
 # --- filter_columns (U6, KTD9 step 1) -----------------------------------------
 
 import os

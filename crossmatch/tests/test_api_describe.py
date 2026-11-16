@@ -34,7 +34,7 @@ DEFAULT_ORDERS = {
     'gaia_dr3': 8,
     'des_y6_gold': 6,
     'delve_dr3_gold': 10,
-    'skymapper_dr4': 8,
+    'skymapper_dr4': 6,
     'euclid_dr1_mer_deep': 6,
     'euclid_dr1_mer_wide': 6,
 }
@@ -85,7 +85,7 @@ def test_coverage_resolution_matches_the_healpix_order(client):
     assert resolutions['gaia_dr3'] == pytest.approx(13.7, abs=0.1)
     assert resolutions['des_y6_gold'] == pytest.approx(55.0, abs=0.1)
     assert resolutions['delve_dr3_gold'] == pytest.approx(3.4, abs=0.1)
-    assert resolutions['skymapper_dr4'] == pytest.approx(13.7, abs=0.1)
+    assert resolutions['skymapper_dr4'] == pytest.approx(55.0, abs=0.1)
 
 
 def test_filterable_fields_carry_units_and_parameter_names(client):
