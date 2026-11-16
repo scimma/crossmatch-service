@@ -2,11 +2,13 @@
 
 import time
 
+import hats
 import lsdb
 import numpy as np
 import pandas as pd
 from celery.exceptions import SoftTimeLimitExceeded
 from hats.io.skymap import read_skymap
+from lsdb.loaders.hats.read_hats import _read_dataset
 from mocpy import MOC
 from django.conf import settings
 from core.log import get_logger
@@ -143,6 +145,31 @@ def _load_columns(catalog_config):
     ]))
 
 
+def _open_catalog(catalog_config, columns):
+    """Open a configured catalog's HATS data with LSDB.
+
+    hats builds a catalog's coverage map (moc) from its ``point_map.fits`` when
+    the catalog is opened. A catalog configured with ``skip_point_map`` is opened
+    without reading that file; ``catalog_moc`` then falls back to the catalog's
+    skymap. SkyMapper DR4's point map is a 1.6 GB HEALPix order-12 image, and
+    decoding it takes about 6 GB of memory, more than a Celery worker is given.
+
+    ``lsdb.open_catalog`` offers no way to skip the point map, so this does what
+    it does (``hats.read_hats`` then ``_read_dataset``) with ``read_moc=False``.
+
+    Args:
+        catalog_config: The catalog's ``CROSSMATCH_CATALOGS`` entry.
+        columns: The columns to load, or ``"all"``.
+
+    Returns:
+        The opened LSDB catalog.
+    """
+    url = catalog_config['hats_url']
+    if not catalog_config.get('skip_point_map'):
+        return lsdb.open_catalog(url, columns=columns)
+    return _read_dataset(hats.read_hats(url, read_moc=False), columns=columns)
+
+
 def _get_catalog(catalog_config):
     """Return cached LSDB catalog, loading on first call.
 
@@ -168,7 +195,7 @@ def _get_catalog(catalog_config):
 
         # open_catalog with no `columns` loads only the catalog's *default*
         # columns, so introspect the full schema with columns="all".
-        available = set(lsdb.open_catalog(url, columns="all").columns)
+        available = set(_open_catalog(catalog_config, "all").columns)
         missing = [c for c in requested if c not in available]
         if missing:
             raise ValueError(
@@ -179,7 +206,7 @@ def _get_catalog(catalog_config):
 
         logger.info('Loading HATS catalog',
                     catalog=name, url=url, columns=len(requested))
-        _catalog_cache[name] = lsdb.open_catalog(url, columns=requested)
+        _catalog_cache[name] = _open_catalog(catalog_config, requested)
     return _catalog_cache[name]
 
 
@@ -206,7 +233,8 @@ def catalog_moc(catalog_config):
 
     Reads ``hc_structure.moc`` from the process-cached LSDB catalog, so after the
     catalog's first read this costs no I/O. A catalog built without a coverage
-    map (IRSA's Euclid HATS builds) falls back to the populated pixels of its
+    map (IRSA's Euclid HATS builds, or one opened with ``skip_point_map``, such
+    as SkyMapper DR4) falls back to the populated pixels of its
     HATS skymap, at the skymap's order, built once per process. Runs in the Celery process, not on the
     Dask cluster.
 

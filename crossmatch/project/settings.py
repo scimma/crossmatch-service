@@ -114,7 +114,7 @@ def _env_moc_order(name, default):
 GAIA_FOOTPRINT_MOC_ORDER = _env_moc_order('GAIA_FOOTPRINT_MOC_ORDER', 8)
 DES_FOOTPRINT_MOC_ORDER = _env_moc_order('DES_FOOTPRINT_MOC_ORDER', 6)
 DELVE_FOOTPRINT_MOC_ORDER = _env_moc_order('DELVE_FOOTPRINT_MOC_ORDER', 10)
-SKYMAPPER_FOOTPRINT_MOC_ORDER = _env_moc_order('SKYMAPPER_FOOTPRINT_MOC_ORDER', 8)
+SKYMAPPER_FOOTPRINT_MOC_ORDER = _env_moc_order('SKYMAPPER_FOOTPRINT_MOC_ORDER', 6)
 EUCLID_DR1_MER_DEEP_FOOTPRINT_MOC_ORDER = _env_moc_order(
     'EUCLID_DR1_MER_DEEP_FOOTPRINT_MOC_ORDER', 6
 )
@@ -261,6 +261,10 @@ CROSSMATCH_CATALOGS = [
         'hats_url': SKYMAPPER_HATS_URL,
         'release': SKYMAPPER_RELEASE,
         'footprint_moc_order': SKYMAPPER_FOOTPRINT_MOC_ORDER,
+        # The collection's point_map.fits (HEALPix order 12, 1.6 GB) needs about
+        # 6 GB to decode; open without it and take coverage from the order-6
+        # skymap instead (see matching.catalog._open_catalog).
+        'skip_point_map': True,
         'source_id_column': 'object_id',
         'ra_column': 'raj2000',
         'dec_column': 'dej2000',
